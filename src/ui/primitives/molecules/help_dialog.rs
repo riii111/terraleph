@@ -132,20 +132,18 @@ pub(crate) fn render(
             .scroll((row, column)),
         content,
     );
-    if content.height > 0 {
-        scrollbar::render_vertical(
-            frame,
-            Rect::new(
-                content.right().saturating_add(1),
-                content.y,
-                1,
-                content.height,
-            ),
-            total_rows,
-            usize::from(content.height),
-            usize::from(row),
-        );
-    }
+    scrollbar::render_vertical(
+        frame,
+        Rect::new(
+            content.right().saturating_add(1),
+            content.y,
+            1,
+            content.height,
+        ),
+        total_rows,
+        usize::from(content.height),
+        usize::from(row),
+    );
     if overflows {
         scrollbar::render_horizontal(
             frame,
