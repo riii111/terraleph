@@ -19,6 +19,24 @@ Review familiar plan output and apply the exact plan you reviewed. The UI appear
 - **Apply progress**: Resource status and logs
 - **Clipboard**: Copy the full plan or apply results
 
+## Installation
+
+```sh
+# Homebrew
+brew install riii111/tap/terraleph
+
+# mise
+mise use -g github:riii111/terraleph
+
+# Cargo
+cargo install --locked --git https://github.com/riii111/terraleph
+
+# Nix
+nix run github:riii111/terraleph
+```
+
+Prebuilt binaries are also available on the [Releases](https://github.com/riii111/terraleph/releases) page.
+
 ## Usage
 
 Run in an interactive terminal with Terraform or OpenTofu initialized and credentials configured.

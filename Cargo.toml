@@ -3,7 +3,7 @@ name = "terraleph"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
-description = "Review Terraform plans in an interactive terminal"
+description = "Review and apply Terraform or OpenTofu plans in your terminal"
 repository = "https://github.com/riii111/terraleph"
 publish = false
 
