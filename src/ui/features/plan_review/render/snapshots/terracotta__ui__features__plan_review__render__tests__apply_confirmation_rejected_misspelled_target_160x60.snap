@@ -39,8 +39,8 @@ Warning: Value for "pending" is not know│   terraform_data.old                
 Plan: 2 to add, 1 to change, 2 to destro│   terraform_data.worker                                                      │
                                         │                                                                              │
 Synthetic review text continues below so│ To confirm, type "main" below.                                               │
-The same long body is intentionally reus│ > |                                                                          │
-No Terraform process, provider, state fi│                                                                              │
+The same long body is intentionally reus│ > mian|                                                                      │
+No Terraform process, provider, state fi│ Does not match "main".                                                       │
 The review surface preserves Terraform o└──────────────────────────────────────────────────────────────────────────────┘
 Long lines remain unwrapped in the plan Enter apply | Esc back | ? helpes the hidden suffix.
 Vertical movement exposes later lines in this synthetic plan body.

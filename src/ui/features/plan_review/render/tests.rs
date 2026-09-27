@@ -833,6 +833,89 @@ fn renders_apply_confirmation_at_all_supported_sizes() {
     }
 }
 
+#[test]
+fn renders_rejected_apply_confirmation_vrt() {
+    struct RejectedCase {
+        name: &'static str,
+        input: &'static str,
+        message: &'static str,
+    }
+
+    for case in [
+        RejectedCase {
+            name: "yes_instead_of_target",
+            input: "yes",
+            message: "Type \"main\", not \"yes\".",
+        },
+        RejectedCase {
+            name: "misspelled_target",
+            input: "mian",
+            message: "Does not match \"main\".",
+        },
+    ] {
+        for &(width, height) in &SIZES {
+            let state = confirmation_state(review());
+            let mut view = ApplyConfirmationViewState::default();
+            for character in case.input.chars() {
+                view.apply(ApplyConfirmationInput::Character(character), "main", 0);
+            }
+            view.apply(ApplyConfirmationInput::Confirm, "main", 0);
+            let buffer = render_to_buffer((width, height), |frame| {
+                render_apply_confirmation(frame, &state, &view);
+            });
+
+            assert!(
+                buffer_text(&buffer).contains(case.message),
+                "case: {}",
+                case.name
+            );
+            snapshot(
+                &format!("apply_confirmation_rejected_{}_{width}x{height}", case.name),
+                &buffer,
+            );
+        }
+    }
+}
+
+#[test]
+fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
+    let state = confirmation_state(review());
+    let mut view = ApplyConfirmationViewState::default();
+    let footer_style = |view: &ApplyConfirmationViewState| {
+        let buffer = render_to_buffer((80, 24), |frame| {
+            render_apply_confirmation(frame, &state, view);
+        });
+        let hint = "Enter apply".chars().map(String::from).collect::<Vec<_>>();
+        (0..buffer.area().height)
+            .find_map(|y| {
+                let symbols = (0..buffer.area().width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .expect("footer cell")
+                            .symbol()
+                            .to_owned()
+                    })
+                    .collect::<Vec<_>>();
+                let x = symbols
+                    .windows(hint.len())
+                    .position(|window| window == hint)?;
+                let x = u16::try_from(x).expect("hint column");
+                Some(buffer.cell((x, y)).expect("hint cell").fg)
+            })
+            .expect("apply hint")
+    };
+
+    let disabled = footer_style(&view);
+    for character in "main".chars() {
+        view.apply(ApplyConfirmationInput::Character(character), "main", 0);
+    }
+    let enabled = footer_style(&view);
+
+    assert_eq!(disabled, Color::Rgb(0x6c, 0x70, 0x78));
+    assert_eq!(enabled, Color::Rgb(0xe9, 0xdb, 0xdb));
+}
+
 fn review_with_content(line_count: u16, line_width: u16) -> PlanReview {
     let line = "x".repeat(usize::from(line_width));
     let text = (0..line_count)

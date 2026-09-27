@@ -1984,7 +1984,7 @@ mod tests {
 
             assert!(!dirty);
             let text = terminal_text(&terminal);
-            assert!(text.contains("Type yes to apply (exact match)."));
+            assert!(text.contains("To confirm, type \"yes\" below."));
             assert!(text.contains("│ > y|"), "{text}");
         }
 

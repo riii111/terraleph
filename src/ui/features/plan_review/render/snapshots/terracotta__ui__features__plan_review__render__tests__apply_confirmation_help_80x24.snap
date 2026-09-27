@@ -8,21 +8,21 @@ Cmain [PROD]  ws:default  terraform 1.9.0  ./environments/production/main
 ─┌───────────┌Apply help─────────────────────────────────────────┐────────────┐─
  │           │ Navigation                                        │            │▲
  │ Apply this│ ↑ / ↓ / PgUp / PgDn scroll confirmation           │            │┃
- │           │ ← / →               move in confirmation input    │            │┃
- │ Target: ma│ Home / End          move to input start or end    │            │┃
- │ Workspace:│                                                   │            │┃
- │ Directory:│ Input                                             │            │┃
- │ Tool: terr│ Type                enter the confirmation text   │            │┃
- │ Plan: +1 a│ Backspace           delete before the cursor      │            │┃
--│           │                                                   │            ││
- │ Destroy:  │ Context                                           │            ││
- │   terrafor│ Tab                 show execution context        │            ││
- │ Replace:  │                                                   │            ││
- │   terrafor│ Apply                                             │            ││
+ │ ! Warning:│ ← / →               move in confirmation input    │on.         │┃
+ │           │ Home / End          move to input start or end    │            │┃
+ │ Target: ma│                                                   │            │┃
+ │ Workspace:│ Input                                             │            │┃
+ │ Directory:│ Type                enter the confirmation text   │            │┃
+ │ Tool: terr│ Backspace           delete before the cursor      │            │┃
+-│ Plan: +1 a│                                                   │            ││
+ │           │ Context                                           │            ││
+ │ Destroy:  │ Tab                 show execution context        │            ││
+ │   terrafor│                                                   │            ││
+ │ Replace:  │ Apply                                             │            ││
  │           │ Enter               confirm apply                 │            ││
- │ Type main │ Esc                 return to plan review         │            ││
+ │ To confirm│ Esc                 return to plan review         │            ││
  │ > |       │ ?/Esc close                                       │            ││
  │           └───────────────────────────────────────────────────┘            ││
 ◀︎└────────────────────────────────────────────────────────────────────────────┘▶︎
-─Enter confirm | Esc back | ? help──────────────────────────────────────────────
+─Enter apply | Esc back | ? help────────────────────────────────────────────────
 s overview | / filter | a apply | ? help | q quit                      Line 3/43

@@ -29,8 +29,8 @@ Changes  +1 add  ~1 update  1 replace  -1 destroy
   + resource "terraf│   terraform_data.worker                                                      │                   ┃
       input = "new-v│                                                                              │                   ┃
       note  = "A del│ To confirm, type "main" below.                                               │                   ┃
-    }               │ > |                                                                          │                   ┃
-                    │                                                                              │                   ┃
+    }               │ > yes|                                                                       │                   ┃
+                    │ Type "main", not "yes".                                                      │                   ┃
 Changes to Outputs: └──────────────────────────────────────────────────────────────────────────────┘                   ┃
   + endpoint = (knowEnter apply | Esc back | ? help                                                                    ┃
   ~ summary  = "old summary" -> "new summary with a deliberately long value for review"                                ┃

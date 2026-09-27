@@ -8,6 +8,7 @@ pub(crate) struct ApplyConfirmationViewState {
     input: String,
     cursor: usize,
     scroll: u16,
+    rejected: bool,
     overlay: Option<ConfirmationOverlay>,
     overlay_scroll: DialogScroll,
 }
@@ -33,6 +34,7 @@ impl ApplyConfirmationViewState {
                     &self.input,
                     self.cursor + character.len_utf8(),
                 );
+                self.rejected = false;
                 None
             }
             ApplyConfirmationInput::Backspace => {
@@ -40,6 +42,7 @@ impl ApplyConfirmationViewState {
                     let previous = text_input::previous_grapheme_boundary(&self.input, self.cursor);
                     self.input.drain(previous..self.cursor);
                     self.cursor = previous;
+                    self.rejected = false;
                 }
                 None
             }
@@ -93,7 +96,10 @@ impl ApplyConfirmationViewState {
                 self.overlay_scroll.reset();
                 None
             }
-            ApplyConfirmationInput::Confirm => None,
+            ApplyConfirmationInput::Confirm => {
+                self.rejected = true;
+                None
+            }
         }
     }
 
@@ -107,6 +113,10 @@ impl ApplyConfirmationViewState {
 
     pub(crate) const fn scroll(&self) -> u16 {
         self.scroll
+    }
+
+    pub(crate) const fn rejected(&self) -> bool {
+        self.rejected
     }
 
     pub(crate) const fn overlay(&self) -> Option<ConfirmationOverlay> {
@@ -138,6 +148,7 @@ impl ApplyConfirmationViewState {
         self.input.clear();
         self.cursor = 0;
         self.scroll = 0;
+        self.rejected = false;
         self.overlay = None;
     }
 }
@@ -202,6 +213,32 @@ mod tests {
         assert_eq!(view.apply(ApplyConfirmationInput::Confirm, "yes", 0), None);
         assert_eq!(view.input(), value);
         assert_eq!(view.cursor(), cursor);
+        assert!(view.rejected());
+    }
+
+    #[rstest]
+    #[case::character(ApplyConfirmationInput::Character('s'))]
+    #[case::backspace(ApplyConfirmationInput::Backspace)]
+    #[case::cancel(ApplyConfirmationInput::Cancel)]
+    fn editing_or_cancelling_clears_a_rejected_confirmation(#[case] input: ApplyConfirmationInput) {
+        let mut view = ApplyConfirmationViewState::default();
+        enter(&mut view, "ye");
+        view.apply(ApplyConfirmationInput::Confirm, "yes", 0);
+
+        view.apply(input, "yes", 0);
+
+        assert!(!view.rejected());
+    }
+
+    #[test]
+    fn moving_the_cursor_keeps_a_rejected_confirmation() {
+        let mut view = ApplyConfirmationViewState::default();
+        enter(&mut view, "ye");
+        view.apply(ApplyConfirmationInput::Confirm, "yes", 0);
+
+        view.apply(ApplyConfirmationInput::Left, "yes", 0);
+
+        assert!(view.rejected());
     }
 
     #[test]

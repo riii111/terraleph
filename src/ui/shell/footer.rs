@@ -28,6 +28,20 @@ pub(crate) fn hint(alternative_keys: &[&'static str], description: &'static str)
     Line::from(spans)
 }
 
+// A disabled hint keeps the same width so toggling it never reflows the footer.
+pub(crate) fn disabled_hint(
+    alternative_keys: &[&'static str],
+    description: &'static str,
+) -> Line<'static> {
+    Line::from(
+        hint(alternative_keys, description)
+            .spans
+            .into_iter()
+            .map(|span| span.style(theme::footer_disabled_style()))
+            .collect::<Vec<_>>(),
+    )
+}
+
 pub(crate) fn overview_hint(
     alternative_keys: &[&'static str],
     description: &'static str,

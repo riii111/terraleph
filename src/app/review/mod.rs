@@ -480,7 +480,8 @@ impl PlanReview {
             .map(|change| change.address.as_str())
     }
 
-    fn has_destructive_changes(&self) -> bool {
+    #[must_use]
+    pub(crate) fn has_destructive_changes(&self) -> bool {
         self.destructive_addresses().next().is_some()
             || self.replacement_addresses().next().is_some()
     }
