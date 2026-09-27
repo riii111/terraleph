@@ -35,13 +35,13 @@ pub(crate) struct ApplyConfirmationLayout {
     footer: Rect,
     inner: Rect,
     input: Rect,
+    status: Rect,
     prefix: Rect,
     scroll: Rect,
     suffix: Rect,
     prefix_lines: Vec<Line<'static>>,
     scroll_lines: Vec<Line<'static>>,
     suffix_lines: Vec<Line<'static>>,
-    footer_lines: Vec<Line<'static>>,
     max_vertical: u16,
     renderable: bool,
 }
@@ -71,6 +71,10 @@ impl ApplyConfirmationLayout {
         self.input
     }
 
+    pub(crate) const fn status(&self) -> Rect {
+        self.status
+    }
+
     pub(crate) const fn prefix(&self) -> Rect {
         self.prefix
     }
@@ -93,10 +97,6 @@ impl ApplyConfirmationLayout {
 
     pub(crate) fn suffix_lines(&self) -> &[Line<'static>] {
         &self.suffix_lines
-    }
-
-    pub(crate) fn footer_lines(&self) -> &[Line<'static>] {
-        &self.footer_lines
     }
 
     pub(crate) const fn max_vertical(&self) -> u16 {
@@ -185,7 +185,16 @@ pub(crate) fn render_apply_confirmation(
             .scroll((0, confirmation_input_scroll(view, layout.input().width))),
         layout.input(),
     );
-    footer::render(frame, layout.footer(), layout.footer_lines(), None);
+    let expected = state.review().confirmation_input();
+    frame.render_widget(
+        Paragraph::new(confirmation_status_line(view, &expected)),
+        layout.status(),
+    );
+    let footer_lines = footer::layout(
+        confirmation_footer_items(view.input() == expected),
+        layout.frame().width,
+    );
+    footer::render(frame, layout.footer(), &footer_lines, None);
     clear_dim(frame, layout.header());
     clear_dim(frame, layout.frame());
     clear_dim(frame, layout.footer());
@@ -212,11 +221,7 @@ pub(crate) fn apply_confirmation_layout(
         panel.height.saturating_sub(header_height),
     );
     let frame_width = panel.width.min(CONFIRMATION_MAX_WIDTH);
-    let footer_items = vec![
-        footer::hint(&["Enter"], "confirm"),
-        footer::hint(&["Esc"], "back"),
-        footer::hint(&["?"], "help"),
-    ];
+    let footer_items = confirmation_footer_items(true);
     let footer_lines = footer::layout(footer_items.clone(), frame_width);
     let footer_required_width = footer_items.iter().map(Line::width).sum::<usize>()
         + footer_items.len().saturating_sub(1) * 3;
@@ -225,12 +230,20 @@ pub(crate) fn apply_confirmation_layout(
             .first()
             .is_some_and(|line| line.width() == footer_required_width);
     let inner_width = frame_width.saturating_sub(4);
-    let lines = confirmation_lines(state);
-    let body = Paragraph::new(lines.clone()).wrap(Wrap { trim: false });
-    let prefix_lines = lines[..7].to_vec();
-    let suffix_start = lines.len().saturating_sub(2);
-    let scroll_lines = lines[7..suffix_start].to_vec();
-    let suffix_lines = lines[suffix_start..].to_vec();
+    let ConfirmationSections {
+        prefix: prefix_lines,
+        scroll: scroll_lines,
+        suffix: suffix_lines,
+    } = confirmation_sections(state);
+    let body = Paragraph::new(
+        [
+            prefix_lines.as_slice(),
+            scroll_lines.as_slice(),
+            suffix_lines.as_slice(),
+        ]
+        .concat(),
+    )
+    .wrap(Wrap { trim: false });
     let body_height = body.line_count(inner_width).saturating_add(1);
     let natural_frame_height = u16::try_from(body_height)
         .unwrap_or(u16::MAX)
@@ -245,13 +258,16 @@ pub(crate) fn apply_confirmation_layout(
     let frame = Rect::new(frame_x, group_y, frame_width, frame_height);
     let footer = Rect::new(frame.x, frame.bottom(), frame.width, 1);
     let inner = padded_confirmation_inner(Block::new().borders(Borders::ALL).inner(frame));
+    let info_height = inner.height.saturating_sub(1);
     let input = Rect::new(
         inner.x,
-        inner.y.saturating_add(inner.height.saturating_sub(1)),
+        inner.y.saturating_add(info_height),
         inner.width,
         u16::from(inner.height > 0),
     );
-    let info_height = inner.height.saturating_sub(1);
+    // The mismatch message takes the bottom padding row, so a rejected Enter
+    // never shifts the dialog layout or its scroll limit.
+    let status = Rect::new(inner.x, input.bottom(), inner.width, input.height);
     let prefix_height = u16::try_from(
         Paragraph::new(prefix_lines.clone())
             .wrap(Wrap { trim: false })
@@ -302,13 +318,13 @@ pub(crate) fn apply_confirmation_layout(
         footer,
         inner,
         input,
+        status,
         prefix,
         scroll,
         suffix,
         prefix_lines,
         scroll_lines,
         suffix_lines,
-        footer_lines,
         max_vertical,
         renderable,
     }
@@ -323,7 +339,26 @@ const fn padded_confirmation_inner(inner: Rect) -> Rect {
     )
 }
 
-fn confirmation_lines(state: &ReviewSessionState) -> Vec<Line<'static>> {
+struct ConfirmationSections {
+    prefix: Vec<Line<'static>>,
+    scroll: Vec<Line<'static>>,
+    suffix: Vec<Line<'static>>,
+}
+
+fn confirmation_footer_items(input_matches: bool) -> Vec<Line<'static>> {
+    let apply = if input_matches {
+        footer::hint(&["Enter"], "apply")
+    } else {
+        footer::disabled_hint(&["Enter"], "apply")
+    };
+    vec![
+        apply,
+        footer::hint(&["Esc"], "back"),
+        footer::hint(&["?"], "help"),
+    ]
+}
+
+fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
     let review = state.review();
     let counts = review.summary();
     let context = review.context();
@@ -338,9 +373,10 @@ fn confirmation_lines(state: &ReviewSessionState) -> Vec<Line<'static>> {
         }
         ExecutionContextValue::Loading => "loading...".to_owned(),
     };
-    let mut lines = vec![
-        Line::from("Apply this reviewed plan?"),
-        Line::default(),
+    let mut prefix = vec![Line::from("Apply this reviewed plan?")];
+    prefix.extend(confirmation_warning(review));
+    prefix.push(Line::default());
+    prefix.extend([
         Line::from(vec![
             Span::styled("Target: ", theme::secondary_style()),
             Span::styled(target, theme::body_style()),
@@ -364,21 +400,63 @@ fn confirmation_lines(state: &ReviewSessionState) -> Vec<Line<'static>> {
             "Plan: +{} add  ~{} update  {} replace  -{} destroy",
             counts.creates, counts.updates, counts.replaces, counts.deletes,
         )),
-    ];
-    append_variable_sources(&mut lines, context);
-    append_destructive_resources(&mut lines, review);
+    ]);
+    let mut scroll = Vec::new();
+    append_variable_sources(&mut scroll, context);
+    append_destructive_resources(&mut scroll, review);
     if !state.review().search_query().is_empty() {
-        lines.push(Line::from(Span::styled(
+        scroll.push(Line::from(Span::styled(
             "Filter changes display only. Apply uses all changes.",
             theme::secondary_style(),
         )));
     }
-    lines.push(Line::default());
-    lines.push(Line::from(format!(
-        "Type {} to apply (exact match).",
-        state.review().confirmation_input()
-    )));
-    lines
+    let suffix = vec![
+        Line::default(),
+        confirmation_instruction(&review.confirmation_input()),
+    ];
+    ConfirmationSections {
+        prefix,
+        scroll,
+        suffix,
+    }
+}
+
+// States why the confirmation text is the target name instead of "yes", so
+// the stricter confirmation is never unexplained.
+fn confirmation_warning(review: &PlanReview) -> Option<Line<'static>> {
+    let destructive = review.has_destructive_changes();
+    let production = review.context().is_production() == Some(true);
+    let warning = match (destructive, production) {
+        (true, true) => "! Warning: this plan destroys or replaces resources in production.",
+        (true, false) => "! Warning: this plan destroys or replaces resources.",
+        (false, true) => "! Warning: this target looks like production.",
+        (false, false) => return None,
+    };
+    Some(Line::from(Span::styled(warning, theme::warning_style())))
+}
+
+fn confirmation_instruction(expected: &str) -> Line<'static> {
+    let text = theme::body_style().add_modifier(Modifier::BOLD);
+    Line::from(vec![
+        Span::styled("To confirm, type ", text),
+        Span::styled(
+            format!("\"{expected}\""),
+            theme::accent_style().add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" below.", text),
+    ])
+}
+
+fn confirmation_status_line(view: &ApplyConfirmationViewState, expected: &str) -> Line<'static> {
+    if !view.rejected() {
+        return Line::default();
+    }
+    let message = if view.input() == "yes" && expected != "yes" {
+        format!("Type \"{expected}\", not \"yes\".")
+    } else {
+        format!("Does not match \"{expected}\".")
+    };
+    Line::from(Span::styled(message, theme::error_style()))
 }
 
 fn append_variable_sources(lines: &mut Vec<Line<'static>>, context: &ExecutionContext) {

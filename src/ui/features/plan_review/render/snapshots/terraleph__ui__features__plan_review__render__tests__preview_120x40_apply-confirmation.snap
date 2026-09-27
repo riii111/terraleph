@@ -12,10 +12,10 @@ Changes  +1 add  ~1 update  1 replace  -1 destroy
       ~ input  = "before" -> "after"                                                                                   ┃
       # (4 unchanged attributes hidden)                                                                                ┃
     }                                                                                                                  ┃
-                                                                                                                       ┃
-  # terraform_data.w┌──────────────────────────────────────────────────────────────────────────────┐                   ┃
--/+ resource "terraf│                                                                              │                   ┃
-      ~ input = "wor│ Apply this reviewed plan?                                                    │                   ┃
+                    ┌──────────────────────────────────────────────────────────────────────────────┐                   ┃
+  # terraform_data.w│                                                                              │                   ┃
+-/+ resource "terraf│ Apply this reviewed plan?                                                    │                   ┃
+      ~ input = "wor│ ! Warning: this plan destroys or replaces resources in production.           │                   ┃
       - old_checksum│                                                                              │                   ┃
       + new_checksum│ Target: main [PROD]                                                          │                   ┃
     }               │ Workspace: default                                                           │                   ┃
@@ -28,11 +28,11 @@ Changes  +1 add  ~1 update  1 replace  -1 destroy
   # terraform_data.n│ Replace:                                                                     │                   ┃
   + resource "terraf│   terraform_data.worker                                                      │                   ┃
       input = "new-v│                                                                              │                   ┃
-      note  = "A del│ Type main to apply (exact match).                                            │                   ┃
+      note  = "A del│ To confirm, type "main" below.                                               │                   ┃
     }               │ > |                                                                          │                   ┃
                     │                                                                              │                   ┃
 Changes to Outputs: └──────────────────────────────────────────────────────────────────────────────┘                   ┃
-  + endpoint = (knowEnter confirm | Esc back | ? help                                                                  ┃
+  + endpoint = (knowEnter apply | Esc back | ? help                                                                    ┃
   ~ summary  = "old summary" -> "new summary with a deliberately long value for review"                                ┃
                                                                                                                        │
 Warning: Value for "pending" is not known until apply                                                                  │

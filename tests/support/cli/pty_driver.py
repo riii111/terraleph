@@ -759,8 +759,8 @@ try:
         send_key(b"v")
         wait_new("a apply", "demo_plan_detail")
         send_key(b"a")
-        wait_parts(["Apply this reviewed plan?", "to apply"], "demo_apply_confirmation")
-        send_text(re.search(r"Type (\S+) to apply", screen.text()).group(1))
+        wait_parts(["Apply this reviewed plan?", "To confirm, type"], "demo_apply_confirmation")
+        send_text(re.search(r'To confirm, type "([^"]+)" below', screen.text()).group(1))
         send_key(b"\r")
         wait_new("Apply complete", "demo_apply_success", timeout=300)
         exit_code = quit_with_enter()
@@ -862,7 +862,7 @@ try:
             raise RuntimeError(f"narrow Enter left the apply confirmation; screen={screen.text()!r}")
         resize(100, 24)
         wait_parts(
-            ["Type yes to apply (exact match).", "> yes|"],
+            ['To confirm, type "yes" below.', "> yes|"],
             "apply_confirmation_resized",
         )
         send_key(b"\r")
@@ -878,11 +878,11 @@ try:
         send_text("no") if scenario == "apply_no" else send_key(b"\x1b")
         if scenario == "apply_no":
             send_key(b"\r")
-            wait_new("Type yes to apply (exact match).", "apply_invalid_input")
+            wait_new('Does not match "yes".', "apply_invalid_input")
             send_key(b"\x1b")
         wait_screen(
             lambda current: (
-                "Type yes to apply (exact match)." not in current
+                'To confirm, type "yes" below.' not in current
                 and "Apply this reviewed plan?" not in current
                 and "terraform_data.api" in current
             ),

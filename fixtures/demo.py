@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from basic import plan as single_fixture
 from environments import environment as multi_fixture
@@ -33,7 +34,14 @@ def run_demo(mode):
     directory = (
         single_fixture.setup() if mode == "single" else multi_fixture.setup(ready=True)
     )
+    demo_root = None
+    scenario = directory
     try:
+        if mode == "single":
+            # The directory name is the typed apply confirmation, so the demo
+            # runs from a short fixed name instead of the random temp name.
+            demo_root = Path(tempfile.mkdtemp(prefix="terraleph-demo-")).resolve()
+            directory = directory.rename(demo_root / "demo")
         target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target" / "demo"))
         if not target.is_absolute():
             target = ROOT / target
@@ -80,7 +88,11 @@ def run_demo(mode):
             )
         return subprocess.run(command, cwd=directory, env=environment).returncode
     finally:
-        fixture.clean(directory)
+        if demo_root is not None:
+            if directory != scenario:
+                directory.rename(scenario)
+            demo_root.rmdir()
+        fixture.clean(scenario)
 
 
 def install_apply_delay(directory, environment):

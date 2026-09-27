@@ -21,8 +21,8 @@ Cmain [PROD]  ws:default  terraform loading...  /repo/environm...roduction/main
  │ Replace:                                                                   ││
  │                                                                            ││
  │ To confirm, type "main" below.                                             ││
- │ > |                                                                        ││
- │                                                                            ││
+ │ > yes|                                                                     ││
+ │ Type "main", not "yes".                                                    ││
 ◀︎└────────────────────────────────────────────────────────────────────────────┘▶︎
 ─Enter apply | Esc back | ? help────────────────────────────────────────────────
 s overview | / filter | a apply | ? help | q quit                      Line 3/43

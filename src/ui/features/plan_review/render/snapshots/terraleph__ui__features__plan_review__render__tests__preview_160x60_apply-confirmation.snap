@@ -22,10 +22,10 @@ Target: main [PROD] Workspace: default Tool: terraform loading... Dir: /repo/env
   # terraform_data.old will be destroyed
   - resource "terraform_data" "old" {
       id = "old-20260920"
-    }
-                                        ┌──────────────────────────────────────────────────────────────────────────────┐
-  # terraform_data.new will be created  │                                                                              │
-  + resource "terraform_data" "new" {   │ Apply this reviewed plan?                                                    │
+    }                                   ┌──────────────────────────────────────────────────────────────────────────────┐
+                                        │                                                                              │
+  # terraform_data.new will be created  │ Apply this reviewed plan?                                                    │
+  + resource "terraform_data" "new" {   │ ! Warning: this plan destroys or replaces resources in production.           │
       input = "new-value"               │                                                                              │
       note  = "A deliberately long synth│ Target: main [PROD]                                                          │
     }                                   │ Workspace: default                                                           │
@@ -38,11 +38,11 @@ Warning: Value for "pending" is not know│   terraform_data.old                
                                         │ Replace:                                                                     │
 Plan: 2 to add, 1 to change, 2 to destro│   terraform_data.worker                                                      │
                                         │                                                                              │
-Synthetic review text continues below so│ Type main to apply (exact match).                                            │
+Synthetic review text continues below so│ To confirm, type "main" below.                                               │
 The same long body is intentionally reus│ > |                                                                          │
 No Terraform process, provider, state fi│                                                                              │
 The review surface preserves Terraform o└──────────────────────────────────────────────────────────────────────────────┘
-Long lines remain unwrapped in the plan Enter confirm | Esc back | ? help the hidden suffix.
+Long lines remain unwrapped in the plan Enter apply | Esc back | ? helpes the hidden suffix.
 Vertical movement exposes later lines in this synthetic plan body.
 
 End of synthetic plan body.
