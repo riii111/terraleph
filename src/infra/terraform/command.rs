@@ -381,7 +381,9 @@ fn same_executable(candidate: &Path, current: &Path) -> io::Result<bool> {
             let file = File::open(path)?;
             let mut information = BY_HANDLE_FILE_INFORMATION::default();
             // SAFETY: the handle stays open and information points to writable storage.
-            if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+            if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &raw mut information) }
+                == 0
+            {
                 return Err(io::Error::last_os_error());
             }
             Ok((
@@ -843,8 +845,9 @@ const fn configure_process_group(_command: &mut Command) {}
 #[cfg(windows)]
 fn configure_process_group(command: &mut Command) {
     use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
 
-    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
 }
 
 #[cfg(unix)]

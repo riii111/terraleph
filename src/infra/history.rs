@@ -58,6 +58,7 @@ impl HistoryStore {
             return Ok(());
         }
         fs::create_dir_all(&self.root)?;
+        #[cfg(unix)]
         set_directory_permissions(&self.root)?;
         let lock = self.lock_file()?;
         lock_history(&lock)?;
@@ -86,6 +87,7 @@ impl HistoryStore {
         #[cfg(unix)]
         options.mode(0o600);
         let file = options.open(path)?;
+        #[cfg(unix)]
         set_file_permissions(&file, 0o600)?;
         Ok(file)
     }
@@ -133,6 +135,7 @@ fn write_atomically(path: &Path, document: &Value) -> io::Result<()> {
         #[cfg(unix)]
         options.mode(0o600);
         let mut file = options.open(&temporary)?;
+        #[cfg(unix)]
         set_file_permissions(&file, 0o600)?;
         let mut bytes = serde_json::to_vec(document).map_err(io::Error::other)?;
         bytes.push(b'\n');
@@ -193,20 +196,14 @@ fn unix_millis() -> u64 {
         })
 }
 
+#[cfg(unix)]
 fn set_directory_permissions(path: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
 }
 
+#[cfg(unix)]
 fn set_file_permissions(file: &File, mode: u32) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
-    }
-    Ok(())
+    file.set_permissions(fs::Permissions::from_mode(mode))
 }
 
 fn platform_directory() -> Option<PathBuf> {
