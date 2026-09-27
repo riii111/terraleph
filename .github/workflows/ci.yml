@@ -82,15 +82,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
           toolchain: '1.98.1'
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo build --locked --release
-      - run: cargo run --locked --release -- --version
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Check Windows delegation
         if: runner.os == 'Windows'
-        run: cargo test --locked --release --test delegation_windows
+        run: cargo test --locked --test delegation_windows
       - name: Check Windows display name escaping
         if: runner.os == 'Windows'
-        run: cargo test --locked --release --lib app::execution::context::tests::windows_
+        run: cargo test --locked --lib app::execution::context::tests::windows_
+      - run: cargo run --locked -- --version
+      # Release tags require a green main CI run, so the optimized build is checked there instead of on every PR.
+      - name: Build release binary
+        if: github.event_name != 'pull_request'
+        run: cargo build --locked --release
+      - if: github.event_name != 'pull_request'
+        run: cargo run --locked --release -- --version
 
   scenario-acceptance:
     name: Scenario acceptance (${{ matrix.tool }})

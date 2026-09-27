@@ -193,19 +193,31 @@ fn unix_millis() -> u64 {
         })
 }
 
+#[cfg(unix)]
 fn set_directory_permissions(path: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the fallible Unix implementation shared by all callers"
+)]
+const fn set_directory_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn set_file_permissions(file: &File, mode: u32) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
-    }
+    file.set_permissions(fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the fallible Unix implementation shared by all callers"
+)]
+const fn set_file_permissions(_file: &File, _mode: u32) -> io::Result<()> {
     Ok(())
 }
 
