@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 
-MARKER = ".terracotta-environments-scenario"
+MARKER = ".terraleph-environments-scenario"
 NAMES = ("dev", "prod", "stg")
 
 
@@ -68,7 +68,7 @@ def run(directory, tool, *arguments):
 
 
 def setup(tool="terraform", *, ready=False):
-    directory = Path(tempfile.mkdtemp(prefix="terracotta-environments-")).resolve()
+    directory = Path(tempfile.mkdtemp(prefix="terraleph-environments-")).resolve()
     (directory / MARKER).write_text(str(directory) + "\n")
     try:
         for name in NAMES:
@@ -78,7 +78,7 @@ def setup(tool="terraform", *, ready=False):
             run(child, tool, "init", "-input=false", "-no-color")
             run(child, tool, "apply", "-auto-approve", "-input=false", "-no-color")
             (child / "main.tf").write_text(configuration(name, True, ready=ready))
-            # Keep local state; require Terracotta to initialize each environment.
+            # Keep local state; require Terraleph to initialize each environment.
             shutil.rmtree(child / ".terraform")
     except BaseException:
         shutil.rmtree(directory)
@@ -92,7 +92,7 @@ def checked(directory):
     directory = directory.resolve()
     marker = directory / MARKER
     if (
-        not directory.name.startswith("terracotta-environments-")
+        not directory.name.startswith("terraleph-environments-")
         or not marker.is_file()
         or marker.is_symlink()
         or marker.read_text() != str(directory) + "\n"

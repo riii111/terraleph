@@ -332,7 +332,7 @@ pub(crate) fn resolve_executable(tool: Tool) -> io::Result<std::path::PathBuf> {
         };
         if same_executable(&candidate, &current)? {
             return Err(io::Error::other(format!(
-                "{} resolves to Terracotta itself",
+                "{} resolves to Terraleph itself",
                 tool.display_name()
             )));
         }

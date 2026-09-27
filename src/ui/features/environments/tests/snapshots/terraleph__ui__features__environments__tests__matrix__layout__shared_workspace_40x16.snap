@@ -1,0 +1,20 @@
+---
+source: src/ui/features/environments/tests/matrix.rs
+expression: output
+---
+terraleph ▸ prod                    tofu
+staging ✗ Error  │  staging ✗ Error
+┌* [2] Compare · Ready 0/2─────────────┐
+│Resize to view the matrix. ? help   q │
+│                                      │
+└──────────────────────────────────────┘
+┌  [3] Relations · staging · whole env─┐
+│Plan failed: Synthetic acquisition    │
+│error                                 │
+│                                      │
+│                                      │
+│                                      │
+│                                      │
+└──────────────────────────────────────┘
+r retry | v full plan | [/] env
+2/3 focus | f maximize | ? help | q quit

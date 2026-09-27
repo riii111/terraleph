@@ -1,0 +1,27 @@
+---
+source: src/ui/features/environments/tests/matrix.rs
+expression: "text(&mut view, &state, (80, 24))"
+---
+terraleph ▸ env-11                                                     terraform
+env-11   Pending
+┌* [2] Compare · Ready 0/12────────────────────────────────────────────────────┐
+│                                                                              │
+│Address     │ env-08      env-09      env-10      env-11      │ why           │
+│────────────┼─────────────────────────────────────────────────┼───────────────│
+│Waiting for environment plans.                                                │
+│                                                                              │
+│blank: absent   .: unchanged   ?: plan unavailable                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌  [3] Relations · env-11 · whole env──────────────────────────────────────────┐
+│Plan pending; relations will appear after acquisition.                        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+v full plan | / filter | [/] env | 2/3 focus | f maximize | ? help | q quit

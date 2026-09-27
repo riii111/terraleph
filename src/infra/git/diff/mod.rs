@@ -799,7 +799,7 @@ mod tests {
                 .expect("system clock is before Unix epoch")
                 .as_nanos();
             let suffix = format!(
-                "terracotta-git-{}-{}-{}",
+                "terraleph-git-{}-{}-{}",
                 std::process::id(),
                 suffix,
                 NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
@@ -808,7 +808,7 @@ mod tests {
             fs::create_dir(&path).expect("create temporary repository");
             git(&path, &["init", "--quiet"]);
             git(&path, &["config", "user.email", "test@example.com"]);
-            git(&path, &["config", "user.name", "Terracotta Test"]);
+            git(&path, &["config", "user.name", "Terraleph Test"]);
             Self { path }
         }
 
@@ -1394,7 +1394,7 @@ mod tests {
     #[test]
     fn distinguishes_outside_repository_and_missing_head() {
         let outside = std::env::temp_dir().join(format!(
-            "terracotta-outside-{}",
+            "terraleph-outside-{}",
             NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&outside).expect("create outside directory");

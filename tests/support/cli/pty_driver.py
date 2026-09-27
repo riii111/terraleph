@@ -373,7 +373,7 @@ def send_text(text):
 def quit_with_enter():
     send_key(b"q")
     wait_screen(
-        lambda current: "Quit Terracotta?" in current or "Quit?" in current,
+        lambda current: "Quit Terraleph?" in current or "Quit?" in current,
         "quit_confirmation",
         "quit confirmation",
     )
@@ -433,12 +433,12 @@ try:
             send_key(b"0")
             wait_new("a-ready", "back_to_environments")
             if scenario == "env_cancel":
-                wait_file(os.environ["TERRACOTTA_FAKE_PID_PATH"], "active_process")
+                wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "active_process")
                 send_key(b"q")
                 wait_new("Stop acquiring", "cancel_confirmation")
                 send_key(b"\x1b")
                 wait_new("a-ready ✓ Ready", "acquisition_continues_after_cancel")
-                with open(os.environ["TERRACOTTA_FAKE_PID_PATH"]) as pid_file:
+                with open(os.environ["TERRALEPH_FAKE_PID_PATH"]) as pid_file:
                     active_pid = int(pid_file.read().strip())
                 os.kill(active_pid, 0)
                 send_key(b"q")
@@ -462,7 +462,7 @@ try:
             wait_new("terraform_data.api", "real_review_while_running")
             send_key(b"\x1b")
             wait_new("Address", "real_back_to_matrix")
-            open(os.environ["TERRACOTTA_REAL_PLAN_GATE"], "w").close()
+            open(os.environ["TERRALEPH_REAL_PLAN_GATE"], "w").close()
             wait_environment("prod", "Error", row_only=True)
             send_key(b"]")
             send_key(b"]")
@@ -478,7 +478,7 @@ try:
                 repair.write('release = "new"\n')
             send_key(b"r")
             wait_file(
-                os.environ["TERRACOTTA_REAL_PLAN_GATE"] + "-2",
+                os.environ["TERRALEPH_REAL_PLAN_GATE"] + "-2",
                 "prod_retry_plan_complete",
             )
             wait_sidebar_statuses(["Ready", "Ready", "Ready"])
@@ -640,7 +640,7 @@ try:
             "filtered review after closing apply confirmation",
         )
         send_key(b"q")
-        wait_new("Quit Terracotta?", "filter_quit_confirmation")
+        wait_new("Quit Terraleph?", "filter_quit_confirmation")
         send_key(b"\x1b")
         wait_new("y copy all", "filter_quit_cancelled")
         send_key(b"n")
@@ -737,7 +737,7 @@ try:
         wait_parts(["Apply complete", "terraform_data.api"], "apply_success", timeout=60)
         exit_code = quit_with_enter()
     elif scenario == "default_ci":
-        wait_new("Usage: terracotta", "default_help")
+        wait_new("Usage: terraleph", "default_help")
         exit_code = wait_exit()
     elif scenario == "unsupported_default":
         observed.append("unsupported_default")
@@ -903,17 +903,17 @@ try:
     elif scenario == "quit_confirmation":
         wait_review("plan_text", timeout=30)
         send_key(b"q")
-        wait_new("Quit Terracotta?", "quit_confirmation")
+        wait_new("Quit Terraleph?", "quit_confirmation")
         send_key(b"q")
         assert_screen_unchanged("quit_repeat")
         send_key(b"\x1b")
         wait_new("q quit", "quit_cancelled")
         send_key(b"\x03")
-        wait_new("Quit Terracotta?", "quit_ctrl_c")
+        wait_new("Quit Terraleph?", "quit_ctrl_c")
         send_key(b"\x1b")
         wait_new("q quit", "quit_ctrl_c_cancelled")
         send_key(b"q")
-        wait_new("Quit Terracotta?", "quit_confirmation_again")
+        wait_new("Quit Terraleph?", "quit_confirmation_again")
         send_key(b"y")
         wait_screen(
             lambda current: "Copied." in current or "Copy failed." in current,
@@ -921,7 +921,7 @@ try:
             "copy notice after cancelling quit confirmation",
         )
         send_key(b"q")
-        wait_new("Quit Terracotta?", "quit_confirmation_after_copy")
+        wait_new("Quit Terraleph?", "quit_confirmation_after_copy")
         send_key(b"\r")
         exit_code = wait_exit()
     elif scenario == "empty_filter_quit":
@@ -933,24 +933,24 @@ try:
         send_key(b"\r")
         wait_new("y copy all", "empty_filter_confirmed")
         send_key(b"\x03")
-        wait_new("Quit Terracotta?", "empty_filter_ctrl_c")
+        wait_new("Quit Terraleph?", "empty_filter_ctrl_c")
         send_key(b"\x1b")
         wait_screen(
-            lambda current: "Quit Terracotta?" not in current
+            lambda current: "Quit Terraleph?" not in current
             and "Filter: /not-present" in current
             and "No matching changes." in current,
             "empty_filter_ctrl_c_cancelled",
             "filtered review after cancelling quit confirmation",
         )
         send_key(b"\x03")
-        wait_new("Quit Terracotta?", "empty_filter_ctrl_c_again")
+        wait_new("Quit Terraleph?", "empty_filter_ctrl_c_again")
         send_key(b"\r")
         exit_code = wait_exit()
     elif scenario == "failure":
         observed.append("failed")
         exit_code = wait_exit()
     elif scenario == "interrupt":
-        wait_file(os.environ["TERRACOTTA_FAKE_PID_PATH"], "terraform_started")
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
         send_key(b"\x03")
         observed.append("interrupt_requested")
         exit_code = wait_exit()

@@ -735,7 +735,7 @@ mod tests {
             assert!(!session.press(&mut terminal, KeyCode::Char('q'), now));
 
             let text = terminal_text(&terminal);
-            assert!(text.contains("Quit Terracotta?"), "{text}");
+            assert!(text.contains("Quit Terraleph?"), "{text}");
             assert!(session.press(&mut terminal, KeyCode::Enter, now));
         }
 
@@ -830,7 +830,7 @@ mod tests {
             assert!(!session.press(&mut terminal, KeyCode::Char('q'), finished_at));
 
             let text = terminal_text(&terminal);
-            assert!(text.contains("Quit Terracotta?"), "{text}");
+            assert!(text.contains("Quit Terraleph?"), "{text}");
             assert!(session.press(&mut terminal, KeyCode::Enter, finished_at));
         }
     }

@@ -102,7 +102,7 @@ fn lock_history(file: &File) -> io::Result<()> {
             Err(fs::TryLockError::WouldBlock) => {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    "timed out waiting for Terracotta history lock",
+                    "timed out waiting for Terraleph history lock",
                 ));
             }
             Err(fs::TryLockError::Error(error)) => return Err(error),
@@ -215,18 +215,18 @@ fn platform_directory() -> Option<PathBuf> {
         return env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .or_else(|| home_directory().map(|home| home.join(".local/state")))
-            .map(|root| root.join("terracotta"));
+            .map(|root| root.join("terraleph"));
     }
     #[cfg(target_os = "macos")]
     {
-        return home_directory().map(|home| home.join("Library/Application Support/Terracotta"));
+        return home_directory().map(|home| home.join("Library/Application Support/Terraleph"));
     }
     #[cfg(windows)]
     {
         return env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .or_else(|| home_directory().map(|home| home.join("AppData/Local")))
-            .map(|root| root.join("Terracotta"));
+            .map(|root| root.join("Terraleph"));
     }
     #[expect(
         unreachable_code,

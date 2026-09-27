@@ -9,15 +9,15 @@ use std::{
 #[test]
 fn delegation_preserves_windows_exit_bits_and_streams() {
     let root = env::temp_dir().join(format!(
-        "terracotta-windows-delegation-{}",
+        "terraleph-windows-delegation-{}",
         std::process::id()
     ));
     fs::create_dir(&root).unwrap();
     fs::copy(env::current_exe().unwrap(), root.join("terraform.exe")).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_terracotta"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_terraleph"))
         .args(["terraform", "--exact", "fake_terraform", "--nocapture"])
         .env("PATH", &root)
-        .env("TERRACOTTA_FAKE_WINDOWS", "1")
+        .env("TERRALEPH_FAKE_WINDOWS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -43,7 +43,7 @@ fn delegation_preserves_windows_exit_bits_and_streams() {
     reason = "fake CLI must produce a full-width Windows process exit status"
 )]
 fn fake_terraform() {
-    if env::var_os("TERRACOTTA_FAKE_WINDOWS").is_none() {
+    if env::var_os("TERRALEPH_FAKE_WINDOWS").is_none() {
         return;
     }
     let mut input = Vec::new();

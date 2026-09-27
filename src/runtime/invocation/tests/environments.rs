@@ -6,7 +6,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         let root = env::temp_dir().join(format!(
-            "terracotta-entry-{}-{}",
+            "terraleph-entry-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

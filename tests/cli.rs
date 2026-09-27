@@ -6,7 +6,7 @@ use rstest::rstest;
 #[case::help("--help")]
 #[case::version("--version")]
 fn help_and_version_work_without_a_terminal_or_terraform(#[case] arg: &str) {
-    let output = Command::new(env!("CARGO_BIN_EXE_terracotta"))
+    let output = Command::new(env!("CARGO_BIN_EXE_terraleph"))
         .env("PATH", "")
         .arg(arg)
         .output()
@@ -19,13 +19,13 @@ fn help_and_version_work_without_a_terminal_or_terraform(#[case] arg: &str) {
         "CLI must not initialize a TUI"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("terracotta"));
+    assert!(stdout.contains("terraleph"));
     assert!(!stdout.contains("compare-ref"));
 }
 
 #[test]
 fn no_arguments_without_a_terminal_prints_help_without_terraform() {
-    let output = Command::new(env!("CARGO_BIN_EXE_terracotta"))
+    let output = Command::new(env!("CARGO_BIN_EXE_terraleph"))
         .env("PATH", "")
         .env_remove("CI")
         .env_remove("TF_IN_AUTOMATION")
@@ -34,7 +34,7 @@ fn no_arguments_without_a_terminal_prints_help_without_terraform() {
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: terracotta"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: terraleph"));
 }
 
 #[cfg(all(unix, feature = "test-support"))]
@@ -522,7 +522,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         fn with_root_name(root_name: &OsStr) -> Self {
             let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
             let directory =
-                env::temp_dir().join(format!("terracotta-cli-pty-{}-{id}", std::process::id()));
+                env::temp_dir().join(format!("terraleph-cli-pty-{}-{id}", std::process::id()));
             let root = directory.join(root_name);
             let bin = directory.join("fake-bin");
             fs::create_dir_all(&root).expect("fixture root should be created");
@@ -611,7 +611,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
             process
                 .arg("-c")
                 .arg(PTY_DRIVER)
-                .arg(env!("CARGO_BIN_EXE_terracotta"))
+                .arg(env!("CARGO_BIN_EXE_terraleph"))
                 .arg(&self.root)
                 .arg(columns.to_string())
                 .arg(rows.to_string())
@@ -622,15 +622,15 @@ Plan: 0 to add, 3 to change, 0 to destroy.
             process
                 .args(arguments)
                 .env("PATH", path)
-                .env("TERRACOTTA_FAKE_MODE", scenario)
-                .env("TERRACOTTA_FAKE_INVOCATIONS", &self.invocations)
-                .env("TERRACOTTA_FAKE_PLAN_PATH", &self.plan_path_record)
-                .env("TERRACOTTA_FAKE_PID_PATH", &self.pid_record)
-                .env("TERRACOTTA_FAKE_SIGNAL_LOG", &self.signal_log)
-                .env("TERRACOTTA_FAKE_SHOW_JSON", &self.show_json)
-                .env("TERRACOTTA_FAKE_SHOW_TEXT", &self.show_text)
-                .env("TERRACOTTA_FAKE_ENV_LOG", &self.env_log)
-                .env("TERRACOTTA_FAKE_TOOL_LOG", &self.tool_log)
+                .env("TERRALEPH_FAKE_MODE", scenario)
+                .env("TERRALEPH_FAKE_INVOCATIONS", &self.invocations)
+                .env("TERRALEPH_FAKE_PLAN_PATH", &self.plan_path_record)
+                .env("TERRALEPH_FAKE_PID_PATH", &self.pid_record)
+                .env("TERRALEPH_FAKE_SIGNAL_LOG", &self.signal_log)
+                .env("TERRALEPH_FAKE_SHOW_JSON", &self.show_json)
+                .env("TERRALEPH_FAKE_SHOW_TEXT", &self.show_text)
+                .env("TERRALEPH_FAKE_ENV_LOG", &self.env_log)
+                .env("TERRALEPH_FAKE_TOOL_LOG", &self.tool_log)
                 .env_remove("TF_IN_AUTOMATION")
                 .env_remove("CI")
                 .env_remove("TF_CLI_ARGS")
@@ -651,7 +651,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
                     .env("TF_CLI_ARGS", "-parallelism=9");
             }
             if scenario == "panic" {
-                process.env("TERRACOTTA_TEST_PANIC_AFTER_DRAW", "1");
+                process.env("TERRALEPH_TEST_PANIC_AFTER_DRAW", "1");
             }
             if scenario == "cli_args" {
                 process.env("TF_CLI_ARGS", "-no-color");
@@ -1412,7 +1412,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
             let output = Command::new("python3")
                 .current_dir(env!("CARGO_MANIFEST_DIR"))
                 .arg("tests/support/cli/pty_driver.py")
-                .arg(env!("CARGO_BIN_EXE_terracotta"))
+                .arg(env!("CARGO_BIN_EXE_terraleph"))
                 .arg(&self.directory)
                 .args(["100", "24", "basic_workflow", "apply"])
                 .env_remove("TF_IN_AUTOMATION")

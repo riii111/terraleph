@@ -174,7 +174,7 @@ pub(crate) fn render_header(
         return;
     };
     let title = format!(
-        "terracotta ▸ {}",
+        "terraleph ▸ {}",
         directory_display_name(state.exploration_root().unwrap_or_else(|| plan.directory()))
     );
     let tool = plan.review().map_or_else(

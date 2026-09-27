@@ -62,7 +62,7 @@ def main():
         env = environment.environment()
         env["PATH"] = str(wrappers) + os.pathsep + env["PATH"]
         env["TMPDIR"] = str(owned)
-        env["TERRACOTTA_REAL_PLAN_GATE"] = str(gate)
+        env["TERRALEPH_REAL_PLAN_GATE"] = str(gate)
         result = subprocess.run(
             [
                 "python3",

@@ -96,7 +96,7 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
     let Some(mut invocation) = review_invocation(tool, arguments, &root) else {
         if default_entry {
             return Err(io::Error::other(
-                "the default Terraform plan does not support the current Terraform options; use `terracotta plan` to choose an explicit command",
+                "the default Terraform plan does not support the current Terraform options; use `terraleph plan` to choose an explicit command",
             ));
         }
         return terraform::delegate(&executable, arguments);
@@ -105,7 +105,7 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
     match select_entry(&mut invocation, env::var_os("TF_DATA_DIR").as_deref())? {
         Entry::Delegate if default_entry => {
             return Err(io::Error::other(
-                "the default Terraform plan supports local execution only; use `terracotta terraform plan` for unsupported backends",
+                "the default Terraform plan supports local execution only; use `terraleph terraform plan` for unsupported backends",
             ));
         }
         Entry::Delegate => return terraform::delegate(&executable, arguments),
