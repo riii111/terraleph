@@ -725,6 +725,31 @@ mod tests {
         }
 
         #[test]
+        fn help_scrolls_horizontally_on_each_screen() {
+            let now = Instant::now();
+            // Each size is narrow enough for the help rows yet renders the screen underneath.
+            for (name, opening, (width, height)) in [
+                ("review", &[][..], (40, 16)),
+                ("overview", &[KeyCode::Char('s')][..], (40, 16)),
+                ("apply confirmation", &[KeyCode::Char('a')][..], (50, 24)),
+            ] {
+                let mut terminal = terminal(width, height);
+                let mut session = SyntheticSession::review();
+                for &code in opening.iter().chain(&[KeyCode::Char('?')]) {
+                    assert!(!session.press(&mut terminal, code, now), "{name}");
+                }
+                let before = terminal_text(&terminal);
+
+                assert!(!session.press(&mut terminal, KeyCode::Right, now), "{name}");
+                let scrolled = terminal_text(&terminal);
+                assert_ne!(scrolled, before, "{name}");
+
+                assert!(!session.press(&mut terminal, KeyCode::Left, now), "{name}");
+                assert_eq!(terminal_text(&terminal), before, "{name}");
+            }
+        }
+
+        #[test]
         fn overview_quit_is_confirmed_before_finishing() {
             let now = Instant::now();
             let mut terminal = terminal(100, 30);

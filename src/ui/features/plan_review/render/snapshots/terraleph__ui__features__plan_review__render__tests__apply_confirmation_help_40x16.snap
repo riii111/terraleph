@@ -5,16 +5,16 @@ expression: buffer_text(buffer)
 Target: main [PROD] Workspace: default
 C┌Apply help──────────────────────────┐
 -│ Navigation                       ▲ │
- │ ↑ / ↓ / PgUp / PgDn              ┃ │
-─│   scroll confirmation            ┃ │─
- │ ← / →                            ┃ │▲
- │   move in confirmation input     ┃ │┃
- │ Home / End                       │ ││
- │   move to input start or end     │ ││
+ │ ↑ / ↓ / PgUp / PgDn scroll confi ┃ │
+─│ ← / →               move in conf ┃ │─
+ │ Home / End          move to inpu ┃ │▲
+ │                                  ┃ │┃
+ │ Input                            ┃ ││
+ │ Type                enter the co │ ││
+ │ Backspace           delete befor │ ││
  │                                  │ ││
- │ Input                            │ ││
- │ Type                             │ ││
-◀︎│   enter the confirmation text    ▼ │▶︎
-─│ ?/Esc close                        │─
+ │ Context                          ▼ ││
+◀︎│ ◀︎════════════════════──────────▶︎   │▶︎
+─│ ←/→ scroll | ?/Esc close           │─
 s└────────────────────────────────────┘
 ? help | q quit                    L3/43

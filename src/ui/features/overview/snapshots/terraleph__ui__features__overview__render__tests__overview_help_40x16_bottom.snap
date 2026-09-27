@@ -4,17 +4,17 @@ expression: bottom_text
 ---
 infra  ws:default  ...ng...  /repo/infra
 ✓┌Help────────────────────────────────┐
-─│ Grouped links                    ▲ │─
-┌│   may apply to only some members │ │┐
-││ Scope                            │ ││
-││   configuration references and   │ ││
-└│   recorded dependencies; not     │ │┘
-┌│   cause, impact, or execution    │ │┐
-││   order                          │ ││
-││                                  │ ││
-││ Exit                             │ ││
-││ q                                ┃ ││
-└│   quit                           ▼ │┘
-─│ ?/Esc close                        │─
+─│ block-level        may not apply ▲ │─
+┌│ (state)            recorded in s │ │┐
+││ !                  the row is li │ ││
+││ ? unresolved       a relationshi │ ││
+└│ Grouped links      may apply to  │ │┘
+┌│ Scope              configuration │ │┐
+││ Not shown          cause, impact ┃ ││
+││                                  ┃ ││
+││ Exit                             ┃ ││
+││ q                  quit          ▼ ││
+└│ ◀︎═════════════─────────────────▶︎   │┘
+─│ ←/→ scroll | ?/Esc close           │─
 /└────────────────────────────────────┘
 2/3 focus | f maximize | ? help | q quit

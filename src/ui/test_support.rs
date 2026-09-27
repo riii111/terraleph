@@ -31,7 +31,8 @@ pub(super) fn buffer_text(buffer: &Buffer) -> String {
         .join("\n")
 }
 
-// Rows inside the dialog frame whose top border starts with `┌{title}`, up to its footer.
+// Rows inside the dialog frame whose top border starts with `┌{title}`, up to its footer or
+// horizontal scrollbar.
 // Scrollbar thumbs and arrows read as the track so rows compare by content only.
 pub(super) fn dialog_body_rows(buffer: &Buffer, title: &str) -> Vec<String> {
     let area = buffer.area();
@@ -59,7 +60,7 @@ pub(super) fn dialog_body_rows(buffer: &Buffer, title: &str) -> Vec<String> {
                 })
                 .collect::<String>()
         })
-        .take_while(|row| !row.contains("close"))
+        .take_while(|row| !row.contains("close") && !row.contains('◀'))
         .collect()
 }
 

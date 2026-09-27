@@ -10,19 +10,19 @@ infra  ws:default  terraform loading...  /repo/infra
 ││ ← / → / h / l      scroll Changes or Relations horizontally              ┃ ││
 ││ PgUp / PgDn        move one page                                         ┃ ││
 ││ Home / End / g / G go to the top or bottom                               ┃ ││
-││ f                  maximize or restore [2] Changes · infra / [3]         ┃ ││
-└│                    Relations                                             ┃ │┘
-┌│                                                                          ┃ │┐
-││ Review                                                                   ┃ ││
-││ ✓ Ready            plan acquisition completed; review and apply safety   │ ││
-││                    are separate                                          │ ││
+││ f                  maximize or restore [2] Changes · infra / [3] Relatio ┃ ││
+└│                                                                          ┃ │┘
+┌│ Review                                                                   ┃ │┐
+││ ✓ Ready            plan acquired; not a judgment of apply safety         ┃ ││
 ││ Enter              open the selected raw block                           │ ││
 ││ /                  filter Changes full addresses                         │ ││
 ││ Space              expand or collapse only on ▸/▾ group rows             │ ││
-││ [unknown values]   known changes and unknown paths match; final values   │ ││
-││                    may differ                                            │ ││
+││ [unknown values]   known changes match; unknown values may still differ  │ ││
 ││ v                  show the full plan from the top                       │ ││
-└│                                                                          ▼ │┘
-─│ ?/Esc close                                                                │─
+││                                                                          │ ││
+││ Actions                                                                  │ ││
+││ y                  copy the full plan                                    ▼ ││
+└│ ◀︎════════════════════════════════════════════════════════════════════──▶︎   │┘
+─│ ←/→ scroll | ?/Esc close                                                   │─
 /└────────────────────────────────────────────────────────────────────────────┘
 q quit
