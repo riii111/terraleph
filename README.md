@@ -2,7 +2,18 @@
 
 Review and apply Terraform or OpenTofu plans in your terminal.
 
-![plan](https://github.com/user-attachments/assets/7c6bdb79-bf87-4f5f-9b33-7cafa038bc9e)
+<img src="https://github.com/user-attachments/assets/ba22d687-c023-4064-923e-d2be5658af11" alt="overview" width="800">
+
+<details>
+<summary>More screenshots</summary>
+
+**Full plan review**
+
+<img src="https://github.com/user-attachments/assets/425c636b-ea71-4271-887f-3997f6911b47" alt="overview" width="800">
+
+<img src="https://github.com/user-attachments/assets/1e248721-aa3b-44b4-a0ae-ae8d78cbd796" alt="overview" width="800">
+
+</details>
 
 ## Concept
 
