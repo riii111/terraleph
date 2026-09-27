@@ -40,7 +40,7 @@ def run_demo(mode):
         if mode == "single":
             # The directory name is the typed apply confirmation, so the demo
             # runs from a short fixed name instead of the random temp name.
-            demo_root = Path(tempfile.mkdtemp(prefix="terracotta-demo-")).resolve()
+            demo_root = Path(tempfile.mkdtemp(prefix="terraleph-demo-")).resolve()
             directory = directory.rename(demo_root / "demo")
         target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target" / "demo"))
         if not target.is_absolute():
