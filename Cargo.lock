@@ -1848,7 +1848,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "terracotta"
+name = "terraleph"
 version = "0.1.0"
 dependencies = [
  "arboard",

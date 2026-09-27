@@ -1,0 +1,27 @@
+---
+source: src/ui/features/execution/render.rs
+expression: buffer_text(buffer)
+---
+
+ Terraleph | main
+
+ ┌Planning────────────────────────────────────────────────────────────────────┐
+ │| Planning...                                                               │
+ │Waiting 2s    Follow: On                                                    │
+ │Elapsed 2.0s                                                                │
+ │planning output                                                             │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │                                                                            │
+ │────────────────────────────────────────────────────────────────────────────│
+ └────────────────────────────────────────────────────────────────────────────┘
+ Ctrl-C cancel | End follow latest

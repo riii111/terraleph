@@ -538,7 +538,7 @@ mod layout {
                 text.lines()
                     .next()
                     .unwrap()
-                    .contains("terracotta ▸ environments"),
+                    .contains("terraleph ▸ environments"),
                 "{text}"
             );
         }
@@ -550,11 +550,11 @@ mod layout {
             text.lines()
                 .next()
                 .unwrap()
-                .contains("terracotta ▸ workspace"),
+                .contains("terraleph ▸ workspace"),
             "{text}"
         );
         assert!(
-            !text.lines().next().unwrap().contains("terracotta ▸ prod"),
+            !text.lines().next().unwrap().contains("terraleph ▸ prod"),
             "{text}"
         );
     }

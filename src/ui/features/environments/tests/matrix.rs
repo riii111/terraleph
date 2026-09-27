@@ -1129,7 +1129,7 @@ mod layout {
             "the matrix selection never reverses the background"
         );
         let rendered = buffer_text(&buffer);
-        assert!(rendered.contains("terracotta ▸ dev"));
+        assert!(rendered.contains("terraleph ▸ dev"));
         assert!(!rendered.contains("0 Overview"));
         if (width, height) == (40, 16) {
             handle_key_code(&mut view, KeyCode::End, Size::new(width, height), &state);
@@ -1334,7 +1334,7 @@ mod layout {
         let output = render_text(&mut view, &state, (width, height));
 
         assert!(!output.contains("/synthetic/prod"));
-        assert!(output.contains("terracotta ▸ prod"));
+        assert!(output.contains("terraleph ▸ prod"));
         assert!(!output.contains("staging · tofu"));
         insta::assert_snapshot!(format!("shared_workspace_{width}x{height}"), output);
         press(&mut view, &mut state, KeyCode::Char('c'));
@@ -1887,7 +1887,7 @@ mod row_groups {
         let output = render_text(&mut view, &state, (80, 24));
         assert_eq!(view.selection.column, 2);
         assert!(output.contains("terraform_data.server[0]"), "{output}");
-        assert!(output.contains("terracotta ▸ c"), "{output}");
+        assert!(output.contains("terraleph ▸ c"), "{output}");
         assert!(output.contains("Ready"));
         assert!(!output.contains("Compared:"));
     }

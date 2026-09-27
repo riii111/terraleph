@@ -35,7 +35,7 @@ pub(crate) struct SavedPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SavedPlanOwnership {
-    Terracotta,
+    Terraleph,
     User,
 }
 
@@ -43,7 +43,7 @@ impl SavedPlan {
     fn create() -> io::Result<Self> {
         create_plan_path().map(|path| Self {
             path: Some(path),
-            ownership: SavedPlanOwnership::Terracotta,
+            ownership: SavedPlanOwnership::Terraleph,
         })
     }
 
@@ -358,7 +358,7 @@ fn create_plan_path() -> io::Result<PathBuf> {
     let process_id = std::process::id();
     for attempt in 0..100 {
         let path = directory.join(format!(
-            "terracotta-{process_id}-{timestamp}-{attempt}.tfplan"
+            "terraleph-{process_id}-{timestamp}-{attempt}.tfplan"
         ));
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
@@ -767,7 +767,7 @@ mod tests {
         let directory = (0..100)
             .find_map(|attempt| {
                 let directory = env::temp_dir().join(format!(
-                    "terracotta test plan {} {timestamp} {attempt}",
+                    "terraleph test plan {} {timestamp} {attempt}",
                     std::process::id()
                 ));
                 match fs::create_dir(&directory) {
@@ -786,7 +786,7 @@ mod tests {
         (
             SavedPlan {
                 path: Some(path),
-                ownership: SavedPlanOwnership::Terracotta,
+                ownership: SavedPlanOwnership::Terraleph,
             },
             directory,
         )
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn user_owned_output_path_is_resolved_and_survives_cleanup() {
         let root = env::temp_dir().join(format!(
-            "terracotta-user-plan-{}-{}",
+            "terraleph-user-plan-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -863,7 +863,7 @@ mod tests {
     #[test]
     fn last_output_path_wins_across_environment_and_explicit_arguments() {
         let root = env::temp_dir().join(format!(
-            "terracotta-repeated-plan-{}-{}",
+            "terraleph-repeated-plan-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -899,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    fn implicit_output_path_is_absolute_and_owned_by_terracotta() {
+    fn implicit_output_path_is_absolute_and_owned_by_terraleph() {
         let (saved_plan, arguments) = saved_plan_for_plan(
             Path::new("/root with spaces"),
             &[OsString::from("-refresh=false")],

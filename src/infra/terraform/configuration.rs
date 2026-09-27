@@ -261,7 +261,7 @@ mod tests {
     impl Fixture {
         fn new(name: &str, source: &str) -> Self {
             let root = std::env::temp_dir().join(format!(
-                "terracotta-config-{}-{}",
+                "terraleph-config-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));

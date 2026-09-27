@@ -39,7 +39,7 @@ pub(crate) fn run_plan(root: &Path, compare_ref: Option<&str>) -> ExitCode {
         return ExitCode::from(EXECUTION_FAILURE);
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        report_error("terracotta plan requires an interactive terminal");
+        report_error("terraleph plan requires an interactive terminal");
         return ExitCode::from(EXECUTION_FAILURE);
     }
     let Ok(executable) = terraform::resolve_executable(Tool::Terraform) else {
@@ -484,7 +484,7 @@ fn spawn_review_worker(
     let worker_initial_context = initial_context;
     let worker_history = history.cloned();
     thread::Builder::new()
-        .name("terracotta-plan".to_owned())
+        .name("terraleph-plan".to_owned())
         .spawn(move || {
             let mut event_sink = |event| {
                 let _ = sender.send(PlanReviewMessage::Event(event));
@@ -554,7 +554,7 @@ pub(super) fn spawn_apply_worker(
     let worker_cancellation = cancellation.clone();
     let worker_sender = sender.clone();
     thread::Builder::new()
-        .name("terracotta-apply".to_owned())
+        .name("terraleph-apply".to_owned())
         .spawn(move || {
             let mut event_sink = |event| {
                 let _ = worker_sender.send(PlanReviewMessage::ApplyEvent(event));

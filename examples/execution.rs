@@ -1,6 +1,6 @@
 use std::io::{self, IsTerminal};
 
-use terracotta::run_synthetic_execution;
+use terraleph::run_synthetic_execution;
 
 fn main() -> io::Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {

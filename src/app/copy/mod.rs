@@ -7,7 +7,7 @@ use super::{
 };
 
 const REDACTION_TEXT: &str = "(sensitive value)";
-const PROTECTED_REDACTION: &str = "\u{0}terracotta-redacted\u{0}";
+const PROTECTED_REDACTION: &str = "\u{0}terraleph-redacted\u{0}";
 const FLASH_DURATION: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

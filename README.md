@@ -1,4 +1,4 @@
-# Terracotta
+# Terraleph ☕
 
 Review and apply Terraform or OpenTofu plans in your terminal.
 
@@ -25,24 +25,28 @@ Run in an interactive terminal with Terraform or OpenTofu initialized and creden
 
 ```sh
 # Open the change overview
-terracotta
+terraleph
 
 # Review a plan, then optionally apply it
-terracotta plan
+terraleph plan
 
 # Review and apply
-terracotta apply
+terraleph apply
 
 # Use OpenTofu
-terracotta tofu plan
-terracotta tofu apply
+terraleph tofu plan
+terraleph tofu apply
 ```
 
 Run from your configuration directory, or its parent to compare environments. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
 
-To use Terracotta with your usual commands:
+To use Terraleph with your usual commands:
 
 ```sh
-alias terraform='terracotta terraform'
-alias tofu='terracotta tofu'
+alias terraform='terraleph terraform'
+alias tofu='terraleph tofu'
 ```
+
+---
+
+P.S. The day I named this tool, I had an Ethiopian coffee made from Heleph beans, and it really calmed me down. Later I found out "Heleph" means something like *change*. A Terraform plan is basically a list of changes, so the name just stuck.

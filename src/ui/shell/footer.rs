@@ -85,7 +85,7 @@ pub(crate) fn pad_lines(mut lines: Vec<Line<'static>>, height: usize) -> Vec<Lin
 fn quit_confirmation_line() -> Line<'static> {
     Line::from(vec![
         Span::styled(
-            "Quit Terracotta?   ",
+            "Quit Terraleph?   ",
             theme::accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -483,7 +483,7 @@ mod tests {
                 name: "full",
                 width: 80,
                 notice: None,
-                expected: "Quit Terracotta?   [Enter] Quit   [Esc] Cancel",
+                expected: "Quit Terraleph?   [Enter] Quit   [Esc] Cancel",
             },
             QuitPromptCase {
                 name: "compact",

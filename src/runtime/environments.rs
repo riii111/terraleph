@@ -518,7 +518,7 @@ fn start_worker(
     let history = history.cloned();
     worker.set_handle(
         thread::Builder::new()
-            .name("terracotta-environment".to_owned())
+            .name("terraleph-environment".to_owned())
             .spawn(move || {
                 let mut diagnostics = Vec::new();
                 let result = acquire(

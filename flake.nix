@@ -1,5 +1,5 @@
 {
-  description = "Terracotta development and build environment";
+  description = "Terraleph development and build environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -47,7 +47,7 @@
             version = manifest.package.version;
             src = pkgs.lib.cleanSource self;
             cargoLock.lockFile = ./Cargo.lock;
-            meta.mainProgram = "terracotta";
+            meta.mainProgram = "terraleph";
           };
         }
       );

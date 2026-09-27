@@ -138,7 +138,7 @@ fn buffer_terminal_capture(buffer: &Buffer) -> String {
 }
 
 pub(super) fn write_buffer_captures(name: &str, buffer: &Buffer) {
-    let Some(directory) = env::var_os("TERRACOTTA_PREVIEW_CAPTURE_DIR").map(PathBuf::from) else {
+    let Some(directory) = env::var_os("TERRALEPH_PREVIEW_CAPTURE_DIR").map(PathBuf::from) else {
         return;
     };
     fs::create_dir_all(&directory).expect("capture directory should be writable");

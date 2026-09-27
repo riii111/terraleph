@@ -434,7 +434,7 @@ fn truncate_compact_header_part(value: &str, max_width: usize, is_directory: boo
 }
 
 fn header_line(path: &Path, workspace: Option<&str>, width: u16) -> Line<'static> {
-    const PREFIX: &str = "Terracotta | ";
+    const PREFIX: &str = "Terraleph | ";
     const GAP: usize = 2;
     let width = usize::from(width);
     let right = workspace

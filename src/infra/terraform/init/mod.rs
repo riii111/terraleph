@@ -94,7 +94,7 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let directory = std::env::temp_dir().join(format!(
-                "terracotta-init-{}-{}",
+                "terraleph-init-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));

@@ -1,0 +1,28 @@
+---
+source: src/ui/features/environments/tests.rs
+expression: text
+---
+terraleph ▸ b-error                                                    terraform
+b-error ✗ Error
+┌* [2] Compare · Ready 1/5─────────────────────────────────────────────────────┐
+│                                                                              │
+│Address     │ a-ready     b-error     c-running     d-pending     │ why       │
+│────────────┼─────────────────────────────────────────────────────┼───────────│
+│No matching resource changes. v opens the full plan.                          │
+│                                                                              │
+│blank: absent   .: unchanged   ?: plan unavailable                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌  [3] Relations · b-error · whole env─────────────────────────────────────────┐
+│Plan failed: Missing required variable                                        │
+│Pass a variable before retrying.                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+v full plan | / filter | r retry | [/] env | 2/3 focus | f maximize | ? help
+q quit

@@ -1,0 +1,40 @@
+---
+source: src/ui/features/execution/render.rs
+expression: buffer_text(buffer)
+---
+
+
+
+
+ Terraleph | main
+
+ ┌Apply result────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │Apply failed    Completed: 3/4    Elapsed: 4.0s                                                                     │
+ │Failed: 1    Incomplete: 0    Skipped: 0    Previous: local success                                                 │
+ │Changes may already be applied.                                                                                     │
+ │┌Targets *─────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+ ││> All logs                                                                                                        ││
+ ││  Resource                  Status     Action     Elapsed  Previous                                               ││
+ ││  terraform_data.api        Failed     update        1.0s    11.0s                                                ││
+ ││  terraform_data.worker     Completed  delete/create    1.0s       --                                             ││
+ ││  terraform_data.old        Completed  delete        1.0s       --                                                ││
+ ││  terraform_data.new        Completed  create        1.0s     4.0s                                                ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+ │┌Logs: All logs────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+ ││terraform_data.api: apply complete                                                                               ▲││
+ ││terraform_data.worker: Delete started                                                                            │││
+ ││terraform_data.worker: apply complete                                                                            │││
+ ││terraform_data.worker: Create started                                                                            │││
+ ││terraform_data.worker: apply complete                                                                            │││
+ ││terraform_data.old: Delete started                                                                               ┃││
+ ││terraform_data.old: apply complete                                                                               ┃││
+ ││terraform_data.new: Create started                                                                               ┃││
+ ││terraform_data.new: apply complete                                                                               ┃││
+ ││AccessDenied: synthetic provider rejected the request                                                            ▼││
+ │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ q/Ctrl-C quit | Tab focus | y yank result

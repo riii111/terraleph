@@ -361,14 +361,14 @@ mod tests {
     impl TestRepository {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "terracotta-review-{}-{}",
+                "terraleph-review-{}-{}",
                 std::process::id(),
                 NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).expect("test repository should be created");
             git(&path, &["init", "--quiet", "--initial-branch=main"]);
             git(&path, &["config", "user.email", "test@example.com"]);
-            git(&path, &["config", "user.name", "Terracotta Test"]);
+            git(&path, &["config", "user.name", "Terraleph Test"]);
             Self { path }
         }
 
@@ -601,7 +601,7 @@ mod tests {
     #[test]
     fn forwards_unavailable_repository_root_after_git_discovery_failure() {
         let root = std::env::temp_dir().join(format!(
-            "terracotta-review-event-outside-{}",
+            "terraleph-review-event-outside-{}",
             NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).expect("outside root should be created");
@@ -695,7 +695,7 @@ mod tests {
     #[test]
     fn keeps_plan_data_when_git_is_outside_a_repository() {
         let root = std::env::temp_dir().join(format!(
-            "terracotta-review-outside-{}",
+            "terraleph-review-outside-{}",
             NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).expect("outside root should be created");
