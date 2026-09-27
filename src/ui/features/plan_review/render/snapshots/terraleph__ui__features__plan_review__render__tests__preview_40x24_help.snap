@@ -4,25 +4,25 @@ expression: buffer_text(buffer)
 ---
 Target: main [PROD] Workspace: default
 C┌Help────────────────────────────────┐
--│ Navigation                       ▲ │
- │ ↑ / ↓ / j / k                    ┃ │
-─│   scroll vertically              ┃ │─
- │ ← / → / h / l                    ┃ │▲
- │   scroll horizontally            ┃ │┃
- │ PgUp / PgDn                      ┃ │┃
- │   scroll one page                ┃ │┃
- │ Home / End                       ┃ │┃
- │   go to the top or bottom        ┃ │┃
- │ s                                ┃ ││
- │   overview                       ┃ ││
--│                                  ┃ ││
- │ Review                           ┃ ││
- │ /                                │ ││
- │   filter the full plan           │ ││
- │                                  │ ││
- │ Actions                          │ ││
- │ c                                │ ││
-◀︎│   show execution context         ▼ │▶︎
-─│ ?/Esc close                        │─
-s└────────────────────────────────────┘
+-│ Navigation                         │
+ │ ↑ / ↓ / j / k scroll vertically    │
+─│ ← / → / h / l scroll horizontall   │─
+ │ PgUp / PgDn   scroll one page      │▲
+ │ Home / End    go to the top or b   │┃
+ │ s             overview             │┃
+ │                                    │┃
+ │ Review                             │┃
+ │ /             filter the full pl   │┃
+ │                                    ││
+ │ Actions                            ││
+-│ c             show execution con   ││
+ │ y             copy the full plan   ││
+ │ a             apply the full pla   ││
+ │                                    ││
+ │ Exit                               ││
+ │ q             quit                 ││
+ │ ◀︎══════════════════════════────▶︎   ││
+◀︎│ ←/→ scroll | ?/Esc close           │▶︎
+─└────────────────────────────────────┘─
+s overview | / filter | a apply
 ? help | q quit                    L3/43

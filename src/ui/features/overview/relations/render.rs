@@ -305,15 +305,16 @@ pub(crate) fn help_section() -> help_dialog::HelpSection {
             help_dialog::HelpAction::new("block-level", "may not apply to this instance"),
             help_dialog::HelpAction::new(
                 "(state)",
-                "recorded in state at review start; unmarked links come from configuration",
+                "recorded in state at review start; others from config",
             ),
             help_dialog::HelpAction::new("!", "the row is listed under Differs across envs in [2]"),
             help_dialog::HelpAction::new("? unresolved", "a relationship could not be determined"),
             help_dialog::HelpAction::new("Grouped links", "may apply to only some members"),
             help_dialog::HelpAction::new(
                 "Scope",
-                "configuration references and recorded dependencies; not cause, impact, or execution order",
+                "configuration references and recorded dependencies",
             ),
+            help_dialog::HelpAction::new("Not shown", "cause, impact, or execution order"),
         ],
     )
 }

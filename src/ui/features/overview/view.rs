@@ -526,6 +526,14 @@ impl OverviewViewState {
         self.overlay_scroll.scroll_by(delta);
     }
 
+    pub(crate) fn scroll_overlay_left(&mut self) {
+        self.overlay_scroll.scroll_left();
+    }
+
+    pub(crate) fn scroll_overlay_right(&mut self) {
+        self.overlay_scroll.scroll_right();
+    }
+
     pub(crate) const fn overlay_top(&mut self) {
         self.overlay_scroll.top();
     }

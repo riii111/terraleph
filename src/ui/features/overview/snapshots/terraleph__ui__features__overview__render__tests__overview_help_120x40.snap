@@ -5,40 +5,40 @@ expression: text
 infra  ws:default  terraform loading...  /repo/infra
 ✓ Ready  ~2 update  Repeated: 2
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-┌* ┌Help────────────────────────────────────────────────────────────────────────────────────────────────────────────┐──┐
-│  │ Navigation                                                                                                     │  │
-│Ot│ 2 / 3              focus Changes · infra / Relations                                                           │  │
-│  │ ↑ / ↓ / j / k      select a Changes row or scroll Relations                                                    │  │
-│  │ ← / → / h / l      scroll Changes or Relations horizontally                                                    │  │
-│  │ PgUp / PgDn        move one page                                                                               │  │
-│  │ Home / End / g / G go to the top or bottom                                                                     │  │
-│  │ f                  maximize or restore [2] Changes · infra / [3] Relations                                     │  │
-│  │                                                                                                                │  │
-│  │ Review                                                                                                         │  │
-│  │ ✓ Ready            plan acquisition completed; review and apply safety are separate                            │  │
-│  │ Enter              open the selected raw block                                                                 │  │
-│  │ /                  filter Changes full addresses                                                               │  │
-└──│ Space              expand or collapse only on ▸/▾ group rows                                                   │──┘
-┌  │ [unknown values]   known changes and unknown paths match; final values may differ                              │──┐
-│Li│ v                  show the full plan from the top                                                             │  │
-│  │                                                                                                                │  │
-│  │ Actions                                                                                                        │  │
-│? │ y                  copy the full plan                                                                          │  │
-│  │ c                  show execution context                                                                      │  │
-│  │                                                                                                                │  │
-│  │ Relations                                                                                                      │  │
-│  │ A ──> B            B uses A                                                                                    │  │
-│  │ block-level        may not apply to this instance                                                              │  │
-│  │ (state)            recorded in state at review start; unmarked links come from configuration                   │  │
-│  │ !                  the row is listed under Differs across envs in [2]                                          │  │
-│  │ ? unresolved       a relationship could not be determined                                                      │  │
-│  │ Grouped links      may apply to only some members                                                              │  │
-│  │ Scope              configuration references and recorded dependencies; not cause, impact, or execution order   │  │
-│  │                                                                                                                │  │
-│  │ Exit                                                                                                           │  │
-│  │ q                  quit                                                                                        │  │
-│  │ ?/Esc close                                                                                                    │  │
-│  └────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘  │
+┌* [2] Changes · infra─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  Change Address                                                                                                      │
+│Other changes: 1 ou┌Help──────────────────────────────────────────────────────────────────────────┐                   │
+│  ~ x2   ▸ terrafor│ Navigation                                                                 ▲ │                   │
+│                   │ 2 / 3              focus Changes · infra / Relations                       ┃ │                   │
+│                   │ ↑ / ↓ / j / k      select a Changes row or scroll Relations                ┃ │                   │
+│                   │ ← / → / h / l      scroll Changes or Relations horizontally                ┃ │                   │
+│                   │ PgUp / PgDn        move one page                                           ┃ │                   │
+│                   │ Home / End / g / G go to the top or bottom                                 ┃ │                   │
+│                   │ f                  maximize or restore [2] Changes · infra / [3] Relations ┃ │                   │
+│                   │                                                                            ┃ │                   │
+│                   │ Review                                                                     ┃ │                   │
+│                   │ ✓ Ready            plan acquired; not a judgment of apply safety           ┃ │                   │
+└───────────────────│ Enter              open the selected raw block                             ┃ │───────────────────┘
+┌  [3] Relations · w│ /                  filter Changes full addresses                           ┃ │───────────────────┐
+│Links unknown      │ Space              expand or collapse only on ▸/▾ group rows               ┃ │                   │
+│  ~ terraform_data.│ [unknown values]   known changes match; unknown values may still differ    ┃ │                   │
+│                   │ v                  show the full plan from the top                         ┃ │                   │
+│? unresolved means │                                                                            ┃ │                   │
+│                   │ Actions                                                                    ┃ │                   │
+│                   │ y                  copy the full plan                                      ┃ │                   │
+│                   │ c                  show execution context                                  ┃ │                   │
+│                   │                                                                            ┃ │                   │
+│                   │ Relations                                                                  ┃ │                   │
+│                   │ A ──> B            B uses A                                                ┃ │                   │
+│                   │ block-level        may not apply to this instance                          │ │                   │
+│                   │ (state)            recorded in state at review start; others from config   │ │                   │
+│                   │ !                  the row is listed under Differs across envs in [2]      │ │                   │
+│                   │ ? unresolved       a relationship could not be determined                  │ │                   │
+│                   │ Grouped links      may apply to only some members                          ▼ │                   │
+│                   │ ?/Esc close                                                                  │                   │
+│                   └──────────────────────────────────────────────────────────────────────────────┘                   │
+│                                                                                                                      │
+│                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 / filter | Enter open raw | v full plan | 2/3 focus | f maximize | ? help | q quit

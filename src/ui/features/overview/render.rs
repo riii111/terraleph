@@ -601,7 +601,7 @@ fn render_overlay(
                     vec![
                         help_dialog::HelpAction::new(
                             "✓ Ready",
-                            "plan acquisition completed; review and apply safety are separate",
+                            "plan acquired; not a judgment of apply safety",
                         ),
                         help_dialog::HelpAction::new("Enter", "open the selected raw block"),
                         help_dialog::HelpAction::new("/", "filter Changes full addresses"),
@@ -611,7 +611,7 @@ fn render_overlay(
                         ),
                         help_dialog::HelpAction::new(
                             "[unknown values]",
-                            "known changes and unknown paths match; final values may differ",
+                            "known changes match; unknown values may still differ",
                         ),
                         help_dialog::HelpAction::new("v", "show the full plan from the top"),
                     ],

@@ -289,19 +289,15 @@ mod help {
             let text = buffer_text(&buffer);
             assert!(text.contains("Help"), "{width}x{height}: {text}");
             assert!(text.contains("Current"), "{width}x{height}: {text}");
-            if height <= 24 {
-                assert!(text.contains("↑ / ↓ / j / k"), "{width}x{height}: {text}");
-            } else {
-                assert!(text.contains("Comparison"), "{width}x{height}: {text}");
-            }
+            assert!(text.contains("↑ / ↓ / j / k"), "{width}x{height}: {text}");
             if (width, height) == (80, 24) {
                 let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
                 assert!(text.contains("focus Compare"));
                 assert!(!text.contains("1 / 2"));
-                assert!(!text.contains("include or exclude"));
+                assert!(!text.contains("include an environment"));
                 assert!(!text.contains("toggle the Envs sidebar"));
                 assert!(!text.contains("Tab"));
-                assert!(normalized.contains("expand or collapse the selected group"));
+                assert!(normalized.contains("expand or collapse a group in [2]"));
                 assert!(!text.contains("environment filter"));
             }
             assert!(text.contains("Esc"), "{width}x{height}: {text}");
@@ -334,9 +330,11 @@ mod help {
         let wide = render_text(&mut view, &state, (160, 60));
         assert!(wide.contains("environment"), "{wide}");
         assert!(
-            wide.contains("compare only the selected environment / all environments"),
+            wide.contains("compare the selected / all environments"),
             "{wide}"
         );
+        view.dialog_scroll.bottom();
+        let wide = render_text(&mut view, &state, (160, 60));
         for explanation in [
             "A ──> B",
             "review start",
@@ -382,6 +380,7 @@ mod help {
         assert!(view.dialog.is_some());
         assert_eq!(view.dialog_scroll.offset_for_test(), 0);
         assert_eq!(view.focus, EnvironmentPane::Matrix);
+        assert!(view.dialog_scroll.column_for_test() > 0);
         handle_key_code(&mut view, KeyCode::Down, size, &state);
         assert_eq!(view.dialog_scroll.offset_for_test(), 1);
         handle_key_code(&mut view, KeyCode::Char('j'), size, &state);
@@ -413,9 +412,12 @@ mod help {
         let state = partial_session();
         let mut view = EnvironmentView::default();
         view.help();
-        view.dialog_scroll.bottom();
 
-        let text = render_text(&mut view, &state, (120, 60));
+        let mut text = String::new();
+        for _ in 0..8 {
+            text.push_str(&render_text(&mut view, &state, (120, 60)));
+            view.dialog_scroll.scroll_by(8);
+        }
         let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
 
         for marker in [
@@ -433,7 +435,7 @@ mod help {
             ".",
             "resource present, with no change",
             "action unknown",
-            "why: only in / not in",
+            "only in / not in",
             "some Ready plans",
             "not retried",
         ] {
@@ -461,7 +463,9 @@ mod help {
             assert!(compact.contains("[/]"), "{width}x{height}: {text}");
             assert!(compact.contains("next"), "{width}x{height}: {text}");
             assert!(compact.contains("previous"), "{width}x{height}: {text}");
-            assert!(compact.contains("environment"), "{width}x{height}: {text}");
+            if width >= 80 {
+                assert!(compact.contains("environment"), "{width}x{height}: {text}");
+            }
         }
     }
 
@@ -895,7 +899,7 @@ mod sidebar {
         assert!(help.contains("scroll [3]"), "{help}");
         assert!(help.contains("scroll columns in [2] or [3]"), "{help}");
         assert!(
-            help.contains("[3] opens the plan from the top; [2] opens the selected source"),
+            help.contains("[2] opens the selected source; [3] the plan top"),
             "{help}"
         );
         assert!(!help.contains("[1] or [3] opens"), "{help}");

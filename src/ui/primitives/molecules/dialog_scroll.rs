@@ -1,12 +1,17 @@
 use std::cell::Cell;
 
+const COLUMN_STEP: u16 = 4;
+
 // The limit comes from the last render because only the dialog layout knows its wrapped height.
 // Relative moves start from the clamped offset, so End (u16::MAX) is followed by visible movement.
 // Before a render reports a limit, moves are not clamped.
+// Columns follow the same rule; dialogs that wrap never report a column limit above zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct DialogScroll {
     offset: u16,
     max: Cell<Option<u16>>,
+    column: u16,
+    max_column: Cell<Option<u16>>,
 }
 
 impl DialogScroll {
@@ -20,6 +25,15 @@ impl DialogScroll {
         self.offset = self.clamped(next);
     }
 
+    pub(crate) fn scroll_left(&mut self) {
+        self.column = self.clamped_column(self.column).saturating_sub(COLUMN_STEP);
+    }
+
+    pub(crate) fn scroll_right(&mut self) {
+        let next = self.clamped_column(self.column).saturating_add(COLUMN_STEP);
+        self.column = self.clamped_column(next);
+    }
+
     pub(crate) const fn top(&mut self) {
         self.offset = 0;
     }
@@ -31,6 +45,8 @@ impl DialogScroll {
     pub(crate) fn reset(&mut self) {
         self.offset = 0;
         self.max.set(None);
+        self.column = 0;
+        self.max_column.set(None);
     }
 
     pub(crate) fn clamp_for_render(&self, max: u16) -> u16 {
@@ -38,8 +54,17 @@ impl DialogScroll {
         self.offset.min(max)
     }
 
+    pub(crate) fn clamp_column_for_render(&self, max: u16) -> u16 {
+        self.max_column.set(Some(max));
+        self.column.min(max)
+    }
+
     fn clamped(&self, offset: u16) -> u16 {
         self.max.get().map_or(offset, |max| offset.min(max))
+    }
+
+    fn clamped_column(&self, column: u16) -> u16 {
+        self.max_column.get().map_or(column, |max| column.min(max))
     }
 }
 
@@ -52,6 +77,10 @@ mod test_support {
     impl DialogScroll {
         pub(crate) const fn offset_for_test(&self) -> u16 {
             self.offset
+        }
+
+        pub(crate) const fn column_for_test(&self) -> u16 {
+            self.column
         }
     }
 }
@@ -82,5 +111,21 @@ mod tests {
         scroll.scroll_by(20);
 
         assert_eq!(scroll.offset, 20);
+    }
+
+    #[test]
+    fn columns_stop_at_the_rendered_limit_and_reset_with_the_dialog() {
+        let mut scroll = DialogScroll::default();
+        assert_eq!(scroll.clamp_column_for_render(5), 0);
+
+        scroll.scroll_right();
+        scroll.scroll_right();
+        assert_eq!(scroll.clamp_column_for_render(5), 5);
+
+        scroll.scroll_left();
+        assert_eq!(scroll.clamp_column_for_render(5), 1);
+
+        scroll.reset();
+        assert_eq!(scroll.clamp_column_for_render(5), 0);
     }
 }

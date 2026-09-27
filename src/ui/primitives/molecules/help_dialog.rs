@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-    widgets::{Block, Clear, Paragraph, Wrap},
+    style::Modifier,
+    text::{Line, Span},
+    widgets::{Block, Clear, Paragraph},
 };
 
 use crate::ui::{
@@ -15,11 +15,13 @@ use crate::ui::{
     theme,
 };
 
+const MAX_WIDTH: u16 = 80;
+const MAX_HEIGHT: u16 = 30;
 const MIN_WIDTH: u16 = 20;
 const MIN_HEIGHT: u16 = 6;
 const HORIZONTAL_PADDING: u16 = 1;
-const MIN_DESCRIPTION_WIDTH: u16 = 28;
-const STACKED_DESCRIPTION_INDENT: u16 = 2;
+// Borders, padding on both sides, and the vertical scrollbar column with its gap.
+const CHROME_WIDTH: u16 = 6;
 
 pub(crate) struct HelpAction {
     keys: &'static str,
@@ -46,26 +48,7 @@ impl HelpSection {
     }
 }
 
-#[derive(Clone, Copy)]
-struct ScrolledText<'a> {
-    line: usize,
-    height: usize,
-    scroll: usize,
-    x: u16,
-    width: u16,
-    text: &'a str,
-    style: Style,
-}
-
-#[derive(Clone, Copy)]
-struct ActionLayout {
-    content_width: u16,
-    key_width: u16,
-    description_x: u16,
-    description_width: u16,
-    stacked: bool,
-}
-
+// Rows never wrap so keys and descriptions stay aligned; wide rows scroll horizontally instead.
 pub(crate) fn render(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -73,7 +56,14 @@ pub(crate) fn render(
     sections: &[HelpSection],
     scroll: &DialogScroll,
 ) {
-    let width = dialog_width(area, sections);
+    let lines = help_lines(sections);
+    let content_width = lines.iter().map(Line::width).max().unwrap_or_default();
+    let width = area.width.saturating_sub(2).min(MAX_WIDTH).min(
+        u16::try_from(content_width)
+            .unwrap_or(u16::MAX)
+            .saturating_add(CHROME_WIDTH)
+            .max(MIN_WIDTH),
+    );
     if width < MIN_WIDTH || area.height < MIN_HEIGHT {
         terminal_notice::render_wrapped(frame, area, "Terminal too small. Resize or press Esc.");
         return;
@@ -81,18 +71,25 @@ pub(crate) fn render(
 
     dim_background(frame, area);
 
-    let action_layout = action_layout(sections, width, area.width);
-    let content_height = content_height(sections, action_layout);
+    let viewport_width = width.saturating_sub(CHROME_WIDTH);
+    let overflows = content_width > usize::from(viewport_width);
     let inner_width = width.saturating_sub(2);
     let footer_width = inner_width.saturating_sub(HORIZONTAL_PADDING.saturating_mul(2));
-    let footer_lines = footer::layout(vec![footer::hint(&["?", "Esc"], "close")], footer_width);
-    let available_height = area.height.saturating_sub(2);
+    let mut hints = Vec::new();
+    if overflows {
+        hints.push(footer::hint(&["←", "→"], "scroll"));
+    }
+    hints.push(footer::hint(&["?", "Esc"], "close"));
+    let footer_lines = footer::layout(hints, footer_width);
     let footer_height = u16::try_from(footer_lines.len()).unwrap_or(u16::MAX);
-    let height = u16::try_from(content_height)
+    let horizontal_bar_height = u16::from(overflows);
+    let height = u16::try_from(lines.len())
         .unwrap_or(u16::MAX)
         .saturating_add(2)
+        .saturating_add(horizontal_bar_height)
         .saturating_add(footer_height)
-        .min(available_height);
+        .min(MAX_HEIGHT)
+        .min(area.height.saturating_sub(2));
     let dialog = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -111,14 +108,11 @@ pub(crate) fn render(
     let content = Rect::new(
         inner.x.saturating_add(HORIZONTAL_PADDING),
         inner.y,
-        action_layout.content_width,
-        inner.height.saturating_sub(footer_height),
-    );
-    let scrollbar_area = Rect::new(
-        content.right().saturating_add(1),
-        content.y,
-        1,
-        content.height,
+        viewport_width,
+        inner
+            .height
+            .saturating_sub(footer_height)
+            .saturating_sub(horizontal_bar_height),
     );
     let footer_area = Rect::new(
         inner.x.saturating_add(HORIZONTAL_PADDING),
@@ -126,87 +120,69 @@ pub(crate) fn render(
         footer_width,
         footer_height,
     );
-    let max_scroll = content_height.saturating_sub(usize::from(content.height));
-    let scroll =
-        usize::from(scroll.clamp_for_render(u16::try_from(max_scroll).unwrap_or(u16::MAX)));
-    render_sections(frame, content, sections, action_layout, scroll);
+    let max_row = lines.len().saturating_sub(usize::from(content.height));
+    let max_column = content_width.saturating_sub(usize::from(content.width));
+    let row = scroll.clamp_for_render(u16::try_from(max_row).unwrap_or(u16::MAX));
+    let column = scroll.clamp_column_for_render(u16::try_from(max_column).unwrap_or(u16::MAX));
+    let total_rows = lines.len();
+    frame.render_widget(
+        Paragraph::new(lines)
+            .style(theme::body_style())
+            .scroll((row, column)),
+        content,
+    );
     if content.height > 0 {
         scrollbar::render_vertical(
             frame,
-            scrollbar_area,
-            content_height,
+            Rect::new(
+                content.right().saturating_add(1),
+                content.y,
+                1,
+                content.height,
+            ),
+            total_rows,
             usize::from(content.height),
-            scroll,
+            usize::from(row),
+        );
+    }
+    if overflows {
+        scrollbar::render_horizontal(
+            frame,
+            Rect::new(content.x, content.bottom(), content.width, 1),
+            content_width,
+            usize::from(content.width),
+            usize::from(column),
         );
     }
     footer::render(frame, footer_area, &footer_lines, None);
 }
 
-fn dialog_width(area: Rect, sections: &[HelpSection]) -> u16 {
-    area.width
-        .saturating_sub(2)
-        .min(required_dialog_width(sections))
-}
-
-fn action_layout(sections: &[HelpSection], dialog_width: u16, terminal_width: u16) -> ActionLayout {
-    let content_width = dialog_width.saturating_sub(6);
-    let key_width = key_column_width(sections);
-    let available_content_width = terminal_width.saturating_sub(8);
-    let stacked = key_width > 0
-        && available_content_width
-            < key_width
-                .saturating_add(1)
-                .saturating_add(MIN_DESCRIPTION_WIDTH);
-    let description_x = if stacked {
-        STACKED_DESCRIPTION_INDENT
-    } else {
-        key_width.saturating_add(u16::from(key_width > 0))
-    };
-    let description_width = content_width.saturating_sub(description_x).max(1);
-
-    ActionLayout {
-        content_width,
-        key_width,
-        description_x,
-        description_width,
-        stacked,
+fn help_lines(sections: &[HelpSection]) -> Vec<Line<'_>> {
+    let key_width = sections
+        .iter()
+        .flat_map(|section| &section.actions)
+        .map(|action| Line::from(action.keys).width())
+        .max()
+        .unwrap_or_default();
+    let mut lines = Vec::new();
+    for (index, section) in sections.iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::default());
+        }
+        lines.push(Line::styled(
+            section.title,
+            theme::accent_style().add_modifier(Modifier::BOLD),
+        ));
+        for action in &section.actions {
+            let padding = key_width.saturating_sub(Line::from(action.keys).width()) + 1;
+            lines.push(Line::from(vec![
+                Span::styled(action.keys, theme::accent_style()),
+                Span::raw(" ".repeat(padding)),
+                Span::raw(action.description.as_str()),
+            ]));
+        }
     }
-}
-
-fn required_content_width(sections: &[HelpSection]) -> u16 {
-    let key_width = key_column_width(sections);
-    let description_width = max_description_width(sections);
-    let column_width = key_width
-        .saturating_add(u16::from(key_width > 0))
-        .saturating_add(description_width);
-    sections
-        .iter()
-        .flat_map(|section| &section.actions)
-        .map(|action| line_width(&action.description))
-        .fold(column_width, u16::max)
-}
-
-fn key_column_width(sections: &[HelpSection]) -> u16 {
-    sections
-        .iter()
-        .flat_map(|section| &section.actions)
-        .filter(|action| !action.keys.is_empty())
-        .map(|action| line_width(action.keys))
-        .max()
-        .unwrap_or_default()
-}
-
-fn max_description_width(sections: &[HelpSection]) -> u16 {
-    sections
-        .iter()
-        .flat_map(|section| &section.actions)
-        .map(|action| line_width(&action.description))
-        .max()
-        .unwrap_or_default()
-}
-
-fn line_width(text: &str) -> u16 {
-    u16::try_from(Line::from(text).width()).unwrap_or(u16::MAX)
+    lines
 }
 
 fn dim_background(frame: &mut Frame<'_>, area: Rect) {
@@ -219,191 +195,14 @@ fn dim_background(frame: &mut Frame<'_>, area: Rect) {
     }
 }
 
-fn required_dialog_width(sections: &[HelpSection]) -> u16 {
-    required_content_width(sections)
-        .saturating_add(6)
-        .max(MIN_WIDTH)
-}
-
-fn content_height(sections: &[HelpSection], layout: ActionLayout) -> usize {
-    let mut height = 0;
-    for (section_index, section) in sections.iter().enumerate() {
-        if section_index > 0 {
-            height += 1;
-        }
-        height += 1;
-        for action in &section.actions {
-            let row_height = row_height(action, layout);
-            height += row_height;
-        }
-    }
-    height
-}
-
-fn row_height(action: &HelpAction, layout: ActionLayout) -> usize {
-    if action.keys.is_empty() {
-        return wrapped_lines(&action.description, layout.content_width);
-    }
-    if layout.stacked {
-        return wrapped_lines(action.keys, layout.content_width)
-            .saturating_add(wrapped_lines(&action.description, layout.description_width));
-    }
-    wrapped_lines(action.keys, layout.key_width)
-        .max(wrapped_lines(&action.description, layout.description_width))
-}
-
-fn wrapped_lines(text: &str, width: u16) -> usize {
-    Paragraph::new(text)
-        .wrap(Wrap { trim: false })
-        .line_count(width.max(1))
-        .max(1)
-}
-
-fn render_sections(
-    frame: &mut Frame<'_>,
-    viewport: Rect,
-    sections: &[HelpSection],
-    layout: ActionLayout,
-    scroll: usize,
-) {
-    let mut line = 0;
-    for (section_index, section) in sections.iter().enumerate() {
-        if section_index > 0 {
-            line += 1;
-        }
-        render_scrolled_text(
-            frame,
-            viewport,
-            ScrolledText {
-                line,
-                height: 1,
-                scroll,
-                x: viewport.x,
-                width: viewport.width,
-                text: section.title,
-                style: theme::accent_style().add_modifier(Modifier::BOLD),
-            },
-        );
-        line += 1;
-
-        for action in &section.actions {
-            let height = row_height(action, layout);
-            if action.keys.is_empty() {
-                render_scrolled_text(
-                    frame,
-                    viewport,
-                    ScrolledText {
-                        line,
-                        height,
-                        scroll,
-                        x: viewport.x,
-                        width: layout.content_width,
-                        text: &action.description,
-                        style: theme::body_style(),
-                    },
-                );
-            } else if layout.stacked {
-                let key_height = wrapped_lines(action.keys, layout.content_width);
-                render_scrolled_text(
-                    frame,
-                    viewport,
-                    ScrolledText {
-                        line,
-                        height: key_height,
-                        scroll,
-                        x: viewport.x,
-                        width: layout.content_width,
-                        text: action.keys,
-                        style: theme::accent_style(),
-                    },
-                );
-                render_scrolled_text(
-                    frame,
-                    viewport,
-                    ScrolledText {
-                        line: line.saturating_add(key_height),
-                        height: height.saturating_sub(key_height),
-                        scroll,
-                        x: viewport.x.saturating_add(layout.description_x),
-                        width: layout.description_width,
-                        text: &action.description,
-                        style: theme::body_style(),
-                    },
-                );
-            } else {
-                render_scrolled_text(
-                    frame,
-                    viewport,
-                    ScrolledText {
-                        line,
-                        height,
-                        scroll,
-                        x: viewport.x,
-                        width: layout.key_width,
-                        text: action.keys,
-                        style: theme::accent_style(),
-                    },
-                );
-                render_scrolled_text(
-                    frame,
-                    viewport,
-                    ScrolledText {
-                        line,
-                        height,
-                        scroll,
-                        x: viewport.x.saturating_add(layout.description_x),
-                        width: layout.description_width,
-                        text: &action.description,
-                        style: theme::body_style(),
-                    },
-                );
-            }
-            line += height;
-        }
-    }
-}
-
-fn render_scrolled_text(frame: &mut Frame<'_>, viewport: Rect, text: ScrolledText<'_>) {
-    if text.width == 0 || text.height == 0 {
-        return;
-    }
-    let start = text.line.max(text.scroll);
-    let end = text
-        .line
-        .saturating_add(text.height)
-        .min(text.scroll.saturating_add(usize::from(viewport.height)));
-    if start >= end {
-        return;
-    }
-    let area = Rect::new(
-        text.x,
-        viewport
-            .y
-            .saturating_add(u16::try_from(start - text.scroll).unwrap_or(u16::MAX)),
-        text.width,
-        u16::try_from(end - start).unwrap_or(u16::MAX),
-    );
-    let skipped = u16::try_from(start - text.line).unwrap_or(u16::MAX);
-    frame.render_widget(
-        Paragraph::new(text.text)
-            .style(text.style)
-            .wrap(Wrap { trim: false })
-            .scroll((skipped, 0)),
-        area,
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use crate::ui::test_support::{buffer_text, render_to_buffer};
 
-    use super::{DialogScroll, HelpAction, HelpSection, render};
+    use super::{DialogScroll, HelpAction, HelpSection, MAX_HEIGHT, MAX_WIDTH, render};
 
-    #[test]
-    fn help_rows_stack_when_narrow_and_return_to_compact_columns_after_resize() {
-        let long_description =
-            "no differences detected between Ready plans; unknown values may differ";
-        let sections = [
+    fn sections(description: &str) -> [HelpSection; 2] {
+        [
             HelpSection::new(
                 "Overview",
                 vec![
@@ -413,64 +212,75 @@ mod tests {
             ),
             HelpSection::new(
                 "Comparison",
-                vec![HelpAction::new("Same changes", long_description)],
+                vec![HelpAction::new("Same changes", description)],
             ),
-        ];
+        ]
+    }
 
-        let narrow = buffer_text(&render_to_buffer((40, 24), |frame| {
-            render(
-                frame,
-                frame.area(),
-                "Help",
-                &sections,
-                &DialogScroll::default(),
-            );
-        }));
-        let key_line = narrow
-            .lines()
-            .position(|line| line.contains("Space"))
-            .expect("key row should be visible");
-        let description_line = narrow
-            .lines()
-            .position(|line| line.contains("toggle a selected"))
-            .expect("description row should be visible");
-        assert!(description_line > key_line);
+    fn render_text(size: (u16, u16), sections: &[HelpSection], scroll: &DialogScroll) -> String {
+        buffer_text(&render_to_buffer(size, |frame| {
+            render(frame, frame.area(), "Help", sections, scroll);
+        }))
+    }
 
-        let wide = buffer_text(&render_to_buffer((120, 40), |frame| {
-            render(
-                frame,
-                frame.area(),
-                "Help",
-                &sections,
-                &DialogScroll::default(),
-            );
-        }));
-        let lines = wide.lines().collect::<Vec<_>>();
-        let line_of = |text: &str| {
-            lines
+    #[test]
+    fn rows_keep_keys_and_descriptions_on_one_line_and_scroll_wide_rows_horizontally() {
+        let description = "no differences in Ready plans; unknown values may differ";
+        let sections = sections(description);
+        let mut scroll = DialogScroll::default();
+
+        let narrow = render_text((40, 24), &sections, &scroll);
+        let lines = narrow.lines().collect::<Vec<_>>();
+        let row = |key: &str| {
+            *lines
                 .iter()
-                .position(|line| line.contains(text))
-                .unwrap_or_else(|| panic!("{text} should be visible\n{wide}"))
+                .find(|line| line.contains(key))
+                .unwrap_or_else(|| panic!("{key} should be visible\n{narrow}"))
         };
-        let first_section = line_of("Overview");
-        assert!(
-            lines[first_section + 1].contains("Space")
-                && lines[first_section + 1].contains("toggle a selected"),
-            "{wide}"
+        assert!(row("Space").contains("toggle a"), "{narrow}");
+        assert!(row("Same changes").contains("no differ"), "{narrow}");
+        assert!(!narrow.contains("values may differ"), "{narrow}");
+        assert!(narrow.contains('◀'), "{narrow}");
+
+        for _ in 0..20 {
+            scroll.scroll_right();
+        }
+        let scrolled = render_text((40, 24), &sections, &scroll);
+        assert!(scrolled.contains("values may differ"), "{scrolled}");
+
+        let wide = render_text((120, 40), &sections, &DialogScroll::default());
+        assert!(wide.contains(description), "{wide}");
+        assert!(!wide.contains('◀'), "{wide}");
+    }
+
+    #[test]
+    fn dialog_size_stays_within_the_maximum_on_large_terminals() {
+        let long = "x".repeat(200);
+        let many = (0..100)
+            .map(|_| HelpAction::new("k", "row"))
+            .chain([HelpAction::new("wide", long)])
+            .collect();
+        let sections = [HelpSection::new("Keys", many)];
+
+        let text = render_text((200, 80), &sections, &DialogScroll::default());
+        let lines = text.lines().collect::<Vec<_>>();
+        let top = lines
+            .iter()
+            .position(|line| line.contains("┌Help"))
+            .expect("dialog top border");
+        let bottom = lines
+            .iter()
+            .rposition(|line| line.contains('└'))
+            .expect("dialog bottom border");
+        let top_line = lines[top].chars().collect::<Vec<_>>();
+        let left = top_line.iter().position(|&symbol| symbol == '┌');
+        let right = top_line.iter().rposition(|&symbol| symbol == '┐');
+
+        assert_eq!(bottom - top + 1, usize::from(MAX_HEIGHT), "{text}");
+        assert_eq!(
+            left.zip(right).map(|(left, right)| right - left + 1),
+            Some(usize::from(MAX_WIDTH)),
+            "{text}"
         );
-        assert!(lines[first_section + 2].contains("Enter"), "{wide}");
-        assert!(
-            lines[first_section + 3]
-                .chars()
-                .all(|symbol| symbol == ' ' || symbol == '│'),
-            "{wide}"
-        );
-        assert_eq!(line_of("Comparison"), first_section + 4, "{wide}");
-        assert!(
-            lines[first_section + 5].contains("Same changes")
-                && lines[first_section + 5].contains(long_description),
-            "{wide}"
-        );
-        assert_eq!(line_of("close"), first_section + 6, "{wide}");
     }
 }

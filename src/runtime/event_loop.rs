@@ -344,6 +344,8 @@ pub(super) fn handle_key_event<B: Backend>(
                 KeyCode::Down | KeyCode::Char('j') => confirmation_view.scroll_overlay(1),
                 KeyCode::PageUp => confirmation_view.scroll_overlay(-8),
                 KeyCode::PageDown => confirmation_view.scroll_overlay(8),
+                KeyCode::Left | KeyCode::Char('h') => confirmation_view.scroll_overlay_left(),
+                KeyCode::Right | KeyCode::Char('l') => confirmation_view.scroll_overlay_right(),
                 KeyCode::Home => confirmation_view.overlay_top(),
                 KeyCode::End => confirmation_view.overlay_bottom(),
                 _ => {}
@@ -387,6 +389,8 @@ pub(super) fn handle_key_event<B: Backend>(
             KeyCode::Down | KeyCode::Char('j') => review_view.scroll_overlay(1),
             KeyCode::PageUp => review_view.scroll_overlay(-8),
             KeyCode::PageDown => review_view.scroll_overlay(8),
+            KeyCode::Left | KeyCode::Char('h') => review_view.scroll_overlay_left(),
+            KeyCode::Right | KeyCode::Char('l') => review_view.scroll_overlay_right(),
             KeyCode::Home => review_view.overlay_top(),
             KeyCode::End => review_view.overlay_bottom(),
             _ => {}
@@ -454,6 +458,10 @@ fn handle_overview_key_event<B: Backend>(
             KeyCode::Down | KeyCode::Char('j') => review_view.overview_mut().scroll_overlay(1),
             KeyCode::PageUp => review_view.overview_mut().scroll_overlay(-8),
             KeyCode::PageDown => review_view.overview_mut().scroll_overlay(8),
+            KeyCode::Left | KeyCode::Char('h') => review_view.overview_mut().scroll_overlay_left(),
+            KeyCode::Right | KeyCode::Char('l') => {
+                review_view.overview_mut().scroll_overlay_right();
+            }
             KeyCode::Home => review_view.overview_mut().overlay_top(),
             KeyCode::End => review_view.overview_mut().overlay_bottom(),
             _ => {}

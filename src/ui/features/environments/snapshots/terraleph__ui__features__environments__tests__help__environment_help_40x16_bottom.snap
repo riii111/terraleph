@@ -4,17 +4,17 @@ expression: bottom_text
 ---
 terraleph ▸ a-ready            terraform
 a┌Help────────────────────────────────┐
-┌│   Differs across envs in [2]     ▲ │┐
-││ ? unresolved                     │ ││
-││   a relationship could not be    │ ││
-└│   determined                     │ │┘
-┌│ Grouped links                    │ │┐
-││   may apply to only some members │ ││
-││ Scope                            │ ││
-││   configuration references and   │ ││
-││   recorded dependencies; not     │ ││
-││   cause, impact, or execution    ┃ ││
-││   order                          ▼ ││
-└│ ?/Esc close                        │┘
+┌│                                  ▲ │┐
+││ Relations                        │ ││
+││ A ──> B            B uses A      │ ││
+└│ block-level        may not apply │ │┘
+┌│ (state)            recorded in s │ │┐
+││ !                  the row is li │ ││
+││ ? unresolved       a relationshi │ ││
+││ Grouped links      may apply to  ┃ ││
+││ Scope              configuration ┃ ││
+││ Not shown          cause, impact ▼ ││
+││ ◀︎═════════════─────────────────▶︎   ││
+└│ ←/→ scroll | ?/Esc close           │┘
 v└────────────────────────────────────┘
 f maximize | ? help | q quit

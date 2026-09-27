@@ -639,6 +639,18 @@ impl EnvironmentView {
                 }
                 KeyCode::PageUp => view.scroll_overlay(-8),
                 KeyCode::PageDown => view.scroll_overlay(8),
+                KeyCode::Left => view.scroll_overlay_left(),
+                KeyCode::Right => view.scroll_overlay_right(),
+                KeyCode::Char('h')
+                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
+                {
+                    view.scroll_overlay_left();
+                }
+                KeyCode::Char('l')
+                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
+                {
+                    view.scroll_overlay_right();
+                }
                 _ => {}
             }
             return None;
@@ -898,6 +910,12 @@ impl EnvironmentView {
             KeyCode::Down => self.dialog_scroll.scroll_by(1),
             KeyCode::PageUp => self.dialog_scroll.scroll_by(-4),
             KeyCode::PageDown => self.dialog_scroll.scroll_by(4),
+            KeyCode::Left | KeyCode::Char('h') if is_help => {
+                self.dialog_scroll.scroll_left();
+            }
+            KeyCode::Right | KeyCode::Char('l') if is_help => {
+                self.dialog_scroll.scroll_right();
+            }
             KeyCode::Char('q') => return self.quit(),
             _ => {}
         }

@@ -651,20 +651,18 @@ fn overview_help_sections(
             "select rows in [2] or scroll [3]"
         },
     )];
-    if sidebar_available {
-        current_actions.push(help_dialog::HelpAction::new(
-            "Space",
-            "include or exclude an environment in [1]",
-        ));
-    }
     current_actions.push(help_dialog::HelpAction::new(
         "Space",
-        "expand or collapse the selected group or Same change summary in [2]",
+        if sidebar_available {
+            "include an environment in [1]; expand a group in [2]"
+        } else {
+            "expand or collapse a group in [2]"
+        },
     ));
     if sidebar_available {
         current_actions.push(help_dialog::HelpAction::new(
             "o / a",
-            "compare only the selected environment / all environments in [1]",
+            "compare the selected / all environments in [1]",
         ));
     }
     if sidebar_enabled {
@@ -692,15 +690,12 @@ fn overview_help_sections(
         help_dialog::HelpAction::new(
             "Enter",
             if sidebar_available {
-                "[1] or [3] opens the plan from the top; [2] opens the selected source"
+                "[2] opens the selected source; [1] or [3] the plan top"
             } else {
-                "[3] opens the plan from the top; [2] opens the selected source"
+                "[2] opens the selected source; [3] the plan top"
             },
         ),
-        help_dialog::HelpAction::new(
-            "/",
-            "filter [2] addresses; [3] always shows the whole environment",
-        ),
+        help_dialog::HelpAction::new("/", "filter [2] addresses; [3] still shows everything"),
         help_dialog::HelpAction::new("r", "retry the selected Error environment"),
     ]);
     let current_title = if sidebar_enabled {
@@ -721,7 +716,7 @@ fn overview_help_sections(
 fn environment_status_help(multiple: bool) -> help_dialog::HelpSection {
     let mut actions = vec![help_dialog::HelpAction::new(
         "✓ Ready",
-        "plan acquisition completed; review and apply safety are separate",
+        "plan acquired; not a judgment of apply safety",
     )];
     if multiple {
         actions.extend([
@@ -738,13 +733,13 @@ fn other_overview_help(sidebar_available: bool) -> help_dialog::HelpSection {
         "Other",
         vec![
             help_dialog::HelpAction::new("← / → / h / l", "scroll columns in [2] or [3]"),
-            help_dialog::HelpAction::new("PageUp / PageDown", "move rows in [2] or scroll [3]"),
+            help_dialog::HelpAction::new("PgUp / PgDn", "move rows in [2] or scroll [3]"),
             help_dialog::HelpAction::new(
                 "Home / End / g / G",
                 if sidebar_available {
-                    "select first/last environment in [1] or row in [2]; scroll [3] to an edge"
+                    "first/last item in [1] or [2]; scroll [3] to an edge"
                 } else {
-                    "select first/last row in [2] or scroll [3] to an edge"
+                    "first/last row in [2]; scroll [3] to an edge"
                 },
             ),
             help_dialog::HelpAction::new("v", "open the full plan from the top"),
@@ -767,7 +762,7 @@ fn matrix_legend_help() -> help_dialog::HelpSection {
             help_dialog::HelpAction::new("?", "plan unavailable; action unknown"),
             help_dialog::HelpAction::new(
                 "[unknown values]",
-                "known changes and unknown paths match; final values may differ",
+                "known changes match; unknown values may still differ",
             ),
         ],
     )
@@ -779,11 +774,11 @@ fn comparison_help() -> help_dialog::HelpSection {
         vec![
             help_dialog::HelpAction::new(
                 "Same changes",
-                "no differences found in Ready plans; unknown values may differ",
+                "same in Ready plans; unknown values may differ",
             ),
             help_dialog::HelpAction::new(
                 "N patterns",
-                "counts collapsed [2] rows, not resources; instance counts differ when a group's size varies",
+                "counts [2] rows, not resources; group sizes may vary",
             ),
             help_dialog::HelpAction::new(
                 "Excluded",
@@ -791,8 +786,8 @@ fn comparison_help() -> help_dialog::HelpSection {
             ),
             help_dialog::HelpAction::new("Scope", "only Ready plans are compared"),
             help_dialog::HelpAction::new(
-                "why: only in / not in",
-                "resource is present in only some Ready plans",
+                "only in / not in",
+                "why column: present in only some Ready plans",
             ),
         ],
     )

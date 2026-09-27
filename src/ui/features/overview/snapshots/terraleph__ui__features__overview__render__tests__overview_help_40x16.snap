@@ -5,16 +5,16 @@ expression: text
 infra  ws:default  ...ng...  /repo/infra
 ✓┌Help────────────────────────────────┐
 ─│ Navigation                       ▲ │─
-┌│ 2 / 3                            ┃ │┐
-││   focus Changes · infra /        │ ││
-││   Relations                      │ ││
-└│ ↑ / ↓ / j / k                    │ │┘
-┌│   select a Changes row or scroll │ │┐
-││   Relations                      │ ││
-││ ← / → / h / l                    │ ││
-││   scroll Changes or Relations    │ ││
-││   horizontally                   │ ││
-└│ PgUp / PgDn                      ▼ │┘
-─│ ?/Esc close                        │─
+┌│ 2 / 3              focus Changes ┃ │┐
+││ ↑ / ↓ / j / k      select a Chan ┃ ││
+││ ← / → / h / l      scroll Change ┃ ││
+└│ PgUp / PgDn        move one page │ │┘
+┌│ Home / End / g / G go to the top │ │┐
+││ f                  maximize or r │ ││
+││                                  │ ││
+││ Review                           │ ││
+││ ✓ Ready            plan acquired ▼ ││
+└│ ◀︎═════════════─────────────────▶︎   │┘
+─│ ←/→ scroll | ?/Esc close           │─
 /└────────────────────────────────────┘
 2/3 focus | f maximize | ? help | q quit
