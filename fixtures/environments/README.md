@@ -22,6 +22,6 @@ Run the cloudless CLI acceptance with Terraform or OpenTofu after building:
 
 ```sh
 cargo build --locked
-python3 fixtures/environments/acceptance.py --binary target/debug/terracotta --tool terraform
-python3 fixtures/environments/acceptance.py --binary target/debug/terracotta --tool tofu
+python3 fixtures/environments/acceptance.py --binary target/debug/terraleph --tool terraform
+python3 fixtures/environments/acceptance.py --binary target/debug/terraleph --tool tofu
 ```

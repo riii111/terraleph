@@ -24,7 +24,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = env::temp_dir().join(format!(
-            "terracotta-delegation-{}-{}",
+            "terraleph-delegation-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -52,7 +52,7 @@ exit 37
         Self { directory, bin }
     }
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_terracotta"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_terraleph"));
         self.configure(&mut command);
         command
     }
@@ -75,7 +75,7 @@ exit 37
         command
             .arg("-c")
             .arg(include_str!("support/cli/delegation_pty.py"))
-            .arg(env!("CARGO_BIN_EXE_terracotta"));
+            .arg(env!("CARGO_BIN_EXE_terraleph"));
         self.configure(&mut command);
         command
     }
@@ -190,9 +190,9 @@ fn recursive_executable_is_rejected_before_launch(#[case] hard: bool) {
     let executable = fixture.bin.join("terraform");
     fs::remove_file(&executable).unwrap();
     if hard {
-        fs::hard_link(env!("CARGO_BIN_EXE_terracotta"), &executable).unwrap();
+        fs::hard_link(env!("CARGO_BIN_EXE_terraleph"), &executable).unwrap();
     } else {
-        symlink(env!("CARGO_BIN_EXE_terracotta"), &executable).unwrap();
+        symlink(env!("CARGO_BIN_EXE_terraleph"), &executable).unwrap();
     }
     let output = fixture
         .command()
@@ -200,7 +200,7 @@ fn recursive_executable_is_rejected_before_launch(#[case] hard: bool) {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Terracotta itself"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Terraleph itself"));
     assert!(!fixture.directory.join("argv").exists());
 }
 

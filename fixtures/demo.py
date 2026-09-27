@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Open a cloudless Terracotta demo.")
+    parser = argparse.ArgumentParser(description="Open a cloudless Terraleph demo.")
     parser.add_argument("mode", choices=("single", "multi"))
     return run_demo(parser.parse_args().mode)
 
@@ -25,7 +25,7 @@ def run_demo(mode):
 
     fixture = single_fixture if mode == "single" else multi_fixture
     print(
-        f"Starting Terracotta {mode} demo. Ctrl-C to cancel.",
+        f"Starting Terraleph {mode} demo. Ctrl-C to cancel.",
         file=sys.stderr,
         flush=True,
     )
@@ -45,7 +45,7 @@ def run_demo(mode):
         )
         environment.update({"CARGO_TARGET_DIR": str(target), "RUSTC_WRAPPER": ""})
         print(
-            f"[2/3] Building Terracotta (cache: {target})...",
+            f"[2/3] Building Terraleph (cache: {target})...",
             file=sys.stderr,
             flush=True,
         )
@@ -59,7 +59,7 @@ def run_demo(mode):
             return build.returncode
 
         executable = (
-            target / "debug" / ("terracotta.exe" if os.name == "nt" else "terracotta")
+            target / "debug" / ("terraleph.exe" if os.name == "nt" else "terraleph")
         )
         command = [str(executable)]
         if mode == "single":
@@ -90,7 +90,7 @@ def install_apply_delay(directory, environment):
     terraform = shutil.which("terraform")
     if terraform is None:
         raise RuntimeError("Required executable not found: terraform")
-    wrapper_directory = directory / ".terraform" / "terracotta-demo-bin"
+    wrapper_directory = directory / ".terraform" / "terraleph-demo-bin"
     wrapper_directory.mkdir(parents=True)
     wrapper = wrapper_directory / "terraform"
     wrapper.write_text(

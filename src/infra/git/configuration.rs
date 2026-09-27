@@ -439,14 +439,14 @@ mod tests {
     impl TestRepository {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
-                "terracotta-configuration-{}-{}",
+                "terraleph-configuration-{}-{}",
                 std::process::id(),
                 NEXT_REPOSITORY.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).expect("test repository should be created");
             git(&path, &["init", "--quiet", "--initial-branch=main"]);
             git(&path, &["config", "user.email", "test@example.com"]);
-            git(&path, &["config", "user.name", "Terracotta Test"]);
+            git(&path, &["config", "user.name", "Terraleph Test"]);
             Self { path }
         }
 

@@ -6,7 +6,7 @@ Run the single-environment TUI demo from the repository root:
 python3 fixtures/demo.py single
 ```
 
-The demo prepares a cloudless local `terraform_data` plan, builds Terracotta,
+The demo prepares a cloudless local `terraform_data` plan, builds Terraleph,
 and removes its temporary Git repository and state after the TUI exits.
 
 The fixture acceptance verifies the saved plan actions and Git changes, then

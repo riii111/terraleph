@@ -91,7 +91,7 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
-                "terracotta-discovery-{}-{}",
+                "terraleph-discovery-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));

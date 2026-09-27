@@ -1653,7 +1653,7 @@ mod tests {
                 );
             });
             let text = buffer_text(&buffer);
-            assert!(text.contains("Quit Terracotta?   [Enter] Quit   [Esc] Cancel"));
+            assert!(text.contains("Quit Terraleph?   [Enter] Quit   [Esc] Cancel"));
             assert!(!text.contains("q/Ctrl-C quit"));
 
             let narrow = render_to_buffer((32, 9), |frame| {
@@ -2460,7 +2460,7 @@ mod tests {
 
             assert_eq!(waiting.body(), normal.body());
             assert_eq!(waiting.max_vertical(), normal.max_vertical());
-            assert!(confirmation.contains("Quit Terracotta?   [Enter] Quit   [Esc] Cancel"));
+            assert!(confirmation.contains("Quit Terraleph?   [Enter] Quit   [Esc] Cancel"));
             assert!(!confirmation.contains("q/Ctrl-C quit"));
             assert!(copied.contains("Copied."));
             assert!(copied.contains("q/Ctrl-C quit"));

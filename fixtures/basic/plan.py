@@ -11,7 +11,7 @@ import tempfile
 
 
 FIXTURES = Path(__file__).resolve().parent
-MARKER = ".terracotta-basic-scenario"
+MARKER = ".terraleph-basic-scenario"
 EXPECTED_ACTIONS = {
     "terraform_data.api": ["update"],
     "terraform_data.worker": ["delete", "create"],
@@ -26,7 +26,7 @@ def setup(tool="terraform"):
         if shutil.which(executable) is None:
             raise RuntimeError(f"Required executable not found: {executable}")
 
-    directory = new_scenario("terracotta-basic-")
+    directory = new_scenario("terraleph-basic-")
     environment = isolated_environment(directory)
     try:
         apply_baseline(
@@ -122,7 +122,7 @@ def setup_group_expansion(tool="terraform"):
         if shutil.which(executable) is None:
             raise RuntimeError(f"Required executable not found: {executable}")
 
-    directory = new_scenario("terracotta-basic-group-")
+    directory = new_scenario("terraleph-basic-group-")
     environment = isolated_environment(directory)
     try:
         apply_baseline(
@@ -248,7 +248,7 @@ def commit(directory, environment, message):
         environment,
         "git",
         "-c",
-        "user.name=Terracotta Fixture",
+        "user.name=Terraleph Fixture",
         "-c",
         "user.email=fixture@example.invalid",
         "-c",
@@ -267,7 +267,7 @@ def clean(directory):
     directory = directory.resolve()
     marker = directory / MARKER
     if (
-        not directory.name.startswith("terracotta-basic-")
+        not directory.name.startswith("terraleph-basic-")
         or not marker.is_file()
         or marker.is_symlink()
         or marker.read_text() != str(directory) + "\n"

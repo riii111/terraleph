@@ -1,0 +1,28 @@
+---
+source: src/ui/features/environments/tests/matrix.rs
+expression: rendered
+---
+terraleph ▸ dev                                                        terraform
+dev ✓ Ready ~21  │  stg ✓ Ready ~200 1 replace  │  prod ✓ Ready ~20 -1
+┌* [2] Compare─────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│Address                            │ dev         stg         │ why            │
+│───────────────────────────────────┼─────────────────────────┼────────────────│
+│Differs across envs                                                           │
+│> terraform_data.api               │ ~           +/-         │ action         │
+│blank: absent   .: unchanged   ?: plan unavailable                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌  [3] Relations · dev · whole env─────────────────────────────────────────────┐
+│Links unknown                                                                 │
+│> ~ terraform_data.api ! ?  configuration not collected, state not collected  │
+│  ~ terraform_data.server[*] ×20 ?  configuration not collected, state not col│
+│                                                                              │
+│! differs across envs                                                         │
+│? unresolved means a relationship could not be determined                     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+Enter open selected row | v full plan | / filter | [/] env | 2/3 focus
+f maximize | ? help | q quit

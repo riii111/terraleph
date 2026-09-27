@@ -2500,7 +2500,7 @@ mod overlay {
             );
         });
         let text = buffer_text(&buffer);
-        assert!(text.contains("Quit Terracotta?   [Enter] Quit   [Esc] Cancel"));
+        assert!(text.contains("Quit Terraleph?   [Enter] Quit   [Esc] Cancel"));
         assert!(!text.contains("q quit"));
 
         let narrow = render_to_buffer((32, 9), |frame| {

@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-printf '%s\n' "$(basename "$0")" >> "$TERRACOTTA_FAKE_TOOL_LOG"
-printf '%s|%s\n' "$PWD" "$*" >> "$TERRACOTTA_FAKE_INVOCATIONS"
-printf 'TF_CLI_ARGS=%s\n' "${TF_CLI_ARGS-}" >> "$TERRACOTTA_FAKE_ENV_LOG"
-printf 'TF_CLI_ARGS_plan=%s\n' "${TF_CLI_ARGS_plan-}" >> "$TERRACOTTA_FAKE_ENV_LOG"
-printf 'TF_CLI_ARGS_apply=%s\n' "${TF_CLI_ARGS_apply-}" >> "$TERRACOTTA_FAKE_ENV_LOG"
+printf '%s\n' "$(basename "$0")" >> "$TERRALEPH_FAKE_TOOL_LOG"
+printf '%s|%s\n' "$PWD" "$*" >> "$TERRALEPH_FAKE_INVOCATIONS"
+printf 'TF_CLI_ARGS=%s\n' "${TF_CLI_ARGS-}" >> "$TERRALEPH_FAKE_ENV_LOG"
+printf 'TF_CLI_ARGS_plan=%s\n' "${TF_CLI_ARGS_plan-}" >> "$TERRALEPH_FAKE_ENV_LOG"
+printf 'TF_CLI_ARGS_apply=%s\n' "${TF_CLI_ARGS_apply-}" >> "$TERRALEPH_FAKE_ENV_LOG"
 
-case "${TERRACOTTA_FAKE_MODE:-}" in
+case "${TERRALEPH_FAKE_MODE:-}" in
   env_*)
     case "$1" in
       workspace)
@@ -22,7 +22,7 @@ case "${TERRACOTTA_FAKE_MODE:-}" in
         ;;
       plan)
         for argument in "$@"; do
-          case "$argument" in -out=*) printf '%s\n' "${argument#-out=}" >> "$TERRACOTTA_FAKE_PLAN_PATH.all" ;; esac
+          case "$argument" in -out=*) printf '%s\n' "${argument#-out=}" >> "$TERRALEPH_FAKE_PLAN_PATH.all" ;; esac
         done
         if [ -f warning-plan ]; then
           printf '%s\n' '{"type":"diagnostic","diagnostic":{"severity":"warning","summary":"synthetic plan warning","detail":"Review this provider warning"}}'
@@ -40,9 +40,9 @@ case "${TERRACOTTA_FAKE_MODE:-}" in
         fi
         if [ -f slow-plan ]; then
           for argument in "$@"; do
-            case "$argument" in -out=*) printf '%s\n' "${argument#-out=}" > "$TERRACOTTA_FAKE_PLAN_PATH" ;; esac
+            case "$argument" in -out=*) printf '%s\n' "${argument#-out=}" > "$TERRALEPH_FAKE_PLAN_PATH" ;; esac
           done
-          exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRACOTTA_FAKE_SIGNAL_LOG"], "a").write("plan_present=" + str(os.path.isfile(open(os.environ["TERRACOTTA_FAKE_PLAN_PATH"]).read().strip())) + "\n"), time.sleep(0.1), sys.exit(130))); open(os.environ["TERRACOTTA_FAKE_PID_PATH"], "w").write(str(os.getpid())); exec("while not os.path.isfile(\"release-plan\"):\n time.sleep(0.1)"); sys.exit(2)'
+          exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRALEPH_FAKE_SIGNAL_LOG"], "a").write("plan_present=" + str(os.path.isfile(open(os.environ["TERRALEPH_FAKE_PLAN_PATH"]).read().strip())) + "\n"), time.sleep(0.1), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(str(os.getpid())); exec("while not os.path.isfile(\"release-plan\"):\n time.sleep(0.1)"); sys.exit(2)'
         fi
         ;;
     esac
@@ -56,16 +56,16 @@ case "$1" in
   init)
     printf 'Initializing the backend...\n'
     printf 'Initializing provider plugins...\n' >&2
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = init_failure ]; then
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = init_failure ]; then
       printf 'synthetic init failure\n' >&2
       exit 1
     fi
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = diagnostic_success ]; then
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = diagnostic_success ]; then
       printf '╷\n│ Warning: synthetic init warning\n│\n│ fake Terraform initialized with a warning\n╵\n' >&2
     fi
     ;;
   workspace)
-    printf '%s\n' "${TERRACOTTA_FAKE_WORKSPACE:-default}"
+    printf '%s\n' "${TERRALEPH_FAKE_WORKSPACE:-default}"
     ;;
   plan)
     plan_path=''
@@ -82,20 +82,20 @@ case "$1" in
           ;;
       esac
     done
-    printf '%s\n' "$plan_path" > "$TERRACOTTA_FAKE_PLAN_PATH"
+    printf '%s\n' "$plan_path" > "$TERRALEPH_FAKE_PLAN_PATH"
     : > "$plan_path"
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = interrupt ]; then
-      exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRACOTTA_FAKE_SIGNAL_LOG"], "a").write("SIGINT\n"), time.sleep(1), sys.exit(130))); open(os.environ["TERRACOTTA_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); time.sleep(30)'
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = interrupt ]; then
+      exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRALEPH_FAKE_SIGNAL_LOG"], "a").write("SIGINT\n"), time.sleep(1), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); time.sleep(30)'
     fi
-    printf '%s\n' "$$" > "$TERRACOTTA_FAKE_PID_PATH"
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = failure ]; then
+    printf '%s\n' "$$" > "$TERRALEPH_FAKE_PID_PATH"
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = failure ]; then
       printf '%s\n' '{"type":"diagnostic","diagnostic":{"severity":"error","summary":"synthetic plan failure","detail":"fake Terraform failed"}}'
       exit 1
     fi
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = diagnostic_success ]; then
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = diagnostic_success ]; then
       printf '%s\n' '{"type":"diagnostic","diagnostic":{"severity":"warning","summary":"synthetic plan warning","detail":"fake Terraform completed with a warning"}}'
     fi
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = no_changes ]; then
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = no_changes ]; then
       exit 0
     fi
     printf '%s\n' '{"type":"planned_change","change":{"resource":{"addr":"terraform_data.api"}}}'
@@ -110,11 +110,11 @@ case "$1" in
     done
     test -n "$plan_path"
     test -f "$plan_path"
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = apply_interrupt ]; then
-      exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (print("Stopping apply", flush=True), time.sleep(1), sys.exit(130))); open(os.environ["TERRACOTTA_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); print("{\"type\":\"apply_start\",\"@message\":\"Applying saved plan...\",\"hook\":{\"resource\":{\"addr\":\"terraform_data.api\"},\"action\":\"update\"}}", flush=True); time.sleep(30)'
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = apply_interrupt ]; then
+      exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (print("Stopping apply", flush=True), time.sleep(1), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); print("{\"type\":\"apply_start\",\"@message\":\"Applying saved plan...\",\"hook\":{\"resource\":{\"addr\":\"terraform_data.api\"},\"action\":\"update\"}}", flush=True); time.sleep(30)'
     fi
-    printf '%s\n' "$$" > "$TERRACOTTA_FAKE_PID_PATH"
-    if [ "${TERRACOTTA_FAKE_MODE:-success}" = apply_failure ]; then
+    printf '%s\n' "$$" > "$TERRALEPH_FAKE_PID_PATH"
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = apply_failure ]; then
       sleep 1
       printf '%s\n' '{"type":"apply_start","@message":"Applying saved plan...","hook":{"resource":{"addr":"terraform_data.api"},"action":"update"}}'
       printf '%s\n' '{"type":"diagnostic","@level":"error","diagnostic":{"severity":"error","summary":"synthetic apply failure","detail":"Changes may already be applied. must-not-be-logged","address":"terraform_data.api"}}'
@@ -130,19 +130,19 @@ case "$1" in
     exit 0
     ;;
   show)
-    case "${TERRACOTTA_FAKE_MODE:-}" in env_*) printf "%s|%s\n" "$PWD" "$*" >> "$TERRACOTTA_FAKE_PLAN_PATH.shows" ;; esac
+    case "${TERRALEPH_FAKE_MODE:-}" in env_*) printf "%s|%s\n" "$PWD" "$*" >> "$TERRALEPH_FAKE_PLAN_PATH.shows" ;; esac
     if [ "$2" = -json ]; then
       if [ -f invalid-show ]; then printf '%s\n' '{"format_version":"99.0"}'; exit 0; fi
-      if [ "${TERRACOTTA_FAKE_MODE:-success}" = no_changes ]; then
+      if [ "${TERRALEPH_FAKE_MODE:-success}" = no_changes ]; then
         printf '%s\n' '{"format_version":"1.0","applyable":false}'
       else
-        cat "$TERRACOTTA_FAKE_SHOW_JSON"
+        cat "$TERRALEPH_FAKE_SHOW_JSON"
       fi
     else
-      if [ "${TERRACOTTA_FAKE_MODE:-success}" = no_changes ]; then
+      if [ "${TERRALEPH_FAKE_MODE:-success}" = no_changes ]; then
         printf '%s\n' 'No changes. Your infrastructure matches the configuration.'
       else
-        cat "$TERRACOTTA_FAKE_SHOW_TEXT"
+        cat "$TERRALEPH_FAKE_SHOW_TEXT"
       fi
     fi
     ;;

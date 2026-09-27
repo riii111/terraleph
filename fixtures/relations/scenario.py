@@ -70,7 +70,7 @@ def require(condition: bool, message: str) -> None:
 
 def verify(tool: str) -> str:
     version = json.loads(run(tool, Path.cwd(), "version", "-json"))["terraform_version"]
-    with tempfile.TemporaryDirectory(prefix="terracotta-relations-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="terraleph-relations-") as temporary:
         root = Path(temporary)
         shutil.copytree(FIXTURE_ROOT, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns("scenario.py", "README.md"))
 
