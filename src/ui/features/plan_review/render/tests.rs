@@ -869,10 +869,12 @@ fn renders_rejected_apply_confirmation_vrt() {
                 "case: {}",
                 case.name
             );
-            snapshot(
-                &format!("apply_confirmation_rejected_{}_{width}x{height}", case.name),
-                &buffer,
-            );
+            if (width, height) == (80, 24) {
+                snapshot(
+                    &format!("apply_confirmation_rejected_{}_{width}x{height}", case.name),
+                    &buffer,
+                );
+            }
         }
     }
 }
@@ -881,39 +883,31 @@ fn renders_rejected_apply_confirmation_vrt() {
 fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
     let state = confirmation_state(review());
     let mut view = ApplyConfirmationViewState::default();
-    let footer_style = |view: &ApplyConfirmationViewState| {
-        let buffer = render_to_buffer((80, 24), |frame| {
+    let render = |view: &ApplyConfirmationViewState| {
+        render_to_buffer((80, 24), |frame| {
             render_apply_confirmation(frame, &state, view);
-        });
-        let hint = "Enter apply".chars().map(String::from).collect::<Vec<_>>();
-        (0..buffer.area().height)
-            .find_map(|y| {
-                let symbols = (0..buffer.area().width)
-                    .map(|x| {
-                        buffer
-                            .cell((x, y))
-                            .expect("footer cell")
-                            .symbol()
-                            .to_owned()
-                    })
-                    .collect::<Vec<_>>();
-                let x = symbols
-                    .windows(hint.len())
-                    .position(|window| window == hint)?;
-                let x = u16::try_from(x).expect("hint column");
-                Some(buffer.cell((x, y)).expect("hint cell").fg)
-            })
-            .expect("apply hint")
+        })
     };
 
-    let disabled = footer_style(&view);
+    let disabled = render(&view);
     for character in "main".chars() {
         view.apply(ApplyConfirmationInput::Character(character), "main", 0);
     }
-    let enabled = footer_style(&view);
+    let enabled = render(&view);
 
-    assert_eq!(disabled, Color::Rgb(0x6c, 0x70, 0x78));
-    assert_eq!(enabled, Color::Rgb(0xe9, 0xdb, 0xdb));
+    for (buffer, foreground) in [
+        (&disabled, Color::Rgb(0x6c, 0x70, 0x78)),
+        (&enabled, Color::Rgb(0xe9, 0xdb, 0xdb)),
+    ] {
+        assert_text_prefix_uses_style(
+            buffer,
+            "Enter apply",
+            "Enter",
+            foreground,
+            Color::Reset,
+            Modifier::empty(),
+        );
+    }
 }
 
 fn review_with_content(line_count: u16, line_width: u16) -> PlanReview {

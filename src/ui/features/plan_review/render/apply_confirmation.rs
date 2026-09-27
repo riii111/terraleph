@@ -436,12 +436,6 @@ fn confirmation_warning(review: &PlanReview) -> Option<Line<'static>> {
 }
 
 fn confirmation_instruction(expected: &str) -> Line<'static> {
-    if expected.is_empty() {
-        return Line::from(Span::styled(
-            "Loading the target name to confirm...",
-            theme::secondary_style(),
-        ));
-    }
     let text = theme::body_style().add_modifier(Modifier::BOLD);
     Line::from(vec![
         Span::styled("To confirm, type ", text),
