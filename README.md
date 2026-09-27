@@ -49,4 +49,4 @@ alias tofu='terraleph tofu'
 
 ---
 
-P.S. On the day this tool got its name, I drank an Ethiopian coffee made from Heleph beans, and it put me completely at ease. "Heleph" is said to mean *change* or *transition*, which is exactly what a Terraform plan is: a list of changes about to happen. Terraleph is named for that: a place to read those changes at ease.
+P.S. The day I named this tool, I had an Ethiopian coffee made from Heleph beans, and it really calmed me down. Later I found out "Heleph" means something like *change*. A Terraform plan is basically a list of changes, so the name just stuck.
