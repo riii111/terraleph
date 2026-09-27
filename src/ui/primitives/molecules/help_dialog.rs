@@ -64,13 +64,6 @@ pub(crate) fn render(
             .saturating_add(CHROME_WIDTH)
             .max(MIN_WIDTH),
     );
-    if width < MIN_WIDTH || area.height < MIN_HEIGHT {
-        terminal_notice::render_wrapped(frame, area, "Terminal too small. Resize or press Esc.");
-        return;
-    }
-
-    dim_background(frame, area);
-
     let viewport_width = width.saturating_sub(CHROME_WIDTH);
     let overflows = content_width > usize::from(viewport_width);
     let inner_width = width.saturating_sub(2);
@@ -90,6 +83,17 @@ pub(crate) fn render(
         .saturating_add(footer_height)
         .min(MAX_HEIGHT)
         .min(area.height.saturating_sub(2));
+    let body_height = height
+        .saturating_sub(2)
+        .saturating_sub(footer_height)
+        .saturating_sub(horizontal_bar_height);
+    if width < MIN_WIDTH || area.height < MIN_HEIGHT || body_height == 0 {
+        terminal_notice::render_wrapped(frame, area, "Terminal too small. Resize or press Esc.");
+        return;
+    }
+
+    dim_background(frame, area);
+
     let dialog = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -109,10 +113,7 @@ pub(crate) fn render(
         inner.x.saturating_add(HORIZONTAL_PADDING),
         inner.y,
         viewport_width,
-        inner
-            .height
-            .saturating_sub(footer_height)
-            .saturating_sub(horizontal_bar_height),
+        body_height,
     );
     let footer_area = Rect::new(
         inner.x.saturating_add(HORIZONTAL_PADDING),
@@ -201,8 +202,16 @@ mod tests {
 
     use super::{DialogScroll, HelpAction, HelpSection, MAX_HEIGHT, MAX_WIDTH, render};
 
-    fn sections(description: &str) -> [HelpSection; 2] {
-        [
+    fn render_text(size: (u16, u16), sections: &[HelpSection], scroll: &DialogScroll) -> String {
+        buffer_text(&render_to_buffer(size, |frame| {
+            render(frame, frame.area(), "Help", sections, scroll);
+        }))
+    }
+
+    #[test]
+    fn rows_keep_keys_and_descriptions_on_one_line_and_scroll_wide_rows_horizontally() {
+        let description = "no differences in Ready plans; unknown values may differ";
+        let sections = [
             HelpSection::new(
                 "Overview",
                 vec![
@@ -214,19 +223,7 @@ mod tests {
                 "Comparison",
                 vec![HelpAction::new("Same changes", description)],
             ),
-        ]
-    }
-
-    fn render_text(size: (u16, u16), sections: &[HelpSection], scroll: &DialogScroll) -> String {
-        buffer_text(&render_to_buffer(size, |frame| {
-            render(frame, frame.area(), "Help", sections, scroll);
-        }))
-    }
-
-    #[test]
-    fn rows_keep_keys_and_descriptions_on_one_line_and_scroll_wide_rows_horizontally() {
-        let description = "no differences in Ready plans; unknown values may differ";
-        let sections = sections(description);
+        ];
         let mut scroll = DialogScroll::default();
 
         let narrow = render_text((40, 24), &sections, &scroll);
@@ -282,5 +279,18 @@ mod tests {
             Some(usize::from(MAX_WIDTH)),
             "{text}"
         );
+    }
+
+    #[test]
+    fn short_terminals_show_the_notice_instead_of_an_empty_body() {
+        let sections = [HelpSection::new(
+            "Keys",
+            vec![HelpAction::new("wide", "x".repeat(100))],
+        )];
+
+        let text = render_text((40, 6), &sections, &DialogScroll::default());
+
+        assert!(text.contains("Terminal too small"), "{text}");
+        assert!(!text.contains("┌Help"), "{text}");
     }
 }

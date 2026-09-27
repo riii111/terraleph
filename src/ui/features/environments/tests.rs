@@ -297,7 +297,7 @@ mod help {
                 assert!(!text.contains("include an environment"));
                 assert!(!text.contains("toggle the Envs sidebar"));
                 assert!(!text.contains("Tab"));
-                assert!(normalized.contains("expand or collapse a group in [2]"));
+                assert!(normalized.contains("toggle a group or the Same change summary in [2]"));
                 assert!(!text.contains("environment filter"));
             }
             assert!(text.contains("Esc"), "{width}x{height}: {text}");

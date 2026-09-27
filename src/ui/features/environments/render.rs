@@ -654,9 +654,9 @@ fn overview_help_sections(
     current_actions.push(help_dialog::HelpAction::new(
         "Space",
         if sidebar_available {
-            "include an environment in [1]; expand a group in [2]"
+            "toggle an environment in [1]; a group or summary in [2]"
         } else {
-            "expand or collapse a group in [2]"
+            "toggle a group or the Same change summary in [2]"
         },
     ));
     if sidebar_available {

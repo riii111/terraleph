@@ -6,7 +6,7 @@ terraleph ▸ a-ready            terraform
 a┌Help────────────────────────────────┐
 ┌│ Current: Multi-environment Overv ▲ │┐
 ││ ↑ / ↓ / j / k      select rows i ┃ ││
-││ Space              expand or col ┃ ││
+││ Space              toggle a grou ┃ ││
 ││ [ / ]              select the pr ┃ ││
 ││ 2 / 3              focus Compare ┃ ││
 ││ f                  maximize or r ┃ ││
