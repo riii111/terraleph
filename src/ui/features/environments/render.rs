@@ -68,12 +68,7 @@ impl EnvironmentView {
         if let Some(index) = self.selection.raw
             && let Some(review) = state.plans()[index].review()
         {
-            let body = Rect::new(
-                area.x,
-                layout.header.bottom(),
-                area.width,
-                area.bottom().saturating_sub(layout.header.bottom()),
-            );
+            let body = review_body(area, layout.header);
             if self.confirming_quit {
                 plan_review::render_environment_with_quit_confirmation(
                     frame,
@@ -119,6 +114,33 @@ impl EnvironmentView {
                 }
             }
         }
+    }
+
+    /// Draws the environment review behind the apply confirmation. The session no longer
+    /// exposes a raw review while confirming, so the caller passes the confirming state.
+    pub(crate) fn render_apply_confirmation(
+        &mut self,
+        frame: &mut Frame<'_>,
+        state: &EnvironmentSession,
+        index: usize,
+        confirmation: &ReviewSessionState,
+        confirmation_view: &plan_review::ApplyConfirmationViewState,
+    ) {
+        let area = frame.area();
+        self.initialize(Size::new(area.width, area.height), state);
+        self.sync(state);
+        frame.render_widget(Block::new().style(theme::overview_background_style()), area);
+        let layout =
+            environments::overview_layout(area, self.sidebar_width, false, None, false, false);
+        environments::render_header(frame, layout.header, state, &self.selection);
+        plan_review::render_environment(
+            frame,
+            review_body(area, layout.header),
+            confirmation,
+            &mut self.reviews[index],
+            Instant::now(),
+        );
+        plan_review::render_apply_confirmation_dialog(frame, confirmation, confirmation_view);
     }
 
     fn render_overview(
@@ -341,6 +363,15 @@ impl EnvironmentView {
             matrix,
         }
     }
+}
+
+const fn review_body(area: Rect, header: Rect) -> Rect {
+    Rect::new(
+        area.x,
+        header.bottom(),
+        area.width,
+        area.bottom().saturating_sub(header.bottom()),
+    )
 }
 
 fn render_message_dialog(frame: &mut Frame<'_>, area: Rect, text: &str, scroll: &DialogScroll) {

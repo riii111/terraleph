@@ -23,7 +23,9 @@ use crate::ui::theme;
 
 use super::PlanReviewViewState;
 
-pub(crate) use apply_confirmation::{apply_confirmation_layout, render_apply_confirmation};
+pub(crate) use apply_confirmation::{
+    apply_confirmation_layout, render_apply_confirmation, render_apply_confirmation_dialog,
+};
 pub(crate) use layout::{
     environment_layout, layout, layout_with_quit_confirmation, overview_detail_layout,
 };

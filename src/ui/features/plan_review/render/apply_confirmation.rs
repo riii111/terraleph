@@ -113,7 +113,6 @@ pub(crate) fn render_apply_confirmation(
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
 ) {
-    let area = frame.area();
     render_with_quit_confirmation(
         frame,
         state,
@@ -121,6 +120,17 @@ pub(crate) fn render_apply_confirmation(
         Instant::now(),
         false,
     );
+    render_apply_confirmation_dialog(frame, state, view);
+}
+
+/// Dims whatever the caller already drew and places the dialog over it, so each
+/// navigation mode keeps its own screen behind the confirmation.
+pub(crate) fn render_apply_confirmation_dialog(
+    frame: &mut Frame<'_>,
+    state: &ReviewSessionState,
+    view: &ApplyConfirmationViewState,
+) {
+    let area = frame.area();
     dim_background(frame);
     let layout = apply_confirmation_layout(area, state);
     if layout.header().height > 0 {

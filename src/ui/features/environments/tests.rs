@@ -1751,6 +1751,10 @@ mod change_summary {
 
 mod apply {
     use super::*;
+    use crate::{
+        app::session::SessionState, ui::features::plan_review::ApplyConfirmationViewState,
+    };
+    use std::time::Instant;
 
     fn applyable_session(names: &[&str], ready: usize) -> EnvironmentSession {
         use crate::app::plan::{ResourceChangeKind, test_support::resource_change};
@@ -1812,6 +1816,45 @@ mod apply {
             Some(EnvironmentInput::Review(1, action))
                 if matches!(*action, Action::OpenApplyConfirmation)
         ));
+    }
+
+    #[test]
+    fn apply_confirmation_keeps_the_environment_review_behind_the_dialog() {
+        let mut state = applyable_session(&["a-dev", "b-prod"], 2);
+        let mut view = EnvironmentView::default();
+        let size = Size::new(120, 40);
+        render_to_buffer((120, 40), |frame| view.render(frame, &state));
+        handle_key_code(&mut view, KeyCode::Char(']'), size, &state);
+        handle_key_code(&mut view, KeyCode::Char('v'), size, &state);
+        let raw = render_text(&mut view, &state, (120, 40));
+
+        let Some(EnvironmentInput::Review(index, action)) =
+            handle_key_code(&mut view, KeyCode::Char('a'), size, &state)
+        else {
+            panic!("apply should open the confirmation");
+        };
+        state.update_review(index, *action, Instant::now());
+        let confirmation = state.plans()[index]
+            .session()
+            .and_then(SessionState::apply_confirmation)
+            .expect("the open environment should be confirming apply");
+        let buffer = render_to_buffer((120, 40), |frame| {
+            view.render_apply_confirmation(
+                frame,
+                &state,
+                index,
+                confirmation,
+                &ApplyConfirmationViewState::default(),
+            );
+        });
+        let text = buffer_text(&buffer);
+
+        let raw_lines = raw.lines().collect::<Vec<_>>();
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines[0], raw_lines[0], "{text}");
+        assert_eq!(lines[1], raw_lines[1], "{text}");
+        assert_eq!(lines.last(), raw_lines.last(), "{text}");
+        assert!(text.contains("Apply this reviewed plan?"), "{text}");
     }
 
     #[test]
