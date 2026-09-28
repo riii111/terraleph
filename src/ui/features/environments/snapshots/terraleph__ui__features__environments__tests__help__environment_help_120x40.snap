@@ -40,4 +40,4 @@ a-ready ✓ Ready No changes
 │                                                                                                                      │
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-v full plan | / filter | [/] env | b toggle envs | 1/2/3 focus | f maximize | ? help | q quit
+v full plan | / filter | [/] env | b toggle envs | f maximize | ? help | q quit

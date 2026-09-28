@@ -833,13 +833,13 @@ mod sidebar {
         let state = partial_session();
         let mut view = EnvironmentView::default();
 
-        let wide = render_text(&mut view, &state, (120, 40));
+        let wide = render_text(&mut view, &state, (90, 40));
         assert_eq!(view.sidebar, SidebarSetting::Open);
         assert_eq!(view.focus, EnvironmentPane::Environments);
         assert!(wide.contains("[1] Envs"));
 
         let mut narrow = EnvironmentView::default();
-        let text = render_text(&mut narrow, &state, (119, 40));
+        let text = render_text(&mut narrow, &state, (89, 40));
         assert_eq!(narrow.sidebar, SidebarSetting::Closed);
         assert_eq!(narrow.focus, EnvironmentPane::Matrix);
         assert!(!text.contains("[1] Envs"));
@@ -878,7 +878,7 @@ mod sidebar {
         assert!(!text.contains("toggle envs"), "{text}");
         assert!(!text.contains("1/2 focus"), "{text}");
         assert!(!text.contains("[/] env"), "{text}");
-        assert!(text.contains("2/3 focus"), "{text}");
+        assert!(!text.contains("2/3 focus"), "{text}");
 
         for key in [KeyCode::Char('1'), KeyCode::Char('b')] {
             handle_key_code(&mut view, key, size, &state);

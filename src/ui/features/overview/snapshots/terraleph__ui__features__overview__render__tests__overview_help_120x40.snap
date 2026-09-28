@@ -41,4 +41,4 @@ infra  ws:default  terraform loading...  /repo/infra
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/ filter | Enter open raw | v full plan | 2/3 focus | f maximize | ? help | q quit
+/ filter | Enter open raw | v full plan | f maximize | ? help | q quit

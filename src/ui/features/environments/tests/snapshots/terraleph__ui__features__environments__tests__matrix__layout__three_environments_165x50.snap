@@ -50,4 +50,4 @@ terraleph ▸ dev                                                               
 │                      ││                                                                                                                                           │
 │                      ││                                                                                                                                           │
 └──────────────────────┘└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-Enter open plan | Space include/exclude | o only | a all | [/] env | b toggle envs | 1/2/3 focus | ? help | q quit
+Enter open plan | Space toggle | o only | a all | [/] env | b toggle envs | ? help | q quit

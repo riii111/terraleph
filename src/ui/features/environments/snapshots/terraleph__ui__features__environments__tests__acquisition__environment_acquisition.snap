@@ -24,5 +24,4 @@ b-error ✗ Error
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-v full plan | / filter | r retry | [/] env | 2/3 focus | f maximize | ? help
-q quit
+v full plan | / filter | r retry | [/] env | f maximize | ? help | q quit

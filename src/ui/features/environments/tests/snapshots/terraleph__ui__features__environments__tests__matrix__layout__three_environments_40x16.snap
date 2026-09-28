@@ -17,4 +17,4 @@ terraleph ▸ dev                terraform
 │?: plan unavailable                   │
 └──────────────────────────────────────┘
 Enter open row | v full plan | [/] env
-2/3 focus | ? help | q quit
+f/Esc restore | ? help | q quit
