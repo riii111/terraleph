@@ -6,7 +6,10 @@ use crate::{
         plan::Plan,
         review::{PlanMetadata, PlanReview, test_support::plan_document},
     },
-    ui::test_support::{assert_dialog_scrolled_up, buffer_text, render_to_buffer},
+    ui::{
+        test_support::{assert_dialog_scrolled_up, buffer_text, render_to_buffer},
+        theme,
+    },
 };
 use ratatui::style::{Color, Modifier};
 use std::path::PathBuf;
@@ -1752,16 +1755,12 @@ mod change_summary {
 mod apply {
     use super::*;
     use crate::{
-        app::session::SessionState, ui::features::plan_review::ApplyConfirmationViewState,
+        app::session::{self, SessionState},
+        ui::features::plan_review::ApplyConfirmationViewState,
     };
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     fn applyable_session(names: &[&str], ready: usize) -> EnvironmentSession {
-        use crate::app::{
-            execution::ExecutionContext,
-            plan::{ResourceChangeKind, test_support::resource_change},
-        };
-
         let environments = names
             .iter()
             .map(|name| Environment {
@@ -1775,40 +1774,48 @@ mod apply {
         let mut state = EnvironmentSession::new(environments, false);
         for name in names.iter().take(ready) {
             let index = state.start_next().expect("environment should start");
-            let review = PlanReview::new(
-                PathBuf::from(format!("/synthetic/{name}")),
-                "default".to_owned(),
-                plan_document(
-                    std::iter::once(format!("{name} plan"))
-                        .chain((1..60).map(|line| format!("{name} line {line:02}")))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                ),
-                Plan {
-                    resource_changes: vec![resource_change(
-                        "terraform_data.api",
-                        ResourceChangeKind::Create,
-                    )],
-                    ..Plan::empty()
-                },
-                PlanMetadata::new(true),
-                Vec::new(),
-            )
-            .with_context(
-                ExecutionContext::loading(format!("/synthetic/{name}"))
-                    .with_workspace("default")
-                    .with_tool_version(Tool::Terraform, "1.9.0"),
-            );
-            state.complete(
-                index,
-                PlanResult::Ready {
-                    review: Box::new(review),
-                    changed: true,
-                },
-                Vec::new(),
-            );
+            state.complete(index, ready_result(applyable_review(name)), Vec::new());
         }
         state
+    }
+
+    fn applyable_review(name: &str) -> PlanReview {
+        use crate::app::{
+            execution::ExecutionContext,
+            plan::{ResourceChangeKind, test_support::resource_change},
+        };
+
+        PlanReview::new(
+            PathBuf::from(format!("/synthetic/{name}")),
+            "default".to_owned(),
+            plan_document(
+                std::iter::once(format!("{name} plan"))
+                    .chain((1..60).map(|line| format!("{name} line {line:02}")))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            Plan {
+                resource_changes: vec![resource_change(
+                    "terraform_data.api",
+                    ResourceChangeKind::Create,
+                )],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+        .with_context(
+            ExecutionContext::loading(format!("/synthetic/{name}"))
+                .with_workspace("default")
+                .with_tool_version(Tool::Terraform, "1.9.0"),
+        )
+    }
+
+    fn ready_result(review: PlanReview) -> PlanResult {
+        PlanResult::Ready {
+            review: Box::new(review),
+            changed: true,
+        }
     }
 
     #[test]
@@ -1863,6 +1870,7 @@ mod apply {
                 index,
                 confirmation,
                 &ApplyConfirmationViewState::default(),
+                Instant::now(),
             );
         });
         let text = buffer_text(&buffer);
@@ -1881,6 +1889,22 @@ mod apply {
         assert!(!text.contains("ws:default"), "{text}");
         assert_eq!(lines.last(), raw_lines.last(), "{text}");
         assert!(text.contains("Apply this reviewed plan?"), "{text}");
+        let counts = "Plan: +1 add  ~0 update  0 replace  -0 destroy";
+        let (counts_x, counts_y) =
+            text_position(&buffer, counts).expect("the change counts should be visible");
+        for (segment, style) in [
+            ("+1 add", theme::success_style()),
+            ("~0 update", theme::secondary_style()),
+            ("-0 destroy", theme::secondary_style()),
+        ] {
+            let offset =
+                u16::try_from(counts.find(segment).expect("count segment")).expect("count offset");
+            let cell = buffer
+                .cell((counts_x + offset, counts_y))
+                .expect("count cell");
+            assert_eq!(cell.fg, style.fg.expect("count color"), "{segment}");
+            assert_eq!(cell.modifier, style.add_modifier, "{segment}");
+        }
         let (dialog_left, _) =
             text_position(&buffer, "┌").expect("the confirmation frame should be drawn");
         let outside_dialog = |lines: &[&str]| -> Vec<String> {
@@ -1895,6 +1919,54 @@ mod apply {
             outside_dialog(&raw_lines[body_rows]),
             "{text}"
         );
+    }
+
+    #[test]
+    fn apply_confirmation_shows_each_environment_plan_age() {
+        let planned_at = Instant::now();
+        let mut state = applyable_session(&["a-dev", "b-prod"], 0);
+        let dev = state.start_next().expect("a-dev should start");
+        state.complete(
+            dev,
+            ready_result(applyable_review("a-dev").with_planned_at(planned_at)),
+            Vec::new(),
+        );
+        let prod = state.start_next().expect("b-prod should start");
+        state.complete(
+            prod,
+            ready_result(
+                applyable_review("b-prod").with_planned_at(planned_at + Duration::from_mins(10)),
+            ),
+            Vec::new(),
+        );
+        let now = planned_at + Duration::from_mins(12);
+
+        for (index, expected) in [(dev, "Planned: 12m ago"), (prod, "Planned: 2m ago")] {
+            state.update_review(index, Action::OpenApplyConfirmation, now);
+            let confirmation = state.plans()[index]
+                .session()
+                .and_then(SessionState::apply_confirmation)
+                .expect("the environment should be confirming apply");
+            let mut view = EnvironmentView::default();
+            let text = buffer_text(&render_to_buffer((120, 40), |frame| {
+                view.render_apply_confirmation(
+                    frame,
+                    &state,
+                    index,
+                    confirmation,
+                    &ApplyConfirmationViewState::default(),
+                    now,
+                );
+            }));
+
+            assert!(text.contains(&format!("│ {expected}  ")), "{text}");
+            // Only one environment confirms apply at a time.
+            session::update(
+                state.session_mut(index).expect("confirming environment"),
+                Action::CancelApply,
+                now,
+            );
+        }
     }
 
     #[test]

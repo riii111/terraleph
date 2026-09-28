@@ -14,11 +14,11 @@ Cmain [PROD]  ws:default  terraform 1.9.0  ./environments/production/main
  │ Workspace:│ Input                                             │            │┃
  │ Directory:│ Type                enter the confirmation text   │            │┃
  │ Tool: terr│ Backspace           delete before the cursor      │            │┃
--│ Plan: +1 a│                                                   │            ││
- │           │ Context                                           │            ││
- │ Destroy:  │ Tab                 show execution context        │            ││
- │   terrafor│                                                   │            ││
- │ Replace:  │ Apply                                             │            ││
+-│ Planned: 1│                                                   │            ││
+ │ Plan: +1 a│ Context                                           │            ││
+ │           │ Tab                 show execution context        │            ││
+ │ Destroy:  │                                                   │            ││
+ │   terrafor│ Apply                                             │            ││
  │           │ Enter               confirm apply                 │            ││
  │ To confirm│ Esc                 return to plan review         │            ││
  │ > |       │ ?/Esc close                                       │            ││

@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ratatui::{
     Frame,
@@ -10,6 +10,7 @@ use ratatui::{
 
 use crate::app::{
     execution::{ExecutionContext, ExecutionContextValue},
+    plan::PlanSummary,
     review::PlanReview,
     session::ReviewSessionState,
 };
@@ -19,7 +20,7 @@ use crate::ui::features::plan_review::{
 use crate::ui::primitives::molecules::{
     context_dialog, dialog_scroll::DialogScroll, help_dialog, terminal_notice,
 };
-use crate::ui::shell::{context, footer, header, layout as shell_layout};
+use crate::ui::shell::{changes, context, footer, header, layout as shell_layout};
 use crate::ui::theme;
 
 use super::render_with_quit_confirmation;
@@ -112,15 +113,10 @@ pub(crate) fn render_apply_confirmation(
     frame: &mut Frame<'_>,
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
+    now: Instant,
 ) {
-    render_with_quit_confirmation(
-        frame,
-        state,
-        &PlanReviewViewState::default(),
-        Instant::now(),
-        false,
-    );
-    render_apply_confirmation_dialog(frame, state, view, None);
+    render_with_quit_confirmation(frame, state, &PlanReviewViewState::default(), now, false);
+    render_apply_confirmation_dialog(frame, state, view, None, now);
 }
 
 /// Dims whatever the caller already drew and places the dialog over it, so each
@@ -132,10 +128,11 @@ pub(crate) fn render_apply_confirmation_dialog(
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
     drawn_header: Option<Rect>,
+    now: Instant,
 ) {
     let area = frame.area();
     dim_background(frame);
-    let layout = apply_confirmation_layout(area, state);
+    let layout = apply_confirmation_layout(area, state, now);
     let header_area = drawn_header.unwrap_or_else(|| layout.header());
     if drawn_header.is_none() && header_area.height > 0 {
         header::render_review(frame, header_area, state.review());
@@ -217,14 +214,25 @@ pub(crate) fn render_apply_confirmation_dialog(
     }
 }
 
+/// The plan age is the only line a short terminal can spare, so the dialog drops it before
+/// it would stop fitting.
+pub(crate) fn apply_confirmation_layout(
+    area: Rect,
+    state: &ReviewSessionState,
+    now: Instant,
+) -> ApplyConfirmationLayout {
+    let layout = layout_sections(area, confirmation_sections(state, Some(now)));
+    if layout.renderable() || state.review().planned_at().is_none() {
+        return layout;
+    }
+    layout_sections(area, confirmation_sections(state, None))
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the confirmation layout keeps content and safety constraints together"
 )]
-pub(crate) fn apply_confirmation_layout(
-    area: Rect,
-    state: &ReviewSessionState,
-) -> ApplyConfirmationLayout {
+fn layout_sections(area: Rect, sections: ConfirmationSections) -> ApplyConfirmationLayout {
     let panel = shell_layout::max_centered_area(area);
     let header_height = panel.height.min(CONFIRMATION_HEADER_HEIGHT);
     let header = Rect::new(panel.x, panel.y, panel.width, header_height);
@@ -248,7 +256,7 @@ pub(crate) fn apply_confirmation_layout(
         prefix: prefix_lines,
         scroll: scroll_lines,
         suffix: suffix_lines,
-    } = confirmation_sections(state);
+    } = sections;
     let body = Paragraph::new(
         [
             prefix_lines.as_slice(),
@@ -372,7 +380,10 @@ fn confirmation_footer_items(input_matches: bool) -> Vec<Line<'static>> {
     ]
 }
 
-fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
+fn confirmation_sections(
+    state: &ReviewSessionState,
+    age_at: Option<Instant>,
+) -> ConfirmationSections {
     let review = state.review();
     let counts = review.summary();
     let context = review.context();
@@ -410,11 +421,17 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
             Span::styled("Tool: ", theme::secondary_style()),
             Span::styled(tool_version(context), theme::body_style()),
         ]),
-        Line::from(format!(
-            "Plan: +{} add  ~{} update  {} replace  -{} destroy",
-            counts.creates, counts.updates, counts.replaces, counts.deletes,
-        )),
     ]);
+    if let (Some(planned_at), Some(now)) = (review.planned_at(), age_at) {
+        prefix.push(Line::from(vec![
+            Span::styled("Planned: ", theme::secondary_style()),
+            Span::styled(
+                planned_age(now.saturating_duration_since(planned_at)),
+                theme::body_style(),
+            ),
+        ]));
+    }
+    prefix.push(change_counts_line(counts));
     let mut scroll = Vec::new();
     append_variable_sources(&mut scroll, context);
     append_destructive_resources(&mut scroll, review);
@@ -433,6 +450,45 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
         scroll,
         suffix,
     }
+}
+
+/// Returns when the plan age in the confirmation next changes. Nothing else redraws an idle
+/// dialog, so the runtime schedules a draw for this time.
+pub(crate) fn apply_confirmation_redraw_at(
+    state: &ReviewSessionState,
+    now: Instant,
+) -> Option<Instant> {
+    let planned_at = state.review().planned_at()?;
+    let minutes = now.saturating_duration_since(planned_at).as_secs() / 60;
+    Some(planned_at + Duration::from_mins(minutes + 1))
+}
+
+// Whole minutes only: the age changes at most once a minute, which keeps redraws rare.
+fn planned_age(elapsed: Duration) -> String {
+    let minutes = elapsed.as_secs() / 60;
+    match minutes {
+        0 => "<1m ago".to_owned(),
+        1..60 => format!("{minutes}m ago"),
+        _ => format!("{}h {}m ago", minutes / 60, minutes % 60),
+    }
+}
+
+// Keeps zero counts visible so "0 destroy" still reads as a checked absence,
+// and colors only the kinds this apply changes.
+fn change_counts_line(counts: PlanSummary) -> Line<'static> {
+    let mut line = Line::from(Span::styled("Plan: ", theme::secondary_style()));
+    for (index, change) in changes::change_counts(counts).into_iter().enumerate() {
+        if index > 0 {
+            line.push_span(Span::styled("  ", theme::secondary_style()));
+        }
+        let style = if change.count > 0 {
+            change.style
+        } else {
+            theme::secondary_style()
+        };
+        line.push_span(Span::styled(change.text, style));
+    }
+    line
 }
 
 // States why the confirmation text is the target name instead of "yes", so
@@ -513,7 +569,7 @@ fn append_destructive_resources(lines: &mut Vec<Line<'static>>, review: &PlanRev
     lines.push(Line::default());
     for (label, addresses, style) in [
         ("Destroy", destroy, theme::error_style()),
-        ("Replace", replace, theme::warning_style()),
+        ("Replace", replace, theme::overview_total_replace_style()),
     ] {
         if addresses.is_empty() {
             continue;
