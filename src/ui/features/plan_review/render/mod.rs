@@ -24,7 +24,8 @@ use crate::ui::theme;
 use super::PlanReviewViewState;
 
 pub(crate) use apply_confirmation::{
-    apply_confirmation_layout, render_apply_confirmation, render_apply_confirmation_dialog,
+    apply_confirmation_layout, apply_confirmation_redraw_at, render_apply_confirmation,
+    render_apply_confirmation_dialog,
 };
 pub(super) use content::PlanContentCache;
 pub(crate) use layout::{

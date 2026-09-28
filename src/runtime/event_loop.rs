@@ -47,6 +47,7 @@ pub(crate) fn run_connected(
     let mut start_in_overview = initial_overview;
     let mut quit_confirmation = false;
     let mut dirty = true;
+    let mut scheduled_draw = None;
 
     loop {
         // The caller maps the signal to the exit status; this error only unwinds the terminal
@@ -110,6 +111,7 @@ pub(crate) fn run_connected(
             &review_view,
             &confirmation_view,
             &mut dirty,
+            &mut scheduled_draw,
             now,
             quit_confirmation,
         )?;
@@ -183,6 +185,7 @@ pub(crate) fn run_connected(
                                 &review_view,
                                 &confirmation_view,
                                 &mut dirty,
+                                &mut scheduled_draw,
                                 Instant::now(),
                                 quit_confirmation,
                             )?;
@@ -271,12 +274,14 @@ pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
     review_view: &plan_review::PlanReviewViewState,
     confirmation_view: &plan_review::ApplyConfirmationViewState,
     dirty: &mut bool,
+    scheduled_draw: &mut Option<Instant>,
     now: Instant,
     quit_confirmation: bool,
 ) -> Result<bool, B::Error> {
     // Layouts reserve footer width for any stored notice, so an expired notice is cleared
     // before the frame that would otherwise draw it as blank space.
     *dirty |= clear_expired_copy_feedback(state, now);
+    *dirty |= scheduled_draw.is_some_and(|at| now >= at);
     if !should_draw(state, *dirty) {
         return Ok(false);
     }
@@ -291,7 +296,15 @@ pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
         quit_confirmation,
     )?;
     *dirty = false;
+    *scheduled_draw = scheduled_draw_after(state, now);
     Ok(true)
+}
+
+// Returns when a drawn screen goes stale without input or a worker message.
+fn scheduled_draw_after(state: &SessionState, now: Instant) -> Option<Instant> {
+    state
+        .apply_confirmation()
+        .and_then(|confirmation| plan_review::apply_confirmation_redraw_at(confirmation, now))
 }
 
 fn clear_expired_copy_feedback(state: &mut SessionState, now: Instant) -> bool {
@@ -366,6 +379,7 @@ pub(super) fn handle_key_event<B: Backend>(
         let layout = plan_review::apply_confirmation_layout(
             Rect::new(0, 0, size.width, size.height),
             confirmation,
+            Instant::now(),
         );
         let input = plan_review::apply_confirmation_key_to_input(key);
         let input = match input {
@@ -691,6 +705,7 @@ fn draw_with_quit_confirmation<B: Backend>(
                         review,
                         review_view,
                         confirmation_view,
+                        now,
                     );
                 })?;
             }
@@ -2011,6 +2026,40 @@ mod tests {
         }
 
         #[test]
+        fn open_confirmation_redraws_once_when_the_plan_age_changes() {
+            let planned_at = Instant::now();
+            let mut state =
+                SessionState::Review(Box::new(session::test_support::apply_confirmation_session(
+                    review_plan().with_planned_at(planned_at),
+                )));
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+            let views = ScreenViews::default();
+            let mut dirty = true;
+            let mut scheduled_draw = None;
+            let mut draw = |state: &mut SessionState, dirty: &mut bool, elapsed| {
+                draw_if_needed_with_quit_confirmation(
+                    state,
+                    &mut terminal,
+                    views.execution,
+                    &views.review,
+                    &views.confirmation,
+                    dirty,
+                    &mut scheduled_draw,
+                    planned_at + Duration::from_secs(elapsed),
+                    false,
+                )
+                .expect("confirmation should render")
+            };
+
+            assert!(draw(&mut state, &mut dirty, 30));
+            assert!(!draw(&mut state, &mut dirty, 59));
+            assert!(draw(&mut state, &mut dirty, 60));
+            assert!(!draw(&mut state, &mut dirty, 61));
+            assert_eq!(scheduled_draw, Some(planned_at + Duration::from_secs(120)));
+            assert!(terminal_text(&terminal).contains("Planned: 1m ago"));
+        }
+
+        #[test]
         fn confirmation_body_scrolls_up_right_after_paging_past_the_end() {
             let now = Instant::now();
             let mut state = SessionState::Review(Box::new(
@@ -2783,6 +2832,7 @@ mod tests {
             review_view,
             confirmation_view,
             dirty,
+            &mut None,
             now,
             false,
         )

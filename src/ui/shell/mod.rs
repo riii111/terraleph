@@ -1,3 +1,4 @@
+pub(crate) mod changes;
 pub(crate) mod context;
 pub(crate) mod environments;
 pub(crate) mod footer;

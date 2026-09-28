@@ -4,7 +4,7 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use super::{
@@ -308,6 +308,7 @@ pub(crate) struct PlanReview {
     apply_allowed: bool,
     apply_entry: bool,
     previous_durations: Vec<Option<Duration>>,
+    planned_at: Option<Instant>,
 }
 
 impl PlanReview {
@@ -335,6 +336,7 @@ impl PlanReview {
             apply_allowed: true,
             apply_entry: false,
             previous_durations: Vec::new(),
+            planned_at: None,
         }
     }
 
@@ -359,6 +361,14 @@ impl PlanReview {
         self
     }
 
+    /// Records when the plan command finished, so the apply confirmation can show how old
+    /// the reviewed plan is.
+    #[must_use]
+    pub(crate) const fn with_planned_at(mut self, planned_at: Instant) -> Self {
+        self.planned_at = Some(planned_at);
+        self
+    }
+
     #[must_use]
     pub(crate) const fn apply_allowed(&self) -> bool {
         self.apply_allowed
@@ -372,6 +382,11 @@ impl PlanReview {
     #[must_use]
     pub(crate) fn previous_durations(&self) -> &[Option<Duration>] {
         &self.previous_durations
+    }
+
+    #[must_use]
+    pub(crate) const fn planned_at(&self) -> Option<Instant> {
+        self.planned_at
     }
 
     #[must_use]

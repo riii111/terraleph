@@ -132,6 +132,7 @@ fn run_managed_invocation(
             return ExitCode::from(EXECUTION_FAILURE);
         }
     };
+    let planned_at = Instant::now();
     // Terraform shares the terminal's process group, so terminal signals stop it on its own. A
     // recorded signal, or a terminal closed without one, decides the exit before the plan result,
     // whether the plan failed from that same signal or finished despite a signal sent only to
@@ -160,6 +161,7 @@ fn run_managed_invocation(
         apply_arguments,
         apply_entry,
         plan_run,
+        planned_at,
         detailed_exitcode,
         initial_overview,
         variable_sources,
@@ -178,6 +180,7 @@ fn run_saved_plan_review(
     apply_arguments: &[OsString],
     apply_entry: bool,
     plan_run: terraform::PlanRun,
+    planned_at: Instant,
     detailed_exitcode: bool,
     initial_overview: bool,
     variable_sources: VariableSources,
@@ -209,6 +212,7 @@ fn run_saved_plan_review(
         global_arguments,
         saved_plan.path(),
         changed,
+        planned_at,
         apply_entry,
         context.clone(),
         &cancellation,
@@ -511,6 +515,7 @@ fn spawn_review_worker(
     global_arguments: &[OsString],
     plan_path: &Path,
     plan_changed: bool,
+    planned_at: Instant,
     apply_entry: bool,
     initial_context: ExecutionContext,
     cancellation: &CancellationToken,
@@ -551,7 +556,10 @@ fn spawn_review_worker(
                 &mut phase_sink,
             ) {
                 Ok(review) => {
-                    let review = with_previous_durations(review, worker_history.as_ref());
+                    let review = with_previous_durations(
+                        review.with_planned_at(planned_at),
+                        worker_history.as_ref(),
+                    );
                     if !worker_cancellation.is_cancelled() {
                         let _ = sender.send(PlanReviewMessage::Completed(review));
                     }
