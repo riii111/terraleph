@@ -280,8 +280,7 @@ fn output_header(line: &str, indices: &HashMap<&str, usize>) -> Option<usize> {
     indices.get(candidate.trim()).copied()
 }
 
-// `name = <<-EOT` opens the heredoc of an attribute, a map entry, or an output.
-fn attribute_heredoc_start(line: &str) -> Option<HeredocOpening<'_>> {
+fn attribute_heredoc_start(line: &str) -> Option<&str> {
     let mut quoted = false;
     let mut escaped = false;
     let marker = line.char_indices().find_map(|(index, character)| {
@@ -304,41 +303,32 @@ fn attribute_heredoc_start(line: &str) -> Option<HeredocOpening<'_>> {
             && line[..index].trim_end().ends_with('='))
         .then_some(index)
     })?;
-    heredoc_opening(&line[marker + 2..]).map(|(opening, _)| opening)
+    heredoc_opening(&line[marker + 2..]).map(|(terminator, _)| terminator)
 }
 
 // A multi-line element of a list, set, or tuple opens its heredoc on a line of its own after the
 // element's action marker, such as `+ <<-EOT`.
-fn element_heredoc_start(line: &str) -> Option<HeredocOpening<'_>> {
+fn element_heredoc_start(line: &str) -> Option<&str> {
     let rest = line.trim_start_matches(' ');
     let rest = ["+ ", "- ", "~ "]
         .iter()
         .find_map(|marker| rest.strip_prefix(marker))
         .unwrap_or(rest);
-    let (opening, after) = heredoc_opening(rest.strip_prefix("<<")?)?;
+    let (terminator, after) = heredoc_opening(rest.strip_prefix("<<")?)?;
     let after = after.trim();
-    (after.is_empty() || after == "# forces replacement").then_some(opening)
+    (after.is_empty() || after == "# forces replacement").then_some(terminator)
 }
 
-struct HeredocOpening<'a> {
-    terminator: &'a str,
-    // `<<EOT` rather than `<<-EOT`.
-    flush: bool,
-}
-
-// Splits the text after `<<` into the opening and the rest of the line.
-fn heredoc_opening(value: &str) -> Option<(HeredocOpening<'_>, &str)> {
+fn heredoc_opening(value: &str) -> Option<(&str, &str)> {
     let value = value.trim_start();
-    let (flush, value) = value
-        .strip_prefix('-')
-        .map_or((true, value), |value| (false, value.trim_start()));
+    let value = value.strip_prefix('-').unwrap_or(value).trim_start();
     let (terminator, after) =
         value.split_at(value.find(char::is_whitespace).unwrap_or(value.len()));
     (!terminator.is_empty()
         && terminator
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-')))
-    .then_some((HeredocOpening { terminator, flush }, after))
+    .then_some((terminator, after))
 }
 
 struct OpenHeredoc {
@@ -347,8 +337,6 @@ struct OpenHeredoc {
     // attribute name, or of the `<<` that starts an element. Every body line is indented at least
     // two columns further, so body text that reads like a terminator never starts there.
     terminator_column: usize,
-    // Neither tool prints `<<EOT`; its terminator may also start the line, as HCL writes it.
-    flush: bool,
     // Only an element of a list, set, or tuple has its terminator followed by the separator.
     element: bool,
     marker_column: u16,
@@ -356,25 +344,22 @@ struct OpenHeredoc {
 
 impl OpenHeredoc {
     fn opened_by(line: &str) -> Option<Self> {
-        let (opening, element) = attribute_heredoc_start(line)
-            .map(|opening| (opening, false))
-            .or_else(|| element_heredoc_start(line).map(|opening| (opening, true)))?;
+        let (terminator, element) = attribute_heredoc_start(line)
+            .map(|terminator| (terminator, false))
+            .or_else(|| element_heredoc_start(line).map(|terminator| (terminator, true)))?;
         let terminator_column = heredoc_name_column(line);
         Some(Self {
-            terminator: opening.terminator.to_owned(),
+            terminator: terminator.to_owned(),
             terminator_column,
-            flush: opening.flush,
             element,
-            // A changed body line's marker sits in a two-column action slot right of the name. A
-            // column too wide to store saturates, marking no line.
+            // A changed body line's marker sits in a two-column action slot right of the name.
             marker_column: u16::try_from(terminator_column + 2).unwrap_or(u16::MAX),
         })
     }
 
     fn is_closed_by(&self, line: &str) -> bool {
         let rest = line.trim_start_matches(' ');
-        let indent = line.len() - rest.len();
-        if indent != self.terminator_column && !(self.flush && indent == 0) {
+        if line.len() - rest.len() != self.terminator_column {
             return false;
         }
         rest.trim_end()
@@ -385,7 +370,6 @@ impl OpenHeredoc {
     }
 }
 
-// The column of the attribute name, or of the `<<` that starts an element, after any action marker.
 fn heredoc_name_column(opening: &str) -> usize {
     let indent = opening.len() - opening.trim_start_matches(' ').len();
     if ["+ ", "- ", "~ "]
@@ -454,7 +438,7 @@ mod tests {
 
     #[test]
     fn classifies_display_intro_notes_and_heredoc_values_without_changing_source() {
-        let source = "\nTerraform used the selected providers to generate the following execution\nplan. Resource actions are indicated with the following symbols:\n  + create\n\nTerraform will perform the following actions:\n\n  # terraform_data.api will be created\n  + resource \"terraform_data\" \"api\" {\n      value = <<EOF\n  Plan: 9 to add, 9 to change, 9 to destroy.\n  # value remains a body value\nEOF\n    }\n\nChanges to Outputs:\n  + endpoint = (known after apply)\n\nPlan: 1 to add, 0 to change, 0 to destroy.\n";
+        let source = "\nTerraform used the selected providers to generate the following execution\nplan. Resource actions are indicated with the following symbols:\n  + create\n\nTerraform will perform the following actions:\n\n  # terraform_data.api will be created\n  + resource \"terraform_data\" \"api\" {\n      value = <<-EOF\n  Plan: 9 to add, 9 to change, 9 to destroy.\n  # value remains a body value\n      EOF\n    }\n\nChanges to Outputs:\n  + endpoint = (known after apply)\n\nPlan: 1 to add, 0 to change, 0 to destroy.\n";
         let document = parse_document(
             source.as_bytes().to_vec(),
             &["terraform_data.api".to_owned()],
@@ -640,8 +624,6 @@ mod tests {
         let document = parse_document(source.into_bytes(), &addresses, &[])
             .expect("synthetic text should parse");
 
-        // The element's `<<` sits in the list's element column, so its marker column is two
-        // columns right of it, where the per-line action of an updated element sits.
         let heredoc = |count| vec![PlanLineKind::HeredocBody { marker_column: 14 }; count];
         let body = |count| vec![PlanLineKind::Body; count];
         assert_eq!(
@@ -831,40 +813,6 @@ mod tests {
     }
 
     #[test]
-    fn closes_a_flush_heredoc_at_the_line_start_or_the_name_column() {
-        let source = [
-            "  # terraform_data.api will be created",
-            "  + resource \"terraform_data\" \"api\" {",
-            "      + first  = <<EOT",
-            "          EOT",
-            "        EOT",
-            "      + second = <<EOT",
-            "EOT",
-            "    }",
-        ]
-        .join("\n");
-        let document = parse_document(source.into_bytes(), &["terraform_data.api".to_owned()], &[])
-            .expect("synthetic text should parse");
-
-        let heredoc = PlanLineKind::HeredocBody { marker_column: 10 };
-        assert_eq!(
-            (0..document.line_count())
-                .map(|line| document.line_kind(line))
-                .collect::<Vec<_>>(),
-            [
-                PlanLineKind::ResourceHeader,
-                PlanLineKind::Body,
-                PlanLineKind::Body,
-                heredoc,
-                PlanLineKind::Body,
-                PlanLineKind::Body,
-                PlanLineKind::Body,
-                PlanLineKind::Body,
-            ]
-        );
-    }
-
-    #[test]
     fn keeps_unknown_plan_text_as_body() {
         let source = "Plan: this is application text\nfollowing body text\n";
         let document =
@@ -876,7 +824,7 @@ mod tests {
 
     #[test]
     fn keeps_nested_heading_like_text_inside_the_resource_block() {
-        let source = "Terraform will perform the following actions:\n\n  # terraform_data.api will be updated in-place\n  ~ resource \"terraform_data\" \"api\" {\n      value = <<EOF\n  # terraform_data.worker will be created\nEOF\n    }\n\nChanges to Outputs:\n  ~ endpoint = \"new\"\n\nPlan: 0 to add, 1 to change, 0 to destroy.\n";
+        let source = "Terraform will perform the following actions:\n\n  # terraform_data.api will be updated in-place\n  ~ resource \"terraform_data\" \"api\" {\n      value = <<-EOF\n  # terraform_data.worker will be created\n      EOF\n    }\n\nChanges to Outputs:\n  ~ endpoint = \"new\"\n\nPlan: 0 to add, 1 to change, 0 to destroy.\n";
         let blocks = split_blocks(
             source,
             &[
