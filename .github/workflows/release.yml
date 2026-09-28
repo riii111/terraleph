@@ -95,7 +95,7 @@ jobs:
           $archive = "terraleph-$env:TARGET.zip"
           Compress-Archive -Path "target/$env:TARGET/release/terraleph.exe" -DestinationPath $archive
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
-          "$hash  $archive" | Out-File -Encoding ASCII "$archive.sha256"
+          [System.IO.File]::WriteAllText((Join-Path $PWD "$archive.sha256"), "$hash  $archive`n")
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: terraleph-${{ matrix.target }}
