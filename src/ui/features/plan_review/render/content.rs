@@ -283,8 +283,21 @@ fn max_line_width(lines: &[Line<'_>]) -> usize {
 // Line::width measures the whole string, which differs from the drawn cells for halfwidth sound
 // marks, some joined scripts, and control characters. Scroll limits, match columns, and the visible
 // window all measure the graphemes ratatui draws instead.
-pub(super) fn display_width(line: &Line<'_>) -> usize {
-    line.styled_graphemes(Style::default())
+fn display_width(line: &Line<'_>) -> usize {
+    line.spans.iter().map(span_width).sum()
+}
+
+// Most plan text is printable ASCII, where every byte is one drawn cell, so only other spans pay
+// for grapheme segmentation.
+fn span_width(span: &Span<'_>) -> usize {
+    let content = span.content.as_ref();
+    if content
+        .bytes()
+        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+    {
+        return content.len();
+    }
+    span.styled_graphemes(Style::default())
         .map(|grapheme| grapheme_width(grapheme.symbol))
         .sum()
 }
