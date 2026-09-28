@@ -3645,12 +3645,12 @@ mod large_plan {
     #[test]
     fn visible_lines_cut_wide_and_combining_graphemes_at_cell_boundaries() {
         let style = theme::warning_style();
-        let lines = [
-            Line::from("skipped"),
-            Line::from(vec![Span::raw("aあ"), Span::styled("e\u{301}b", style)]),
-        ];
+        let lines = [Line::from(vec![
+            Span::raw("aあ"),
+            Span::styled("e\u{301}b", style),
+        ])];
         let window = |horizontal, width| {
-            let visible = visible_lines(&lines, 1, horizontal, 1, width);
+            let visible = visible_lines(&lines, horizontal, width);
             assert_eq!(visible.len(), 1);
             visible[0].clone()
         };
@@ -3664,14 +3664,6 @@ mod large_plan {
         assert_eq!(styled.to_string(), "e\u{301}");
         assert!(styled.spans.iter().all(|span| span.style == style));
         assert!(window(5, 3).spans.is_empty());
-        assert!(visible_lines(&lines, 2, 0, 1, 10).is_empty());
-        assert_eq!(
-            visible_lines(&lines, 0, 0, 5, 10)
-                .iter()
-                .map(Line::width)
-                .collect::<Vec<_>>(),
-            [7, 5]
-        );
     }
 }
 
