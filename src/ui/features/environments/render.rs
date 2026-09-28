@@ -125,6 +125,7 @@ impl EnvironmentView {
         index: usize,
         confirmation: &ReviewSessionState,
         confirmation_view: &plan_review::ApplyConfirmationViewState,
+        now: Instant,
     ) {
         let area = frame.area();
         self.initialize(Size::new(area.width, area.height), state);
@@ -138,13 +139,14 @@ impl EnvironmentView {
             review_body(area, layout.header),
             confirmation,
             &mut self.reviews[index],
-            Instant::now(),
+            now,
         );
         plan_review::render_apply_confirmation_dialog(
             frame,
             confirmation,
             confirmation_view,
             Some(layout.header),
+            now,
         );
     }
 
@@ -198,7 +200,7 @@ impl EnvironmentView {
             if state.acquiring() {
                 vec![Line::default()]
             } else {
-                footer::quit_confirmation_lines(layout.footer.width, None)
+                footer::quit_confirmation_lines(layout.footer.width)
             }
         } else {
             overview_footer(OverviewFooterContext {

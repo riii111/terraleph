@@ -49,7 +49,7 @@ fn split_blocks_with_line_kinds(
     let mut in_output_section = false;
     for (line, text) in lines.iter().enumerate() {
         if let Some(open) = &heredoc {
-            if heredoc_end(text, &open.terminator) {
+            if open.is_closed_by(text) {
                 heredoc = None;
             } else {
                 line_kinds[line] = PlanLineKind::HeredocBody {
@@ -280,7 +280,8 @@ fn output_header(line: &str, indices: &HashMap<&str, usize>) -> Option<usize> {
     indices.get(candidate.trim()).copied()
 }
 
-fn heredoc_start(line: &str) -> Option<String> {
+// `name = <<-EOT` opens the heredoc of an attribute, a map entry, or an output.
+fn attribute_heredoc_start(line: &str) -> Option<HeredocOpening<'_>> {
     let mut quoted = false;
     let mut escaped = false;
     let marker = line.char_indices().find_map(|(index, character)| {
@@ -303,58 +304,104 @@ fn heredoc_start(line: &str) -> Option<String> {
             && line[..index].trim_end().ends_with('='))
         .then_some(index)
     })?;
-    let mut value = line[marker + 2..].trim_start();
-    value = value.strip_prefix('-').unwrap_or(value).trim_start();
-    let terminator = value.split_whitespace().next()?;
+    heredoc_opening(&line[marker + 2..]).map(|(opening, _)| opening)
+}
+
+// A multi-line element of a list, set, or tuple opens its heredoc on a line of its own after the
+// element's action marker, such as `+ <<-EOT`.
+fn element_heredoc_start(line: &str) -> Option<HeredocOpening<'_>> {
+    let rest = line.trim_start_matches(' ');
+    let rest = ["+ ", "- ", "~ "]
+        .iter()
+        .find_map(|marker| rest.strip_prefix(marker))
+        .unwrap_or(rest);
+    let (opening, after) = heredoc_opening(rest.strip_prefix("<<")?)?;
+    let after = after.trim();
+    (after.is_empty() || after == "# forces replacement").then_some(opening)
+}
+
+struct HeredocOpening<'a> {
+    terminator: &'a str,
+    // `<<EOT` rather than `<<-EOT`.
+    flush: bool,
+}
+
+// Splits the text after `<<` into the opening and the rest of the line.
+fn heredoc_opening(value: &str) -> Option<(HeredocOpening<'_>, &str)> {
+    let value = value.trim_start();
+    let (flush, value) = value
+        .strip_prefix('-')
+        .map_or((true, value), |value| (false, value.trim_start()));
+    let (terminator, after) =
+        value.split_at(value.find(char::is_whitespace).unwrap_or(value.len()));
     (!terminator.is_empty()
         && terminator
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-')))
-    .then(|| terminator.to_owned())
+    .then_some((HeredocOpening { terminator, flush }, after))
 }
 
 struct OpenHeredoc {
     terminator: String,
-    marker_column: usize,
+    // Terraform and OpenTofu print `<<-EOT` and start its terminator in the column of the opening
+    // attribute name, or of the `<<` that starts an element. Every body line is indented at least
+    // two columns further, so body text that reads like a terminator never starts there.
+    terminator_column: usize,
+    // Neither tool prints `<<EOT`; its terminator may also start the line, as HCL writes it.
+    flush: bool,
+    // Only an element of a list, set, or tuple has its terminator followed by the separator.
+    element: bool,
+    marker_column: u16,
 }
 
 impl OpenHeredoc {
     fn opened_by(line: &str) -> Option<Self> {
-        heredoc_start(line).map(|terminator| Self {
-            terminator,
-            marker_column: heredoc_marker_column(line),
+        let (opening, element) = attribute_heredoc_start(line)
+            .map(|opening| (opening, false))
+            .or_else(|| element_heredoc_start(line).map(|opening| (opening, true)))?;
+        let terminator_column = heredoc_name_column(line);
+        Some(Self {
+            terminator: opening.terminator.to_owned(),
+            terminator_column,
+            flush: opening.flush,
+            element,
+            // A changed body line's marker sits in a two-column action slot right of the name. A
+            // column too wide to store saturates, marking no line.
+            marker_column: u16::try_from(terminator_column + 2).unwrap_or(u16::MAX),
         })
+    }
+
+    fn is_closed_by(&self, line: &str) -> bool {
+        let rest = line.trim_start_matches(' ');
+        let indent = line.len() - rest.len();
+        if indent != self.terminator_column && !(self.flush && indent == 0) {
+            return false;
+        }
+        rest.trim_end()
+            .strip_prefix(self.terminator.as_str())
+            .is_some_and(|suffix| {
+                suffix.is_empty() || (self.element && suffix == ",") || suffix.starts_with(" -> ")
+            })
     }
 }
 
-// Terraform and OpenTofu indent heredoc lines one level past the opening attribute and keep a
-// two-column action slot there, so a changed line's marker sits two columns right of the name.
-fn heredoc_marker_column(opening: &str) -> usize {
+// The column of the attribute name, or of the `<<` that starts an element, after any action marker.
+fn heredoc_name_column(opening: &str) -> usize {
     let indent = opening.len() - opening.trim_start_matches(' ').len();
-    let rest = &opening[indent..];
-    let name_column = if ["+ ", "- ", "~ "]
+    if ["+ ", "- ", "~ "]
         .iter()
-        .any(|marker| rest.starts_with(marker))
+        .any(|marker| opening[indent..].starts_with(marker))
     {
         indent + 2
     } else {
         indent
-    };
-    name_column + 2
-}
-
-fn heredoc_end(line: &str, terminator: &str) -> bool {
-    let trimmed = line.trim();
-    if trimmed == terminator {
-        return true;
     }
-    trimmed
-        .strip_prefix(terminator)
-        .is_some_and(|suffix| suffix.trim_start().starts_with("->"))
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn split_blocks(
@@ -460,82 +507,361 @@ mod tests {
         assert_eq!(document.line_kind(12), PlanLineKind::Summary);
     }
 
-    #[test]
-    fn classifies_resource_headers_and_heredoc_marker_columns_for_both_tools() {
+    #[rstest]
+    #[case::terraform("Terraform")]
+    #[case::opentofu("OpenTofu")]
+    fn classifies_resource_headers_and_heredoc_marker_columns(#[case] tool: &str) {
         let addresses = [
             "terraform_data.created".to_owned(),
             "terraform_data.updated".to_owned(),
             "terraform_data.removed".to_owned(),
         ];
-        for tool in ["Terraform", "OpenTofu"] {
-            let removed_header = format!(
-                "  # terraform_data.removed will no longer be managed by {tool}, but will not be destroyed"
-            );
-            let source = [
-                &format!("{tool} will perform the following actions:"),
-                "",
-                "  # terraform_data.created will be created",
-                "  + resource \"terraform_data\" \"created\" {",
-                "      + input  = <<-EOT",
-                "            - dash",
-                "            + plus",
-                "        EOT",
-                "    }",
-                "",
-                "  # terraform_data.updated will be updated in-place",
-                "  ~ resource \"terraform_data\" \"updated\" {",
-                "      ~ input  = <<-EOT",
-                "            - item one",
-                "          - + item two",
-                "            plain",
-                "        EOT",
-                "        # (1 unchanged attribute hidden)",
-                "      ~ nested = {",
-                "          ~ \"key\" = <<-EOT",
-                "                - value",
-                "            EOT -> null",
-                "        }",
-                "    }",
-                "",
-                &removed_header,
-                "",
-                "  # terraform_data.unknown will be created",
-                "",
-                "Plan: 1 to add, 1 to change, 0 to destroy.",
-            ]
-            .join("\n");
-            let document = parse_document(source.into_bytes(), &addresses, &[])
-                .expect("synthetic text should parse");
+        let removed_header = format!(
+            "  # terraform_data.removed will no longer be managed by {tool}, but will not be destroyed"
+        );
+        let source = [
+            &format!("{tool} will perform the following actions:"),
+            "",
+            "  # terraform_data.created will be created",
+            "  + resource \"terraform_data\" \"created\" {",
+            "      + input  = <<-EOT",
+            "            - dash",
+            "            + plus",
+            "        EOT",
+            "    }",
+            "",
+            "  # terraform_data.updated will be updated in-place",
+            "  ~ resource \"terraform_data\" \"updated\" {",
+            "      ~ input  = <<-EOT",
+            "            - item one",
+            "          - + item two",
+            "            plain",
+            "        EOT",
+            "        # (1 unchanged attribute hidden)",
+            "      ~ nested = {",
+            "          ~ \"key\" = <<-EOT",
+            "                - value",
+            "            EOT -> null",
+            "        }",
+            "    }",
+            "",
+            &removed_header,
+            "",
+            "  # terraform_data.unknown will be created",
+            "",
+            "Plan: 1 to add, 1 to change, 0 to destroy.",
+        ]
+        .join("\n");
+        let document = parse_document(source.into_bytes(), &addresses, &[])
+            .expect("synthetic text should parse");
 
-            let heredoc = |marker_column| PlanLineKind::HeredocBody { marker_column };
-            assert_eq!(
-                (0..document.line_count())
-                    .map(|line| document.line_kind(line))
-                    .collect::<Vec<_>>(),
-                [
-                    [PlanLineKind::Intro; 2].as_slice(),
-                    &[PlanLineKind::ResourceHeader],
-                    &[PlanLineKind::Body; 2],
-                    &[heredoc(10); 2],
-                    &[PlanLineKind::Body; 3],
-                    &[PlanLineKind::ResourceHeader],
-                    &[PlanLineKind::Body; 2],
-                    &[heredoc(10); 3],
-                    &[PlanLineKind::Body],
-                    &[PlanLineKind::Note],
-                    &[PlanLineKind::Body; 2],
-                    &[heredoc(14)],
-                    &[PlanLineKind::Body; 4],
-                    &[PlanLineKind::ResourceHeader],
-                    &[PlanLineKind::Body],
-                    &[PlanLineKind::Note],
-                    &[PlanLineKind::Body],
-                    &[PlanLineKind::Summary],
-                ]
-                .concat(),
-                "{tool}"
-            );
-        }
+        let heredoc = |marker_column| PlanLineKind::HeredocBody { marker_column };
+        assert_eq!(
+            (0..document.line_count())
+                .map(|line| document.line_kind(line))
+                .collect::<Vec<_>>(),
+            [
+                [PlanLineKind::Intro; 2].as_slice(),
+                &[PlanLineKind::ResourceHeader],
+                &[PlanLineKind::Body; 2],
+                &[heredoc(10); 2],
+                &[PlanLineKind::Body; 3],
+                &[PlanLineKind::ResourceHeader],
+                &[PlanLineKind::Body; 2],
+                &[heredoc(10); 3],
+                &[PlanLineKind::Body],
+                &[PlanLineKind::Note],
+                &[PlanLineKind::Body; 2],
+                &[heredoc(14)],
+                &[PlanLineKind::Body; 4],
+                &[PlanLineKind::ResourceHeader],
+                &[PlanLineKind::Body],
+                &[PlanLineKind::Note],
+                &[PlanLineKind::Body],
+                &[PlanLineKind::Summary],
+            ]
+            .concat()
+        );
+    }
+
+    #[rstest]
+    #[case::terraform("Terraform")]
+    #[case::opentofu("OpenTofu")]
+    fn classifies_list_element_heredocs(#[case] tool: &str) {
+        let addresses = [
+            "terraform_data.created".to_owned(),
+            "terraform_data.lookalike".to_owned(),
+            "terraform_data.updated".to_owned(),
+            "terraform_data.destroyed".to_owned(),
+        ];
+        let source = [
+            &format!("{tool} will perform the following actions:"),
+            "",
+            "  # terraform_data.created will be created",
+            "  + resource \"terraform_data\" \"created\" {",
+            "      + input  = [",
+            "          + <<-EOT",
+            "                - dash",
+            "  # terraform_data.lookalike will be created",
+            "            EOT,",
+            "          + \"plain\",",
+            "        ]",
+            "    }",
+            "",
+            "  # terraform_data.updated will be updated in-place",
+            "  ~ resource \"terraform_data\" \"updated\" {",
+            "      ~ input  = [",
+            "          ~ <<-EOT",
+            "              - item one",
+            "              + item two",
+            "                plain",
+            "            EOT,",
+            "            <<-EOT",
+            "                unchanged",
+            "            EOT,",
+            "          - <<-EOT # forces replacement",
+            "                old",
+            "            EOT,",
+            "        ]",
+            "    }",
+            "",
+            "  # terraform_data.destroyed will be destroyed",
+            "  - resource \"terraform_data\" \"destroyed\" {",
+            "      - input  = [",
+            "          - <<-EOT",
+            "                + plus",
+            "            EOT,",
+            "        ] -> null",
+            "    }",
+            "",
+            "Plan: 1 to add, 1 to change, 1 to destroy.",
+        ]
+        .join("\n");
+        let document = parse_document(source.into_bytes(), &addresses, &[])
+            .expect("synthetic text should parse");
+
+        // The element's `<<` sits in the list's element column, so its marker column is two
+        // columns right of it, where the per-line action of an updated element sits.
+        let heredoc = |count| vec![PlanLineKind::HeredocBody { marker_column: 14 }; count];
+        let body = |count| vec![PlanLineKind::Body; count];
+        assert_eq!(
+            (0..document.line_count())
+                .map(|line| document.line_kind(line))
+                .collect::<Vec<_>>(),
+            [
+                vec![PlanLineKind::Intro; 2],
+                vec![PlanLineKind::ResourceHeader],
+                body(3),
+                heredoc(2),
+                body(5),
+                vec![PlanLineKind::ResourceHeader],
+                body(3),
+                heredoc(3),
+                body(2),
+                heredoc(1),
+                body(2),
+                heredoc(1),
+                body(4),
+                vec![PlanLineKind::ResourceHeader],
+                body(3),
+                heredoc(1),
+                body(4),
+                vec![PlanLineKind::Summary],
+            ]
+            .concat()
+        );
+    }
+
+    // Lines copied from Terraform 1.16.1 and OpenTofu 1.10.6 plans of values whose text reads like
+    // terminators, plus lookalikes in the marker column and an attribute's terminator column.
+    // Both tools start a terminator in the opening name column and every body line at least two
+    // columns right of it, so only `EOT` or `EOT -> ...` there, as the tools print, closes the
+    // heredoc; a body line printed that way could not be told apart, but neither tool prints one.
+    #[rstest]
+    #[case::terraform("Terraform")]
+    #[case::opentofu("OpenTofu")]
+    fn keeps_attribute_heredoc_terminator_lookalikes_in_the_body(#[case] tool: &str) {
+        let source = [
+            &format!("{tool} will perform the following actions:"),
+            "",
+            "  # terraform_data.attr will be updated in-place",
+            "  ~ resource \"terraform_data\" \"attr\" {",
+            "        id     = \"attr\"",
+            "      ~ input  = <<-EOT",
+            "            first",
+            "            EOT,",
+            "            - dash",
+            "            EOT",
+            "            EOT -> null",
+            "              EOT,",
+            "          EOT",
+            "          EOT -> null",
+            "        EOT,",
+            "            last",
+            "          + changed",
+            "        EOT",
+            "      ~ output = <<-EOT",
+            "            EOT,",
+            "            - dash",
+            "        EOT -> (known after apply)",
+            "      ~ map    = {",
+            "          ~ key = <<-EOT",
+            "                EOT,",
+            "            EOT,",
+            "                - dash",
+            "              + z",
+            "            EOT",
+            "        }",
+            "    }",
+            "",
+            "Plan: 0 to add, 1 to change, 0 to destroy.",
+        ]
+        .join("\n");
+        let document = parse_document(
+            source.into_bytes(),
+            &["terraform_data.attr".to_owned()],
+            &[],
+        )
+        .expect("synthetic text should parse");
+
+        let heredoc =
+            |marker_column, count| vec![PlanLineKind::HeredocBody { marker_column }; count];
+        let body = |count| vec![PlanLineKind::Body; count];
+        assert_eq!(
+            (0..document.line_count())
+                .map(|line| document.line_kind(line))
+                .collect::<Vec<_>>(),
+            [
+                vec![PlanLineKind::Intro; 2],
+                vec![PlanLineKind::ResourceHeader],
+                body(3),
+                heredoc(10, 11),
+                body(2),
+                heredoc(10, 2),
+                body(3),
+                heredoc(14, 4),
+                body(4),
+                vec![PlanLineKind::Summary],
+            ]
+            .concat()
+        );
+    }
+
+    // Lines copied from Terraform 1.16.1 and OpenTofu 1.10.6 plans, plus lookalikes in the marker
+    // column. An element's terminator starts in the column of its `<<` and ends with a comma.
+    #[rstest]
+    #[case::terraform("Terraform")]
+    #[case::opentofu("OpenTofu")]
+    fn keeps_list_element_heredoc_terminator_lookalikes_in_the_body(#[case] tool: &str) {
+        let source = [
+            &format!("{tool} will perform the following actions:"),
+            "",
+            "  # terraform_data.nested will be updated in-place",
+            "  ~ resource \"terraform_data\" \"nested\" {",
+            "        id     = \"nested\"",
+            "      ~ input  = {",
+            "          ~ l = [",
+            "              ~ <<-EOT",
+            "                  - first",
+            "                  + one",
+            "                    EOT,",
+            "                  - - dash",
+            "                  - EOT",
+            "                  - EOT -> null",
+            "                  -   EOT,",
+            "                  EOT,",
+            "                  - last",
+            "                  + two",
+            "                EOT,",
+            "            ]",
+            "        }",
+            "    }",
+            "",
+            "  # terraform_data.list will be created",
+            "  + resource \"terraform_data\" \"list\" {",
+            "      + input  = [",
+            "          + <<-EOT",
+            "                first",
+            "                EOT,",
+            "                - dash",
+            "                EOT",
+            "                EOT -> null",
+            "                  EOT,",
+            "              EOT",
+            "                last",
+            "            EOT,",
+            "          + \"plain\",",
+            "        ]",
+            "    }",
+            "",
+            "Plan: 1 to add, 1 to change, 0 to destroy.",
+        ]
+        .join("\n");
+        let document = parse_document(
+            source.into_bytes(),
+            &[
+                "terraform_data.nested".to_owned(),
+                "terraform_data.list".to_owned(),
+            ],
+            &[],
+        )
+        .expect("synthetic text should parse");
+
+        let heredoc =
+            |marker_column, count| vec![PlanLineKind::HeredocBody { marker_column }; count];
+        let body = |count| vec![PlanLineKind::Body; count];
+        assert_eq!(
+            (0..document.line_count())
+                .map(|line| document.line_kind(line))
+                .collect::<Vec<_>>(),
+            [
+                vec![PlanLineKind::Intro; 2],
+                vec![PlanLineKind::ResourceHeader],
+                body(5),
+                heredoc(18, 10),
+                body(5),
+                vec![PlanLineKind::ResourceHeader],
+                body(3),
+                heredoc(14, 8),
+                body(5),
+                vec![PlanLineKind::Summary],
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn closes_a_flush_heredoc_at_the_line_start_or_the_name_column() {
+        let source = [
+            "  # terraform_data.api will be created",
+            "  + resource \"terraform_data\" \"api\" {",
+            "      + first  = <<EOT",
+            "          EOT",
+            "        EOT",
+            "      + second = <<EOT",
+            "EOT",
+            "    }",
+        ]
+        .join("\n");
+        let document = parse_document(source.into_bytes(), &["terraform_data.api".to_owned()], &[])
+            .expect("synthetic text should parse");
+
+        let heredoc = PlanLineKind::HeredocBody { marker_column: 10 };
+        assert_eq!(
+            (0..document.line_count())
+                .map(|line| document.line_kind(line))
+                .collect::<Vec<_>>(),
+            [
+                PlanLineKind::ResourceHeader,
+                PlanLineKind::Body,
+                PlanLineKind::Body,
+                heredoc,
+                PlanLineKind::Body,
+                PlanLineKind::Body,
+                PlanLineKind::Body,
+                PlanLineKind::Body,
+            ]
+        );
     }
 
     #[test]

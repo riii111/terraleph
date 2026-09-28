@@ -20,12 +20,15 @@ pub(crate) enum CopyTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CopyResult {
     Written,
+    // Handed to the terminal with OSC 52, which cannot confirm that it took the text.
+    SentToTerminal,
     Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CopyNotice {
     Copied { target: CopyTarget },
+    SentToTerminal { target: CopyTarget },
     Failed,
 }
 
@@ -34,6 +37,7 @@ impl CopyNotice {
     pub(crate) const fn message(self) -> &'static str {
         match self {
             Self::Copied { .. } => "Copied.",
+            Self::SentToTerminal { .. } => "Sent to terminal clipboard.",
             Self::Failed => "Copy failed.",
         }
     }
@@ -41,7 +45,7 @@ impl CopyNotice {
     #[must_use]
     const fn duration(self) -> Duration {
         match self {
-            Self::Copied { .. } => Duration::from_secs(3),
+            Self::Copied { .. } | Self::SentToTerminal { .. } => Duration::from_secs(3),
             Self::Failed => Duration::from_secs(5),
         }
     }
@@ -87,11 +91,12 @@ impl CopyFeedback {
     ) {
         let notice = match result {
             CopyResult::Written => CopyNotice::Copied { target },
+            CopyResult::SentToTerminal => CopyNotice::SentToTerminal { target },
             CopyResult::Failed => CopyNotice::Failed,
         };
         self.notice = Some(notice);
         self.notice_until = Some(now + notice.duration());
-        self.flash_until = (flash && result == CopyResult::Written).then(|| now + FLASH_DURATION);
+        self.flash_until = (flash && result != CopyResult::Failed).then(|| now + FLASH_DURATION);
     }
 
     pub(crate) fn clear_expired(&mut self, now: Instant) -> bool {
@@ -483,5 +488,27 @@ mod tests {
         assert!(feedback.clear_expired(notice_expired_at));
         assert!(!feedback.pending());
         assert!(!feedback.clear_expired(notice_expired_at));
+    }
+
+    #[test]
+    fn terminal_copy_keeps_the_flash_with_its_own_notice() {
+        let started_at = Instant::now();
+        let mut feedback = CopyFeedback::default();
+        feedback.record(
+            CopyTarget::Plan,
+            CopyResult::SentToTerminal,
+            started_at,
+            true,
+        );
+
+        assert!(feedback.flash_active(started_at));
+        assert_eq!(
+            feedback.notice_at(started_at).map(CopyNotice::message),
+            Some("Sent to terminal clipboard.")
+        );
+        assert_eq!(
+            feedback.notice_at(started_at + Duration::from_secs(3)),
+            None
+        );
     }
 }

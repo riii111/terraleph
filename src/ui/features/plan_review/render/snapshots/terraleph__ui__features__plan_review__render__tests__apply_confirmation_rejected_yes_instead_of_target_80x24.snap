@@ -14,11 +14,11 @@ Cmain [PROD]  ws:default  terraform loading...  /repo/environm...roduction/main
  │ Workspace: default                                                         │┃
  │ Directory: /repo/environments/production/main                              │┃
  │ Tool: terraform loading...                                                 │┃
--│ Plan: +1 add  ~1 update  1 replace  -1 destroy                             ││
+-│ Planned: 12m ago                                                           ││
+ │ Plan: +1 add  ~1 update  1 replace  -1 destroy                             ││
  │                                                                            ││
  │ Destroy:                                                                   ││
  │   terraform_data.old                                                       ││
- │ Replace:                                                                   ││
  │                                                                            ││
  │ To confirm, type "main" below.                                             ││
  │ > yes|                                                                     ││

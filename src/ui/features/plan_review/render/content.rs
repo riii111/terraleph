@@ -72,15 +72,10 @@ impl PlanContent {
             {
                 continue;
             }
-            // The shown spans give the same width and match columns that a frame draws.
-            let (_, line_matches, width) =
-                shown_plan_line(line, filter_query, notices.len() + plan.len(), None, kind);
-            plan_widths.push(width);
+            let row = notices.len() + plan.len();
+            plan_widths.push(plan_row_width(line, filter_query, row, kind, &mut matches));
             plan.push(PlanSource { kind, line_number });
-            matches.extend(line_matches);
         }
-        // Trailing rows without text are dropped, reaching the notices only when no plan row is
-        // left; only those plan rows are styled again to check.
         while plan
             .last()
             .is_some_and(|source| plan_line(document, *source, filter_query, 0, None).width() == 0)
@@ -174,14 +169,38 @@ fn plan_line<'a>(
     row: usize,
     selected: Option<&PlanReviewMatch>,
 ) -> Line<'a> {
-    plan_line_and_matches(
+    styled_plan_line(
         document.line(source.line_number),
         query,
         row,
         selected,
         source.kind,
+        |_| {},
     )
-    .0
+}
+
+// A frame measures each drawn span on its own, so a grapheme cluster cut where a match or emphasis
+// splits the line counts per part. Printable ASCII has no cluster to cut and no control character
+// to show differently, so each byte is one shown cell and only other lines are styled to measure.
+// Tabs and carriage returns are ASCII too, but they take the cells of their shown spelling.
+fn plan_row_width(
+    line: &str,
+    query: &str,
+    row: usize,
+    kind: PlanLineKind,
+    matches: &mut Vec<PlanReviewMatch>,
+) -> usize {
+    if is_printable_ascii(line) {
+        matches.extend(
+            search_matches(line, query)
+                .map(|found| PlanReviewMatch::new(row, found.start, found.end)),
+        );
+        line.len()
+    } else {
+        display_width(&styled_plan_line(line, query, row, None, kind, |found| {
+            matches.push(found);
+        }))
+    }
 }
 
 /// Keeps the prepared plan body between frames and key presses. The body is prepared again only
@@ -191,7 +210,8 @@ pub(crate) struct PlanContentCache(RefCell<Option<CachedContent>>);
 
 #[derive(Clone)]
 struct CachedContent {
-    diagnostics: Vec<Diagnostic>,
+    // Shared like the body, so a view clone does not copy the diagnostic text.
+    diagnostics: Rc<[Diagnostic]>,
     filtered_view: bool,
     content: Rc<PlanContent>,
 }
@@ -206,7 +226,7 @@ impl PlanContentCache {
         let mut cached = self.0.borrow_mut();
         if let Some(cached) = cached.as_ref().filter(|cached| {
             cached.content.document.is_for(review.document())
-                && cached.diagnostics.as_slice() == review.diagnostics()
+                && *cached.diagnostics == *review.diagnostics()
                 && cached.filtered_view == filtered_view
                 && cached.content.filter_query == filter_query
         }) {
@@ -214,7 +234,7 @@ impl PlanContentCache {
         }
         let content = Rc::new(PlanContent::prepare(review, filtered_view, filter_query));
         *cached = Some(CachedContent {
-            diagnostics: review.diagnostics().to_vec(),
+            diagnostics: Rc::from(review.diagnostics()),
             filtered_view,
             content: Rc::clone(&content),
         });
@@ -262,49 +282,36 @@ fn diagnostic_lines(review: &PlanReview) -> Vec<Line<'static>> {
     lines
 }
 
-pub(super) fn plan_line_and_matches<'a>(
-    line: &'a str,
-    query: &str,
-    line_index: usize,
-    selected: Option<&PlanReviewMatch>,
-    kind: PlanLineKind,
-) -> (Line<'a>, Vec<PlanReviewMatch>) {
-    let (shown, matches, _) = shown_plan_line(line, query, line_index, selected, kind);
-    (shown, matches)
-}
-
 // Styles and matches are found in the plan's own text, and each piece is then shown with tabs and
-// control characters spelled out, so match columns, the returned width, and the visible window all
+// control characters spelled out, so match columns, the measured width, and the visible window all
 // count the shown cells.
-fn shown_plan_line<'a>(
+pub(super) fn styled_plan_line<'a>(
     line: &'a str,
     query: &str,
     line_index: usize,
     selected: Option<&PlanReviewMatch>,
     kind: PlanLineKind,
-) -> (Line<'a>, Vec<PlanReviewMatch>, usize) {
+    mut on_match: impl FnMut(PlanReviewMatch),
+) -> Line<'a> {
     let style = plan_line_style(line, kind);
     let emphasis = emphasized_ranges(line, kind);
     let mut columns = DisplayColumns::default();
     if query.is_empty() && emphasis.is_empty() {
-        let shown = Line::from(Span::styled(columns.show(line), style));
-        return (shown, Vec::new(), columns.column());
+        return Line::from(Span::styled(columns.show(line), style));
     }
     let mut result = Line::default();
-    let mut matches = Vec::new();
     let mut cursor = 0;
-    let found = (!query.is_empty()).then(|| line.match_indices(query));
-    for (index, match_text) in found.into_iter().flatten() {
+    for range in search_matches(line, query) {
         push_emphasized(
             &mut result,
             &mut columns,
             line,
-            cursor..index,
+            cursor..range.start,
             style,
             &emphasis,
         );
         let start_column = columns.column();
-        let shown = columns.show(match_text);
+        let shown = columns.show(&line[range.clone()]);
         let rendered_match = PlanReviewMatch::new(line_index, start_column, columns.column());
         let match_style = selected
             .filter(|selected| {
@@ -315,8 +322,8 @@ fn shown_plan_line<'a>(
             });
         // A match keeps its own style over the line style and any emphasis under it.
         result.push_span(Span::styled(shown, match_style));
-        matches.push(rendered_match);
-        cursor = index + match_text.len();
+        on_match(rendered_match);
+        cursor = range.end;
     }
     push_emphasized(
         &mut result,
@@ -326,7 +333,18 @@ fn shown_plan_line<'a>(
         style,
         &emphasis,
     );
-    (result, matches, columns.column())
+    result
+}
+
+// Matches are found in the plan's own text, so a query never matches the shown spelling of a
+// control character.
+fn search_matches<'a>(line: &'a str, query: &'a str) -> impl Iterator<Item = Range<usize>> + 'a {
+    // An empty query would match between every pair of characters.
+    (!query.is_empty())
+        .then(|| line.match_indices(query))
+        .into_iter()
+        .flatten()
+        .map(|(index, match_text)| index..index + match_text.len())
 }
 
 #[derive(Clone, Copy)]
@@ -377,7 +395,6 @@ fn emphasized_ranges(line: &str, kind: PlanLineKind) -> Vec<(Range<usize>, Empha
     ranges
 }
 
-// Pushes `range` of `line` in the line style, adding the emphasis of each part it overlaps.
 fn push_emphasized<'a>(
     result: &mut Line<'a>,
     columns: &mut DisplayColumns,
@@ -427,9 +444,13 @@ fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {
 
 // Heredoc text can start with the same characters as a diff marker, so only a marker in the
 // document's marker column, after spaces and before a space or the line end, counts. Only spaces
-// come before it, so its byte offset in the plan text is also its shown column.
-fn heredoc_marker(line: &str, marker_column: usize) -> Option<char> {
-    let (indent, rest) = line.split_at_checked(marker_column)?;
+// come before it, so its byte offset in the plan text is also its shown column. A saturated column
+// stands for one too wide to store, so it marks no line.
+fn heredoc_marker(line: &str, marker_column: u16) -> Option<char> {
+    if marker_column == u16::MAX {
+        return None;
+    }
+    let (indent, rest) = line.split_at_checked(usize::from(marker_column))?;
     let mut rest = rest.chars();
     let marker = rest
         .next()
@@ -449,15 +470,11 @@ pub(super) fn flash_lines(lines: &[Line<'_>]) -> Vec<Line<'static>> {
 // window walks the same graphemes and cell widths as ratatui's line truncation.
 pub(super) fn visible_lines<'a>(
     lines: &'a [Line<'_>],
-    vertical: usize,
     horizontal: usize,
-    height: u16,
     width: u16,
 ) -> Vec<Line<'a>> {
     lines
         .iter()
-        .skip(vertical)
-        .take(usize::from(height))
         .map(|line| visible_columns(line, horizontal, usize::from(width)))
         .collect()
 }
@@ -489,9 +506,24 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
 // marks, some joined scripts, and control characters. Scroll limits, match columns, and the visible
 // window all measure the graphemes ratatui draws instead.
 pub(super) fn display_width(line: &Line<'_>) -> usize {
-    line.styled_graphemes(Style::default())
+    line.spans.iter().map(span_width).sum()
+}
+
+// Most plan text is printable ASCII, where every byte is one drawn cell, so only other spans pay
+// for grapheme segmentation.
+fn span_width(span: &Span<'_>) -> usize {
+    let content = span.content.as_ref();
+    if is_printable_ascii(content) {
+        return content.len();
+    }
+    span.styled_graphemes(Style::default())
         .map(|grapheme| grapheme_width(grapheme.symbol))
         .sum()
+}
+
+fn is_printable_ascii(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
 }
 
 fn grapheme_width(symbol: &str) -> usize {

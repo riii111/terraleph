@@ -95,7 +95,7 @@ fn prepare(
     let required_footer =
         footer::layout_prioritized(required_footer_items(view), available_footer_width);
     let (full_footer, required_footer) = if quit_confirmation {
-        let lines = footer::quit_confirmation_lines(area.width, footer_message);
+        let lines = footer::quit_confirmation_lines(area.width);
         (
             footer::pad_lines(lines.clone(), full_footer.len()),
             footer::pad_lines(lines, required_footer.len()),
@@ -203,16 +203,20 @@ pub(crate) fn render_with_quit_confirmation(
         );
         view.set_relations_scroll(scroll);
     }
-    let notice = state.copy_feedback().notice_at(now).map(|notice| {
-        (
-            notice.message(),
-            if matches!(notice, CopyNotice::Failed) {
-                theme::error_style()
-            } else {
-                theme::accent_style()
-            },
-        )
-    });
+    let notice = state
+        .copy_feedback()
+        .notice_at(now)
+        .filter(|_| !quit_confirmation)
+        .map(|notice| {
+            (
+                notice.message(),
+                if matches!(notice, CopyNotice::Failed) {
+                    theme::error_style()
+                } else {
+                    theme::accent_style()
+                },
+            )
+        });
     footer::render(
         frame,
         layout.shell.footer(),
@@ -646,6 +650,7 @@ mod tests {
     use crate::ui::features::overview::OverviewInput;
     use crate::{
         app::{
+            copy::{CopyResult, CopyTarget},
             execution::{ExecutionContext, VariableSources},
             plan::{
                 AttributeType, ConfigurationRelationStatus, Plan, PlanAction, PlanRelations,
@@ -656,7 +661,7 @@ mod tests {
                 StateRelationStatus, test_support::output_change,
             },
             review::{PlanBlock, PlanBlockKind, PlanDocument, PlanMetadata},
-            session::test_support::overview_session,
+            session::{self, Action, SessionState, test_support::overview_session},
         },
         ui::test_support::{
             assert_dialog_scrolled_up, buffer_text, dialog_body_rows, render_to_buffer,
@@ -951,6 +956,39 @@ mod tests {
             assert!(!text.contains("q quit"), "{width}x{height}: {text}");
             assert!(!text.contains("Enter open raw"), "{width}x{height}: {text}");
         }
+    }
+
+    #[test]
+    fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
+        let now = Instant::now();
+        let mut session = SessionState::Review(Box::new(overview_session(review())));
+        session::update(
+            &mut session,
+            Action::CopyCompleted {
+                target: CopyTarget::Plan,
+                result: CopyResult::SentToTerminal,
+            },
+            now,
+        );
+        let state = session.overview().expect("overview should be visible");
+        let view = OverviewViewState::default();
+
+        let copied = buffer_text(&render_to_buffer((40, 16), |frame| {
+            render(frame, state, &view, now);
+        }));
+        let confirmation = buffer_text(&render_to_buffer((40, 16), |frame| {
+            render_with_quit_confirmation(frame, state, &view, now, true);
+        }));
+
+        assert!(copied.contains("Sent to terminal clipboard."), "{copied}");
+        assert!(
+            confirmation.contains("Quit? [Enter] quit [Esc] cancel"),
+            "{confirmation}"
+        );
+        assert!(
+            !confirmation.contains("Sent to terminal clipboard."),
+            "{confirmation}"
+        );
     }
 
     #[test]

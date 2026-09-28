@@ -1,4 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+    time::Duration,
+};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -36,7 +40,7 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{plan_line_and_matches, visible_lines},
+    content::{display_width, styled_plan_line, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
@@ -44,7 +48,23 @@ use super::{
     *,
 };
 
+fn plan_line_and_matches<'a>(
+    line: &'a str,
+    query: &str,
+    line_index: usize,
+    selected: Option<&PlanReviewMatch>,
+    kind: PlanLineKind,
+) -> (Line<'a>, Vec<PlanReviewMatch>) {
+    let mut matches = Vec::new();
+    let styled = styled_plan_line(line, query, line_index, selected, kind, |found| {
+        matches.push(found);
+    });
+    (styled, matches)
+}
+
 const SIZES: [(u16, u16); 3] = [(80, 24), (120, 40), (160, 60)];
+const PLAN_AGE: Duration = Duration::from_mins(12);
+static PLANNED_AT: LazyLock<Instant> = LazyLock::new(Instant::now);
 const SEARCH_TERM: &str = "terraform_data";
 const PLAN_TEXT: &str = r#"Terraform will perform the following actions:
 
@@ -190,6 +210,12 @@ fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
         Vec::new(),
     )
     .with_apply_allowed(apply_allowed)
+    .with_planned_at(*PLANNED_AT)
+}
+
+// Every confirmation fixture renders the same plan age, so snapshots stay stable.
+fn confirmation_now() -> Instant {
+    *PLANNED_AT + PLAN_AGE
 }
 
 fn searching_view() -> PlanReviewViewState {
@@ -612,10 +638,17 @@ fn confirmation_opened_from_the_overview_detail_draws_the_same_background() {
                     from_overview,
                     &PlanReviewViewState::default(),
                     &view,
+                    confirmation_now(),
                 );
             }),
             render_to_buffer(size, |frame| {
-                render_apply_confirmation(frame, &direct, &PlanReviewViewState::default(), &view);
+                render_apply_confirmation(
+                    frame,
+                    &direct,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             }),
             "{size:?}"
         );
@@ -673,7 +706,13 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
             None
         );
         let help = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
         let help_text = buffer_text(&help);
         assert!(
@@ -697,17 +736,31 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         }
         snapshot(&format!("apply_confirmation_help_{width}x{height}"), &help);
 
+        let renderable =
+            apply_confirmation_layout(Rect::new(0, 0, width, height), &state, confirmation_now())
+                .renderable();
         if (width, height) == (40, 16) {
             assert!(
-                !apply_confirmation_layout(Rect::new(0, 0, width, height), &state).renderable(),
+                !renderable,
                 "{width}x{height} should exercise Help over an unrenderable confirmation"
+            );
+        } else {
+            assert!(
+                renderable,
+                "{width}x{height} should exercise Help over a rendered confirmation"
             );
         }
 
         if width == 40 {
             view.overlay_bottom();
             let bottom = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             });
             let bottom_text = buffer_text(&bottom);
             assert!(
@@ -732,7 +785,13 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         None
     );
     let context = render_to_buffer((120, 40), |frame| {
-        render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+        render_apply_confirmation(
+            frame,
+            &state,
+            &PlanReviewViewState::default(),
+            &view,
+            confirmation_now(),
+        );
     });
     assert!(buffer_text(&context).contains("Execution directory"));
     assert!(buffer_text(&context).contains("/repo/environments/production/main"));
@@ -844,7 +903,13 @@ fn renders_apply_confirmation_at_all_supported_sizes() {
         let state = confirmation_state(review());
         let view = ApplyConfirmationViewState::default();
         let buffer = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
 
         snapshot(
@@ -882,7 +947,13 @@ fn renders_rejected_apply_confirmation_vrt() {
             }
             view.apply(ApplyConfirmationInput::Confirm, "main", 0);
             let buffer = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             });
 
             assert!(
@@ -906,7 +977,13 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
     let mut view = ApplyConfirmationViewState::default();
     let render = |view: &ApplyConfirmationViewState| {
         render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), view);
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                view,
+                confirmation_now(),
+            );
         })
     };
 
@@ -2193,6 +2270,7 @@ mod filter {
 
 mod confirmation {
     use super::*;
+    use ratatui::style::Style;
 
     #[test]
     fn relative_directory_uses_the_launch_root_and_shows_dot_for_the_root() {
@@ -2235,7 +2313,13 @@ mod confirmation {
             view.apply(ApplyConfirmationInput::Character(character), "yes", 0);
         }
         let buffer = render_to_buffer((120, 40), |frame| {
-            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
 
         assert_text_prefix_uses_style(
@@ -2264,6 +2348,7 @@ mod confirmation {
             let layout = apply_confirmation_layout(
                 Rect::new(0, 0, width, height),
                 &confirmation_state(review()),
+                confirmation_now(),
             );
 
             assert!(layout.renderable());
@@ -2288,17 +2373,18 @@ mod confirmation {
         );
         let state = confirmation_state(plan);
         let area = Rect::new(0, 0, 48, 30);
-        let layout = apply_confirmation_layout(area, &state);
+        let layout = apply_confirmation_layout(area, &state, confirmation_now());
         assert!(layout.renderable());
         assert!(layout.frame().height > 12);
         let too_short = Rect::new(0, 0, area.width, 12);
-        assert!(!apply_confirmation_layout(too_short, &state).renderable());
+        assert!(!apply_confirmation_layout(too_short, &state, confirmation_now()).renderable());
         let too_short_buffer = render_to_buffer((too_short.width, too_short.height), |frame| {
             render_apply_confirmation(
                 frame,
                 &state,
                 &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
+                confirmation_now(),
             );
         });
         assert!(buffer_text(&too_short_buffer).contains("Terminal too small"));
@@ -2309,6 +2395,7 @@ mod confirmation {
                 &state,
                 &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
+                confirmation_now(),
             );
         });
         let text = buffer_text(&buffer);
@@ -2332,10 +2419,10 @@ mod confirmation {
     fn production_confirmation_requires_a_complete_footer_and_keeps_notice_below_header() {
         let state = confirmation_state(review());
         let narrow = Rect::new(0, 0, 24, 30);
-        assert!(!apply_confirmation_layout(narrow, &state).renderable());
+        assert!(!apply_confirmation_layout(narrow, &state, confirmation_now()).renderable());
 
         let area = Rect::new(0, 0, 48, 12);
-        let layout = apply_confirmation_layout(area, &state);
+        let layout = apply_confirmation_layout(area, &state, confirmation_now());
         assert!(!layout.renderable());
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render_apply_confirmation(
@@ -2343,6 +2430,7 @@ mod confirmation {
                 &state,
                 &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
+                confirmation_now(),
             );
         });
         let text = buffer_text(&buffer);
@@ -2361,6 +2449,7 @@ mod confirmation {
                 &state,
                 &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
+                confirmation_now(),
             );
         });
         let dialog_y = (buffer.area().y..buffer.area().bottom())
@@ -2419,13 +2508,236 @@ mod confirmation {
         {
             view.apply(ApplyConfirmationInput::Character(character), "yes", 0);
         }
-        let layout = apply_confirmation_layout(Rect::new(0, 0, 80, 24), &state);
+        let layout = apply_confirmation_layout(Rect::new(0, 0, 80, 24), &state, confirmation_now());
         assert!(confirmation_input_scroll(&view, layout.input().width) > 0);
 
         let buffer = render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
         assert!(buffer_text(&buffer).contains("input|"));
+    }
+
+    fn assert_line_segments_use_styles(buffer: &Buffer, line: &str, segments: &[(&str, Style)]) {
+        for &(segment, style) in segments {
+            let start = line
+                .find(segment)
+                .expect("segment should be part of the line");
+            assert_text_segment_uses_style(
+                buffer,
+                line,
+                line[..start].chars().count(),
+                segment.chars().count(),
+                style.fg.unwrap_or(Color::Reset),
+                style.bg.unwrap_or(Color::Reset),
+                style.add_modifier,
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_colors_each_planned_change_count_by_kind() {
+        let state = confirmation_state(review());
+        let buffer = render_to_buffer((120, 40), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert_line_segments_use_styles(
+            &buffer,
+            "Plan: +1 add  ~1 update  1 replace  -1 destroy",
+            &[
+                ("Plan: ", theme::secondary_style()),
+                ("+1 add", theme::success_style()),
+                ("  ", theme::secondary_style()),
+                ("~1 update", theme::warning_style()),
+                ("1 replace", theme::overview_total_replace_style()),
+                ("-1 destroy", theme::error_style()),
+            ],
+        );
+        for (label, address, style) in [
+            ("Destroy:", "  terraform_data.old", theme::error_style()),
+            (
+                "Replace:",
+                "  terraform_data.worker",
+                theme::overview_total_replace_style(),
+            ),
+        ] {
+            assert_line_segments_use_styles(&buffer, label, &[(label, style)]);
+            assert_line_segments_use_styles(&buffer, address, &[(address, style)]);
+        }
+    }
+
+    fn create_only_review() -> PlanReview {
+        PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            plan_document_with_blocks(
+                "+ resource \"terraform_data\" \"new\" {}".to_owned(),
+                vec![PlanBlock::new(0..1, PlanBlockKind::Resource)],
+            ),
+            Plan {
+                resource_changes: vec![resource_change(
+                    "terraform_data.new",
+                    ResourceChangeKind::Create,
+                )],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn apply_confirmation_keeps_zero_change_counts_in_the_secondary_color() {
+        let state = confirmation_state(create_only_review());
+        let buffer = render_to_buffer((80, 24), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert_line_segments_use_styles(
+            &buffer,
+            "Plan: +1 add  ~0 update  0 replace  -0 destroy",
+            &[
+                ("+1 add", theme::success_style()),
+                ("~0 update", theme::secondary_style()),
+                ("0 replace", theme::secondary_style()),
+                ("-0 destroy", theme::secondary_style()),
+            ],
+        );
+    }
+
+    #[test]
+    fn apply_confirmation_shows_the_plan_age_in_whole_minutes() {
+        let planned_at = Instant::now();
+        let state = confirmation_state(review().with_planned_at(planned_at));
+        for (elapsed, expected) in [
+            (0, "Planned: <1m ago"),
+            (59, "Planned: <1m ago"),
+            (60, "Planned: 1m ago"),
+            (59 * 60, "Planned: 59m ago"),
+            (60 * 60 - 1, "Planned: 59m ago"),
+            (60 * 60, "Planned: 1h 0m ago"),
+            (65 * 60, "Planned: 1h 5m ago"),
+        ] {
+            let buffer = render_to_buffer((120, 40), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &ApplyConfirmationViewState::default(),
+                    planned_at + Duration::from_secs(elapsed),
+                );
+            });
+            let text = buffer_text(&buffer);
+
+            assert!(
+                text.contains(&format!("│ {expected}  ")),
+                "{elapsed}s\n{text}"
+            );
+            let tool = text.find("│ Tool: ").expect("tool line");
+            let planned = text.find("│ Planned: ").expect("planned line");
+            let counts = text.find("│ Plan: +1 add").expect("change counts");
+            assert!(tool < planned && planned < counts, "{elapsed}s\n{text}");
+            assert_line_segments_use_styles(
+                &buffer,
+                expected,
+                &[
+                    ("Planned: ", theme::secondary_style()),
+                    (
+                        expected.trim_start_matches("Planned: "),
+                        theme::body_style(),
+                    ),
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_drops_the_plan_age_before_the_dialog_stops_fitting() {
+        let state = confirmation_state(review());
+        for (width, height, age_shown) in [
+            (40, 24, false),
+            (48, 24, false),
+            (40, 29, true),
+            (48, 29, true),
+            (80, 24, true),
+        ] {
+            let layout = apply_confirmation_layout(
+                Rect::new(0, 0, width, height),
+                &state,
+                confirmation_now(),
+            );
+            let text = buffer_text(&render_to_buffer((width, height), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &ApplyConfirmationViewState::default(),
+                    confirmation_now(),
+                );
+            }));
+
+            assert!(layout.renderable(), "{width}x{height}\n{text}");
+            assert!(text.contains("> |"), "{width}x{height}\n{text}");
+            assert_eq!(
+                text.contains("Planned: 12m ago"),
+                age_shown,
+                "{width}x{height}\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_omits_the_plan_age_when_the_plan_time_is_unknown() {
+        let state = confirmation_state(create_only_review());
+        let buffer = render_to_buffer((120, 40), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert!(!buffer_text(&buffer).contains("Planned:"));
+        assert_eq!(
+            apply_confirmation_redraw_at(&state, confirmation_now()),
+            None
+        );
+    }
+
+    #[test]
+    fn apply_confirmation_redraws_when_the_plan_age_reaches_the_next_minute() {
+        let planned_at = Instant::now();
+        let state = confirmation_state(review().with_planned_at(planned_at));
+        let minutes = |minutes| planned_at + Duration::from_mins(minutes);
+
+        for (now, expected) in [
+            (planned_at, minutes(1)),
+            (planned_at + Duration::from_secs(59), minutes(1)),
+            (minutes(1), minutes(2)),
+            (minutes(59) + Duration::from_secs(30), minutes(60)),
+        ] {
+            assert_eq!(apply_confirmation_redraw_at(&state, now), Some(expected));
+        }
     }
 }
 
@@ -2498,6 +2810,7 @@ mod overlay {
                                 &state,
                                 &PlanReviewViewState::default(),
                                 view,
+                                confirmation_now(),
                             );
                         }),
                         title,
@@ -2641,6 +2954,36 @@ mod overlay {
             );
         });
         assert!(buffer_text(&narrow).contains("Quit? [Enter] quit [Esc] cancel"));
+    }
+
+    #[test]
+    fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
+        let now = Instant::now();
+        let mut session = SessionState::new(ExecutionState::with_context(
+            now,
+            ExecutionContext::loading("/repo"),
+        ));
+        session::update(
+            &mut session,
+            Action::ReviewCompleted(review_with_applyable(false)),
+            now,
+        );
+        session::update(
+            &mut session,
+            Action::CopyCompleted {
+                target: CopyTarget::Plan,
+                result: CopyResult::SentToTerminal,
+            },
+            now,
+        );
+        let state = session.review().expect("review should be visible");
+
+        let text = buffer_text(&render_to_buffer((40, 12), |frame| {
+            render_with_quit_confirmation(frame, state, &PlanReviewViewState::default(), now, true);
+        }));
+
+        assert!(text.contains("Quit? [Enter] quit [Esc] cancel"), "{text}");
+        assert!(!text.contains("Sent to terminal clipboard."), "{text}");
     }
 
     #[test]
@@ -3351,12 +3694,12 @@ mod large_plan {
     #[test]
     fn visible_lines_cut_wide_and_combining_graphemes_at_cell_boundaries() {
         let style = theme::warning_style();
-        let lines = [
-            Line::from("skipped"),
-            Line::from(vec![Span::raw("aあ"), Span::styled("e\u{301}b", style)]),
-        ];
+        let lines = [Line::from(vec![
+            Span::raw("aあ"),
+            Span::styled("e\u{301}b", style),
+        ])];
         let window = |horizontal, width| {
-            let visible = visible_lines(&lines, 1, horizontal, 1, width);
+            let visible = visible_lines(&lines, horizontal, width);
             assert_eq!(visible.len(), 1);
             visible[0].clone()
         };
@@ -3370,14 +3713,6 @@ mod large_plan {
         assert_eq!(styled.to_string(), "e\u{301}");
         assert!(styled.spans.iter().all(|span| span.style == style));
         assert!(window(5, 3).spans.is_empty());
-        assert!(visible_lines(&lines, 2, 0, 1, 10).is_empty());
-        assert_eq!(
-            visible_lines(&lines, 0, 0, 5, 10)
-                .iter()
-                .map(Line::width)
-                .collect::<Vec<_>>(),
-            [7, 5]
-        );
     }
 }
 
@@ -3459,6 +3794,7 @@ mod content_cache {
                     &confirmation,
                     review_view,
                     &ApplyConfirmationViewState::default(),
+                    confirmation_now(),
                 );
             })
         };
@@ -3841,6 +4177,219 @@ mod line_styles {
     }
 
     #[test]
+    fn list_element_heredoc_lines_color_only_markers_in_the_element_marker_column() {
+        // `          ~ <<-EOT` opens the element, so its marker column is 14.
+        let kind = PlanLineKind::HeredocBody { marker_column: 14 };
+        for (line, expected) in [
+            ("                - dash", theme::body_style()),
+            (
+                "              - item one",
+                theme::plan_marker_style(Some('-')),
+            ),
+            (
+                "              + item two",
+                theme::plan_marker_style(Some('+')),
+            ),
+            ("                plain", theme::body_style()),
+            (
+                "  # terraform_data.lookalike will be created",
+                theme::body_style(),
+            ),
+            (
+                "                a -> (known after apply)",
+                theme::body_style(),
+            ),
+        ] {
+            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+            assert!(
+                styled.spans.iter().all(|span| span.style == expected),
+                "{line:?}: {styled:?}"
+            );
+        }
+
+        // A column too wide to store saturates and marks no line.
+        let saturated = PlanLineKind::HeredocBody {
+            marker_column: u16::MAX,
+        };
+        let line = format!("{}- text", " ".repeat(usize::from(u16::MAX)));
+        let (styled, _) = plan_line_and_matches(&line, "", 0, None, saturated);
+        assert!(
+            styled
+                .spans
+                .iter()
+                .all(|span| span.style == theme::body_style())
+        );
+    }
+
+    #[test]
+    fn prepared_widths_and_matches_equal_the_styled_rows() {
+        // Printable ASCII rows are measured from their raw text and the other rows are styled, so
+        // both ways of measuring a row must agree with the rows a frame styles. Tabs and carriage
+        // returns are ASCII but take the cells of their shown spelling, so the widest row has them.
+        const LINES: [&str; 5] = [
+            "      ~ id    = \"a -> b\" -> (known after apply)",
+            "      ~ description = \"ああ\" ->\u{301} (sensitive value)",
+            "      + tags  = { \"key\" = \"value\" }",
+            "      + script = \"\tcd a\t&& make\"\t\t\t\t# build\r",
+            "",
+        ];
+        // Every query matches the one resource block, so no notice comes before the rows.
+        for query in ["", "a", "->", "ああ", "make", "build\r"] {
+            let plan = PlanReview::new(
+                PathBuf::from("/repo"),
+                "default".to_owned(),
+                PlanDocument::with_blocks_and_line_kinds(
+                    LINES.join("\n"),
+                    vec![PlanBlock::new(0..LINES.len(), PlanBlockKind::Resource)],
+                    vec![PlanLineKind::Body; LINES.len()],
+                ),
+                Plan::empty(),
+                PlanMetadata::new(true),
+                Vec::new(),
+            );
+            let content = PlanContent::prepare(&plan, false, query);
+            let styled = LINES
+                .iter()
+                .take(4)
+                .enumerate()
+                .map(|(row, line)| {
+                    plan_line_and_matches(line, query, row, None, PlanLineKind::Body)
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(content.metrics().line_count, 4, "{query:?}");
+            // `\tcd a\t&& make"` ends at column 40, four tabs reach 72, and `# build^M` adds 9.
+            assert_eq!(content.metrics().max_width, 81, "{query:?}");
+            assert_eq!(
+                content.metrics().max_width,
+                styled
+                    .iter()
+                    .map(|(line, _)| display_width(line))
+                    .max()
+                    .unwrap_or(0),
+                "{query:?}"
+            );
+            assert_eq!(
+                content.matches(),
+                styled
+                    .into_iter()
+                    .flat_map(|(_, matches)| matches)
+                    .collect::<Vec<_>>(),
+                "{query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn heredoc_lines_after_a_terminator_lookalike_keep_the_heredoc_style() {
+        // Heredoc bodies from Terraform 1.16.1 plans whose text reads like terminators, with the
+        // kinds the text parser gives them. Only `EOT`, or an element's `EOT,`, in the column of
+        // the opening name closes a heredoc, so the lines after each lookalike keep its style.
+        let lines = [
+            ("  # terraform_data.attr will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"attr\" {", None),
+            ("      ~ input  = <<-EOT", None),
+            ("            EOT,", Some(10)),
+            ("            - dash", Some(10)),
+            ("              EOT,", Some(10)),
+            ("          EOT -> null", Some(10)),
+            ("        EOT,", Some(10)),
+            ("            last", Some(10)),
+            ("          + changed", Some(10)),
+            ("        EOT", None),
+            ("    }", None),
+            ("", None),
+            ("  # terraform_data.list will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"list\" {", None),
+            ("      ~ input  = [", None),
+            ("          ~ <<-EOT", None),
+            ("                EOT,", Some(14)),
+            ("              - - dash", Some(14)),
+            ("              - EOT", Some(14)),
+            ("              + two", Some(14)),
+            ("            EOT,", None),
+            ("          - \"plain\",", None),
+            ("        ]", None),
+            ("    }", None),
+        ];
+        let line_kinds = lines
+            .iter()
+            .enumerate()
+            .map(|(line, (_, marker_column))| match (line, marker_column) {
+                (0 | 13, _) => PlanLineKind::ResourceHeader,
+                (_, Some(marker_column)) => PlanLineKind::HeredocBody {
+                    marker_column: *marker_column,
+                },
+                (_, None) => PlanLineKind::Body,
+            })
+            .collect();
+        let plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                lines.map(|(text, _)| text).join("\n"),
+                vec![
+                    PlanBlock::new(0..13, PlanBlockKind::Resource),
+                    PlanBlock::new(13..lines.len(), PlanBlockKind::Resource),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        let state = review_state(plan);
+        let buffer = render_to_buffer(AREA, |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        });
+
+        // Each expected row is searched for below the previous one, since the lookalikes repeat.
+        let mut first_row = buffer.area().y;
+        for (text, color) in [
+            ("~ input  = <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- dash", BODY),
+            ("EOT,", BODY),
+            ("EOT -> null", BODY),
+            ("EOT,", BODY),
+            ("last", BODY),
+            ("+ changed", ADD),
+            ("EOT", BODY),
+            ("~ <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- - dash", DESTROY),
+            ("- EOT", DESTROY),
+            ("+ two", ADD),
+            ("EOT,", BODY),
+            ("- \"plain\",", DESTROY),
+        ] {
+            let row = (first_row..buffer.area().bottom())
+                .find(|&y| {
+                    (buffer.area().x..buffer.area().right())
+                        .map(|x| buffer.cell((x, y)).expect("plan cell").symbol())
+                        .collect::<String>()
+                        .trim_end()
+                        .ends_with(&format!(" {text}"))
+                })
+                .unwrap_or_else(|| panic!("{text:?} should be drawn:\n{}", buffer_text(&buffer)));
+            assert_text_segment_uses_style_from(
+                &buffer,
+                row,
+                text,
+                0,
+                text.chars().count(),
+                (color, Color::Reset, Modifier::empty()),
+            );
+            first_row = row + 1;
+        }
+    }
+
+    #[test]
     fn heredoc_markers_are_found_in_the_plan_text_before_tabs_are_expanded() {
         let kind = PlanLineKind::HeredocBody { marker_column: 10 };
         for (line, shown, expected) in [
@@ -3995,7 +4544,7 @@ mod control_characters {
         // A window starting inside a tab keeps the rest of its spaces.
         let content = layout.content();
         let lines = content.lines(state.review().document(), 0..SHOWN.len(), None);
-        let window = visible_lines(&lines, 4, 14, 1, 12);
+        let window = visible_lines(&lines[4..5], 14, 12);
         assert_eq!(window[0].to_string(), "  go build .");
     }
 

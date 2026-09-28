@@ -3,25 +3,25 @@ source: src/ui/features/execution/render.rs
 expression: buffer_text(buffer)
 ---
 
- Terraleph | repo                                         workspace: loading...
+ Terraleph | main
 
  ┌Applying────────────────────────────────────────────────────────────────────┐
- │Applying...    Completed: 0/0    Elapsed: 0.0s                              │
- │Failed: 0    Incomplete: 0    Skipped: 0                                    │
+ │Applying...    Completed: 1/3    Elapsed: 2.0s                              │
+ │Failed: 0    Incomplete: 0    Skipped: 0    Previous: local success         │
  │┌Targets *─────────────────────────────────────────────────────────────────┐│
  ││> All logs                                                                ││
- ││  Resource                  Status     Action        Elapsed              ││
- ││                                                                          ││
- ││                                                                          ││
- ││                                                                          ││
+ ││  Resource                      Status     Action        Elapsed  Previous││
+ ││  terraform_data.api            Completed  update           1.0s     11.0s││
+ ││  module.synthe...onfiguration  Running    delete/create    2.0s        --││
+ ││  terraform_data.new            Pending    create             --        --││
  ││                                                                          ││
  │└──────────────────────────────────────────────────────────────────────────┘│
  │┌Logs: All logs────────────────────────────────────────────────────────────┐│
- ││xxxxxxxxxxxxxxxx                                                         ▲││
- ││xxxxxxxxxxxxxxxx                                                         ┃││
- ││xxxxxxxxxxxxxxxx                                                         ┃││
- ││xxxxxxxxxxxxxxxx                                                         ┃││
- ││xxxxxxxxxxxxxxxx                                                         ▼││
+ ││Waiting for Terraform output...                                           ││
+ ││                                                                          ││
+ ││                                                                          ││
+ ││                                                                          ││
+ ││                                                                          ││
  │└──────────────────────────────────────────────────────────────────────────┘│
  └────────────────────────────────────────────────────────────────────────────┘
  Ctrl-C cancel | Tab focus | End follow latest

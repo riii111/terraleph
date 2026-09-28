@@ -47,6 +47,7 @@ pub(crate) fn run_connected(
     let mut start_in_overview = initial_overview;
     let mut quit_confirmation = false;
     let mut dirty = true;
+    let mut scheduled_draw = None;
 
     loop {
         // The caller maps the signal to the exit status; this error only unwinds the terminal
@@ -110,6 +111,7 @@ pub(crate) fn run_connected(
             &review_view,
             &confirmation_view,
             &mut dirty,
+            &mut scheduled_draw,
             now,
             quit_confirmation,
         )?;
@@ -183,6 +185,7 @@ pub(crate) fn run_connected(
                                 &review_view,
                                 &confirmation_view,
                                 &mut dirty,
+                                &mut scheduled_draw,
                                 Instant::now(),
                                 quit_confirmation,
                             )?;
@@ -271,12 +274,14 @@ pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
     review_view: &plan_review::PlanReviewViewState,
     confirmation_view: &plan_review::ApplyConfirmationViewState,
     dirty: &mut bool,
+    scheduled_draw: &mut Option<Instant>,
     now: Instant,
     quit_confirmation: bool,
 ) -> Result<bool, B::Error> {
     // Layouts reserve footer width for any stored notice, so an expired notice is cleared
     // before the frame that would otherwise draw it as blank space.
     *dirty |= clear_expired_copy_feedback(state, now);
+    *dirty |= scheduled_draw.is_some_and(|at| now >= at);
     if !should_draw(state, *dirty) {
         return Ok(false);
     }
@@ -291,7 +296,15 @@ pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
         quit_confirmation,
     )?;
     *dirty = false;
+    *scheduled_draw = scheduled_draw_after(state, now);
     Ok(true)
+}
+
+// Returns when a drawn screen goes stale without input or a worker message.
+fn scheduled_draw_after(state: &SessionState, now: Instant) -> Option<Instant> {
+    state
+        .apply_confirmation()
+        .and_then(|confirmation| plan_review::apply_confirmation_redraw_at(confirmation, now))
 }
 
 fn clear_expired_copy_feedback(state: &mut SessionState, now: Instant) -> bool {
@@ -366,6 +379,7 @@ pub(super) fn handle_key_event<B: Backend>(
         let layout = plan_review::apply_confirmation_layout(
             Rect::new(0, 0, size.width, size.height),
             confirmation,
+            Instant::now(),
         );
         let input = plan_review::apply_confirmation_key_to_input(key);
         let input = match input {
@@ -550,6 +564,7 @@ fn handle_execution_key_event<B: Backend>(
                     .progress()
                     .display_target_indices(state.result().is_some());
                 execution_view.select_target(direction, &targets);
+                execution_view.measure_log(state.progress());
                 let size = terminal.size()?;
                 let layout = execution::execution_layout_with_view(
                     Rect::new(0, 0, size.width, size.height),
@@ -691,6 +706,7 @@ fn draw_with_quit_confirmation<B: Backend>(
                         review,
                         review_view,
                         confirmation_view,
+                        now,
                     );
                 })?;
             }
@@ -764,7 +780,9 @@ pub(super) fn update_session(
             execution_view.initialize_target_selection(&targets);
         }
     } else if apply_result_ready {
+        let measured = *execution_view;
         *execution_view = execution::ExecutionViewState::default();
+        execution_view.keep_log_measurement(measured);
         if let Some(apply) = state.apply() {
             execution_view.select_result_target(
                 &apply.progress().display_target_indices(true),
@@ -777,6 +795,9 @@ pub(super) fn update_session(
                 apply.stage() == ExecutionStage::ApplySucceeded,
             );
         }
+    }
+    if let Some(execution) = state.execution().or_else(|| state.apply()) {
+        execution_view.measure_log(execution.progress());
     }
     effect
 }
@@ -2011,6 +2032,40 @@ mod tests {
         }
 
         #[test]
+        fn open_confirmation_redraws_once_when_the_plan_age_changes() {
+            let planned_at = Instant::now();
+            let mut state =
+                SessionState::Review(Box::new(session::test_support::apply_confirmation_session(
+                    review_plan().with_planned_at(planned_at),
+                )));
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+            let views = ScreenViews::default();
+            let mut dirty = true;
+            let mut scheduled_draw = None;
+            let mut draw = |state: &mut SessionState, dirty: &mut bool, elapsed| {
+                draw_if_needed_with_quit_confirmation(
+                    state,
+                    &mut terminal,
+                    views.execution,
+                    &views.review,
+                    &views.confirmation,
+                    dirty,
+                    &mut scheduled_draw,
+                    planned_at + Duration::from_secs(elapsed),
+                    false,
+                )
+                .expect("confirmation should render")
+            };
+
+            assert!(draw(&mut state, &mut dirty, 30));
+            assert!(!draw(&mut state, &mut dirty, 59));
+            assert!(draw(&mut state, &mut dirty, 60));
+            assert!(!draw(&mut state, &mut dirty, 61));
+            assert_eq!(scheduled_draw, Some(planned_at + Duration::from_secs(120)));
+            assert!(terminal_text(&terminal).contains("Planned: 1m ago"));
+        }
+
+        #[test]
         fn confirmation_body_scrolls_up_right_after_paging_past_the_end() {
             let now = Instant::now();
             let mut state = SessionState::Review(Box::new(
@@ -2230,7 +2285,7 @@ mod tests {
             .expect("overview confirmation should render");
             let text = terminal_text(&terminal);
             assert!(text.contains("Quit Terraleph?"), "{text}");
-            assert!(text.contains("Copied."), "{text}");
+            assert!(!text.contains("Copied."), "{text}");
             assert!(!text.contains("q quit"), "{text}");
 
             quit_confirmation = false;
@@ -2582,6 +2637,55 @@ mod tests {
             assert_apply_completion_and_copy_path(&mut state, &mut terminal, &mut views, now);
         }
 
+        #[test]
+        fn apply_result_keeps_the_all_logs_measurement_of_the_running_view() {
+            let started_at = Instant::now();
+            let mut state = long_apply_state(started_at, None);
+            let entries = state.apply().expect("apply state").progress().log().len();
+            // Measured over a log as long as the real one but wider, so a width measured again
+            // from the first entry would differ from the one the view keeps.
+            let mut wider =
+                ExecutionState::applying(started_at, ExecutionContext::loading("/project"));
+            for index in 0..entries {
+                wider.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Log(ExecutionLogLine {
+                        stream: EventStream::Stdout,
+                        text: if index == 0 {
+                            "x".repeat(500)
+                        } else {
+                            "short".to_owned()
+                        },
+                    }),
+                });
+            }
+            let mut view = execution::ExecutionViewState::default();
+            view.measure_log(wider.progress());
+            // The widest line the view has measured, as the all-logs panel scrolls to it.
+            let measured_width = |state: &SessionState, view: execution::ExecutionViewState| {
+                let apply = state.apply().expect("apply state");
+                let layout =
+                    execution::execution_layout_with_view(Rect::new(0, 0, 80, 24), apply, view);
+                layout.max_horizontal() + usize::from(layout.body().width)
+            };
+            assert_eq!(measured_width(&state, view), 500);
+
+            let _ = update_session(
+                &mut state,
+                Action::ApplyCompleted {
+                    status: ApplyStatus::Succeeded,
+                    summary_line: None,
+                },
+                &mut view,
+                started_at,
+            );
+
+            let apply = state.apply().expect("apply state");
+            assert!(apply.result().is_some());
+            assert_eq!(view.selected_target(), None);
+            assert_eq!(measured_width(&state, view), 500);
+        }
+
         fn assert_apply_start_path(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
@@ -2713,7 +2817,7 @@ mod tests {
         fn execution_scroll_position(
             state: &SessionState,
             view: execution::ExecutionViewState,
-        ) -> u16 {
+        ) -> usize {
             let apply = state.apply().expect("apply state");
             execution::execution_scroll_position_with_view(
                 apply,
@@ -2783,6 +2887,7 @@ mod tests {
             review_view,
             confirmation_view,
             dirty,
+            &mut None,
             now,
             false,
         )

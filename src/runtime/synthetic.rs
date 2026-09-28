@@ -74,6 +74,7 @@ struct SyntheticSession {
     quit_confirmation: bool,
     complete_apply_at: Option<Instant>,
     dirty: bool,
+    scheduled_draw: Option<Instant>,
 }
 
 impl SyntheticSession {
@@ -90,6 +91,7 @@ impl SyntheticSession {
             quit_confirmation: false,
             complete_apply_at,
             dirty: true,
+            scheduled_draw: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl SyntheticSession {
             &self.review_view,
             &self.confirmation_view,
             &mut self.dirty,
+            &mut self.scheduled_draw,
             now,
             self.quit_confirmation,
         )?;
@@ -330,7 +333,9 @@ fn synthetic_review() -> ReviewSessionState {
             .with_launch_root("/workspace")
             .with_workspace("default")
             .with_tool_version(Tool::Terraform, "1.9.0"),
-    );
+    )
+    // The synthetic plan counts as acquired when the example starts.
+    .with_planned_at(Instant::now());
     ReviewSessionState::new(plan)
 }
 
@@ -558,6 +563,7 @@ fn synthetic_execution_session(started: Instant) -> SyntheticSession {
     }
     let mut execution_view = execution::ExecutionViewState::default();
     execution_view.initialize_target_selection(&execution.progress().display_target_indices(false));
+    execution_view.measure_log(execution.progress());
     SyntheticSession::new(
         SessionState::Apply(Box::new(execution)),
         execution_view,
