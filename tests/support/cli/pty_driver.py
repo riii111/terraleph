@@ -16,9 +16,9 @@ rows = int(rows_arg)
 command = sys.argv[6:]
 pid, fd = pty.fork()
 if pid == 0:
-    if scenario == "hangup_before_review":
-        # Like nohup: Terraleph keeps an ignored SIGHUP ignored and must notice the closed
-        # terminal on its own.
+    if scenario in ("hangup_before_review", "signal_hangup_ignored"):
+        # Like nohup: an ignored disposition survives exec, so closing the terminal sends nothing
+        # and Terraleph must notice the closed terminal on its own.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
     os.environ["TERM"] = "xterm-256color"
     os.execv(
@@ -421,7 +421,7 @@ def release_plan():
 
 def wait_exit_after_hangup(timeout=20, after_close=None):
     # Closing the master is what a terminal emulator or `tmux kill-server` does; the kernel
-    # then delivers SIGHUP to the session, and no further output can be read.
+    # then delivers SIGHUP to the session unless it is ignored, and no further output can be read.
     os.close(fd)
     observed.append("terminal_closed")
     if after_close:
@@ -833,7 +833,7 @@ try:
     elif scenario == "hangup_before_review":
         wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
         exit_code = wait_exit_after_hangup(after_close=release_plan)
-    elif scenario == "signal_hangup":
+    elif scenario in ("signal_hangup", "signal_hangup_ignored"):
         wait_review("plan_text", timeout=30)
         exit_code = wait_exit_after_hangup()
     elif scenario.startswith("signal_apply_"):

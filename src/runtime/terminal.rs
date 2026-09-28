@@ -69,8 +69,8 @@ impl Drop for ActiveTerminal {
 
 // crossterm keeps reading a hung-up terminal that only returns EOF, so a closed window would
 // trap any thread that polls it. Reading on a detached thread keeps the event loop free to
-// notice termination signals, stop the workers, and remove saved plans. The thread is never
-// joined; it ends with the process.
+// notice termination signals and the closed terminal, stop the workers, and remove saved plans.
+// The thread is never joined; it ends with the process, and until then it spins on the EOF.
 pub(super) struct TerminalInput {
     events: Receiver<io::Result<Event>>,
 }

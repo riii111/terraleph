@@ -75,7 +75,7 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
     let result = terminal::run(|terminal| -> io::Result<()> {
         let input = TerminalInput::spawn()?;
         loop {
-            stopped_by = termination::received();
+            stopped_by = termination::requested();
             if stopped_by.is_some() {
                 break;
             }

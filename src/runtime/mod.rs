@@ -133,9 +133,10 @@ fn run_managed_invocation(
         }
     };
     // Terraform shares the terminal's process group, so terminal signals stop it on its own. A
-    // recorded signal decides the exit before the plan result, whether the plan failed from that
-    // same signal or finished despite a signal sent only to Terraleph.
-    if let Some(signal) = termination::received() {
+    // recorded signal, or a terminal closed without one, decides the exit before the plan result,
+    // whether the plan failed from that same signal or finished despite a signal sent only to
+    // Terraleph.
+    if let Some(signal) = termination::requested() {
         let _ = plan_run.saved_plan.cleanup();
         report_terminated(signal);
         return ExitCode::from(signal.exit_code());
