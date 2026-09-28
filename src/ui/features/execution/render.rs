@@ -16,6 +16,7 @@ use crate::app::{
     },
     plan::PlanAction,
 };
+use crate::ui::display_text::{shown_line, shown_width};
 use crate::ui::primitives::atoms::{scrollbar, separator};
 use crate::ui::primitives::molecules::terminal_notice;
 use crate::ui::shell::{
@@ -820,13 +821,8 @@ pub(super) fn measure_log_width(
         "measured {} log entries but only {total} exist",
         measured.entries
     );
-    let entry_width = |line: &ExecutionLogLine| {
-        line.text
-            .lines()
-            .map(display_width)
-            .max()
-            .unwrap_or_default()
-    };
+    let entry_width =
+        |line: &ExecutionLogLine| line.text.lines().map(shown_width).max().unwrap_or_default();
     let width = entries.map_or_else(
         || {
             log[measured.entries..]
@@ -867,7 +863,11 @@ fn log_line(stream: EventStream, text: &str, horizontal: usize, width: usize) ->
     } else {
         theme::body_style()
     };
-    Line::from(Span::styled(visible_cells(text, horizontal, width), style))
+    let visible = match shown_line(text) {
+        Cow::Borrowed(text) => visible_cells(text, horizontal, width),
+        Cow::Owned(text) => Cow::Owned(visible_cells(&text, horizontal, width).into_owned()),
+    };
+    Line::from(Span::styled(visible, style))
 }
 
 // The part of `text` drawn in a row `width` cells wide, starting `offset` cells into the line. A
@@ -2819,12 +2819,15 @@ mod tests {
 
         #[test]
         fn measured_widths_match_the_drawn_cells() {
-            for (text, drawn) in [("ｶﾞｷﾞ", 4), ("لا", 2), ("a\tb", 2), ("abc\x1b[0m", 6)]
+            for (text, drawn) in [("ｶﾞｷﾞ", 4), ("لا", 2), ("a\tb", 9), ("abc\x1b[0m", 8)]
             {
                 // The marker lands on the first cell after the drawn text.
                 let buffer = render_to_buffer((20, 1), |frame| {
                     frame.render_widget(
-                        Paragraph::new(Line::from(vec![Span::raw(text), Span::raw("|")])),
+                        Paragraph::new(Line::from(vec![
+                            Span::raw(shown_line(text)),
+                            Span::raw("|"),
+                        ])),
                         frame.area(),
                     );
                 });
@@ -2843,6 +2846,47 @@ mod tests {
                     "{text:?}"
                 );
             }
+        }
+
+        #[test]
+        fn tabs_and_control_characters_are_shown_and_scroll_to_the_right_edge() {
+            let (mut state, now) = applying_state_with_lines(vec!["short".to_owned()]);
+            for text in [
+                "null_resource.build (local-exec): \tgo build\t# compile",
+                "null_resource.build (local-exec):  10%\r 50%\r100%",
+                "null_resource.build (local-exec): \u{1b}[32mok\u{1b}[0m",
+                &format!("{}\tEND", "x".repeat(90)),
+            ] {
+                record_log(&mut state, now, text);
+            }
+            let area = Rect::new(0, 0, 80, 40);
+            let view = logs_view();
+            let layout = execution_layout_with_view(area, &state, view);
+            let buffer = render_to_buffer((area.width, area.height), |frame| {
+                render_execution_with_view(frame, &state, view, now);
+            });
+            let body = layout.body();
+            let rows = (body.y..body.bottom())
+                .map(|y| body_row(&buffer, body, y))
+                .collect::<Vec<_>>();
+            for shown in [
+                "null_resource.build (local-exec):       go build        # compile",
+                "null_resource.build (local-exec):  10%^M 50%^M100%",
+                "null_resource.build (local-exec): ^[[32mok^[[0m",
+            ] {
+                assert!(rows.iter().any(|row| row == shown), "{rows:#?}");
+            }
+            // The tab after 90 cells stops at column 96.
+            assert_eq!(layout.max_horizontal(), 99 - usize::from(body.width));
+            assert_right_edge(&state, view, "     END");
+
+            state.finish_apply(ApplyStatus::Succeeded, None, None, now);
+            let copied = state
+                .copy_effect(CopyTarget::Execution)
+                .expect("completed apply should be copyable");
+            assert!(copied.text().contains("\tgo build\t# compile\n"));
+            assert!(copied.text().contains(" 10%\r 50%\r100%\n"));
+            assert!(copied.text().contains("\u{1b}[32mok\u{1b}[0m\n"));
         }
 
         #[test]

@@ -58,6 +58,22 @@ impl DisplayColumns {
     }
 }
 
+/// Returns a whole line as shown. A line without control characters is not measured, so a caller
+/// that cuts a long line at the screen edge does not walk all of it.
+pub(crate) fn shown_line(text: &str) -> Cow<'_, str> {
+    if text.contains(char::is_control) {
+        DisplayColumns::default().show(text)
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
+pub(crate) fn shown_width(text: &str) -> usize {
+    let mut columns = DisplayColumns::default();
+    columns.show(text);
+    columns.column()
+}
+
 /// Printable ASCII takes one cell per byte and is shown as it is.
 pub(crate) fn is_printable_ascii(text: &str) -> bool {
     text.bytes()
