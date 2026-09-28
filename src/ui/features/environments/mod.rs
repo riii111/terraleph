@@ -226,7 +226,7 @@ impl EnvironmentView {
         }
         self.sidebar_enabled = state.plans().len() > 1;
         self.sidebar_width = environments::sidebar_width(state.plans());
-        self.sidebar = if self.sidebar_enabled && size.width >= 120 {
+        self.sidebar = if self.sidebar_enabled && size.width >= 90 {
             SidebarSetting::Open
         } else {
             SidebarSetting::Closed

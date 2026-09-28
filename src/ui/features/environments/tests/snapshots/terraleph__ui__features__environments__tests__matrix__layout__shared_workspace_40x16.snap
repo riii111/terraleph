@@ -17,4 +17,4 @@ staging ✗ Error  │  staging ✗ Error
 │                                      │
 └──────────────────────────────────────┘
 r retry | v full plan | [/] env
-2/3 focus | f maximize | ? help | q quit
+f maximize | ? help | q quit

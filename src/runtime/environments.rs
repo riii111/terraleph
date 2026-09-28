@@ -84,6 +84,7 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
                     terminal,
                     &input,
                     &mut state,
+                    &mut view,
                     active,
                     &plans,
                     &mut clipboard,
@@ -277,6 +278,7 @@ impl EnvironmentApply {
 fn draw_apply<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     state: &EnvironmentSession,
+    view: &mut EnvironmentView,
     apply: &EnvironmentApply,
 ) -> io::Result<()> {
     let Some(session) = state.plans()[apply.index].session() else {
@@ -284,7 +286,13 @@ fn draw_apply<B: Backend<Error = io::Error>>(
     };
     if let Some(confirmation) = session.apply_confirmation() {
         terminal.draw(|frame| {
-            plan_review::render_apply_confirmation(frame, confirmation, &apply.confirmation_view);
+            view.render_apply_confirmation(
+                frame,
+                state,
+                apply.index,
+                confirmation,
+                &apply.confirmation_view,
+            );
         })?;
     } else if let Some(execution) = session.apply() {
         terminal.draw(|frame| {
@@ -318,13 +326,14 @@ enum ApplyStep {
 impl ApplyRuntime {
     #[expect(
         clippy::too_many_arguments,
-        reason = "one apply step reads input, draws, and dispatches against the shared session"
+        reason = "the apply step reads input, draws the environment view, and routes its effects"
     )]
     fn step<B: Backend<Error = io::Error>>(
         &mut self,
         terminal: &mut Terminal<B>,
         input: &TerminalInput,
         state: &mut EnvironmentSession,
+        view: &mut EnvironmentView,
         apply: &mut EnvironmentApply,
         plans: &[Option<terraform::SavedPlan>],
         clipboard: &mut ClipboardExecutor,
@@ -337,7 +346,7 @@ impl ApplyRuntime {
         }
         *dirty |= state.clear_expired_copy_feedback(Instant::now());
         if *dirty || apply.running(state) {
-            draw_apply(terminal, state, apply)?;
+            draw_apply(terminal, state, view, apply)?;
             *dirty = false;
         }
         let Some(input_event) = input.next(Duration::from_millis(50))? else {

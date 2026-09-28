@@ -833,13 +833,13 @@ mod sidebar {
         let state = partial_session();
         let mut view = EnvironmentView::default();
 
-        let wide = render_text(&mut view, &state, (120, 40));
+        let wide = render_text(&mut view, &state, (90, 40));
         assert_eq!(view.sidebar, SidebarSetting::Open);
         assert_eq!(view.focus, EnvironmentPane::Environments);
         assert!(wide.contains("[1] Envs"));
 
         let mut narrow = EnvironmentView::default();
-        let text = render_text(&mut narrow, &state, (119, 40));
+        let text = render_text(&mut narrow, &state, (89, 40));
         assert_eq!(narrow.sidebar, SidebarSetting::Closed);
         assert_eq!(narrow.focus, EnvironmentPane::Matrix);
         assert!(!text.contains("[1] Envs"));
@@ -878,7 +878,7 @@ mod sidebar {
         assert!(!text.contains("toggle envs"), "{text}");
         assert!(!text.contains("1/2 focus"), "{text}");
         assert!(!text.contains("[/] env"), "{text}");
-        assert!(text.contains("2/3 focus"), "{text}");
+        assert!(!text.contains("2/3 focus"), "{text}");
 
         for key in [KeyCode::Char('1'), KeyCode::Char('b')] {
             handle_key_code(&mut view, key, size, &state);
@@ -1751,9 +1751,16 @@ mod change_summary {
 
 mod apply {
     use super::*;
+    use crate::{
+        app::session::SessionState, ui::features::plan_review::ApplyConfirmationViewState,
+    };
+    use std::time::Instant;
 
     fn applyable_session(names: &[&str], ready: usize) -> EnvironmentSession {
-        use crate::app::plan::{ResourceChangeKind, test_support::resource_change};
+        use crate::app::{
+            execution::ExecutionContext,
+            plan::{ResourceChangeKind, test_support::resource_change},
+        };
 
         let environments = names
             .iter()
@@ -1771,7 +1778,12 @@ mod apply {
             let review = PlanReview::new(
                 PathBuf::from(format!("/synthetic/{name}")),
                 "default".to_owned(),
-                plan_document(format!("{name} plan\n")),
+                plan_document(
+                    std::iter::once(format!("{name} plan"))
+                        .chain((1..60).map(|line| format!("{name} line {line:02}")))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
                 Plan {
                     resource_changes: vec![resource_change(
                         "terraform_data.api",
@@ -1781,6 +1793,11 @@ mod apply {
                 },
                 PlanMetadata::new(true),
                 Vec::new(),
+            )
+            .with_context(
+                ExecutionContext::loading(format!("/synthetic/{name}"))
+                    .with_workspace("default")
+                    .with_tool_version(Tool::Terraform, "1.9.0"),
             );
             state.complete(
                 index,
@@ -1812,6 +1829,65 @@ mod apply {
             Some(EnvironmentInput::Review(1, action))
                 if matches!(*action, Action::OpenApplyConfirmation)
         ));
+    }
+
+    #[test]
+    fn apply_confirmation_keeps_the_environment_review_behind_the_dialog() {
+        let mut state = applyable_session(&["a-dev", "b-prod"], 2);
+        let mut view = EnvironmentView::default();
+        let size = Size::new(120, 40);
+        render_to_buffer((120, 40), |frame| view.render(frame, &state));
+        handle_key_code(&mut view, KeyCode::Char(']'), size, &state);
+        handle_key_code(&mut view, KeyCode::Char('v'), size, &state);
+        for _ in 0..10 {
+            handle_key_code(&mut view, KeyCode::Down, size, &state);
+        }
+        let raw = render_text(&mut view, &state, (120, 40));
+        assert!(raw.contains("terraform 1.9.0"), "{raw}");
+        assert!(raw.contains("Line 11/60"), "{raw}");
+
+        let Some(EnvironmentInput::Review(index, action)) =
+            handle_key_code(&mut view, KeyCode::Char('a'), size, &state)
+        else {
+            panic!("apply should open the confirmation");
+        };
+        state.update_review(index, *action, Instant::now());
+        let confirmation = state.plans()[index]
+            .session()
+            .and_then(SessionState::apply_confirmation)
+            .expect("the open environment should be confirming apply");
+        let buffer = render_to_buffer((120, 40), |frame| {
+            view.render_apply_confirmation(
+                frame,
+                &state,
+                index,
+                confirmation,
+                &ApplyConfirmationViewState::default(),
+            );
+        });
+        let text = buffer_text(&buffer);
+
+        let raw_lines = raw.lines().collect::<Vec<_>>();
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines[0], raw_lines[0], "{text}");
+        assert_eq!(lines[1], raw_lines[1], "{text}");
+        assert_eq!(lines.last(), raw_lines.last(), "{text}");
+        assert!(text.contains("Apply this reviewed plan?"), "{text}");
+        let (dialog_left, _) =
+            text_position(&buffer, "┌").expect("the confirmation frame should be drawn");
+        let outside_dialog = |lines: &[&str]| -> Vec<String> {
+            lines
+                .iter()
+                .map(|line| line.chars().take(usize::from(dialog_left)).collect())
+                .collect()
+        };
+        // The compact confirmation header spans the full width, so compare the rows below it.
+        let body_rows = 5..lines.len() - 2;
+        assert_eq!(
+            outside_dialog(&lines[body_rows.clone()]),
+            outside_dialog(&raw_lines[body_rows]),
+            "{text}"
+        );
     }
 
     #[test]

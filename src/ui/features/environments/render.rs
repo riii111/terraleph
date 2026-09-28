@@ -68,12 +68,7 @@ impl EnvironmentView {
         if let Some(index) = self.selection.raw
             && let Some(review) = state.plans()[index].review()
         {
-            let body = Rect::new(
-                area.x,
-                layout.header.bottom(),
-                area.width,
-                area.bottom().saturating_sub(layout.header.bottom()),
-            );
+            let body = review_body(area, layout.header);
             if self.confirming_quit {
                 plan_review::render_environment_with_quit_confirmation(
                     frame,
@@ -119,6 +114,33 @@ impl EnvironmentView {
                 }
             }
         }
+    }
+
+    /// Draws the environment review behind the apply confirmation. The session no longer
+    /// exposes a raw review while confirming, so the caller passes the confirming state.
+    pub(crate) fn render_apply_confirmation(
+        &mut self,
+        frame: &mut Frame<'_>,
+        state: &EnvironmentSession,
+        index: usize,
+        confirmation: &ReviewSessionState,
+        confirmation_view: &plan_review::ApplyConfirmationViewState,
+    ) {
+        let area = frame.area();
+        self.initialize(Size::new(area.width, area.height), state);
+        self.sync(state);
+        frame.render_widget(Block::new().style(theme::overview_background_style()), area);
+        let layout =
+            environments::overview_layout(area, self.sidebar_width, false, None, false, false);
+        environments::render_header(frame, layout.header, state, &self.selection);
+        plan_review::render_environment(
+            frame,
+            review_body(area, layout.header),
+            confirmation,
+            &mut self.reviews[index],
+            Instant::now(),
+        );
+        plan_review::render_apply_confirmation_dialog(frame, confirmation, confirmation_view);
     }
 
     fn render_overview(
@@ -341,6 +363,15 @@ impl EnvironmentView {
             matrix,
         }
     }
+}
+
+const fn review_body(area: Rect, header: Rect) -> Rect {
+    Rect::new(
+        area.x,
+        header.bottom(),
+        area.width,
+        area.bottom().saturating_sub(header.bottom()),
+    )
 }
 
 fn render_message_dialog(frame: &mut Frame<'_>, area: Rect, text: &str, scroll: &DialogScroll) {
@@ -895,7 +926,7 @@ fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
     if focus == environments::EnvironmentPane::Environments {
         items.push((100, overview_footer_hint(&["Enter"], "open plan")));
         if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "include/exclude")));
+            items.push((90, overview_footer_hint(&["Space"], "toggle")));
         }
         items.push((55, overview_footer_hint(&["o"], "only")));
         items.push((55, overview_footer_hint(&["a"], "all")));
@@ -946,14 +977,6 @@ fn overview_common_footer_items(
     if sidebar_available && !maximized {
         items.push((45, overview_footer_hint(&["b"], "toggle envs")));
     }
-    items.push((
-        60,
-        if sidebar_available {
-            overview_footer_hint(&["1", "2", "3"], "focus")
-        } else {
-            overview_footer_hint(&["2", "3"], "focus")
-        },
-    ));
     if focus != environments::EnvironmentPane::Environments {
         items.push((
             50,
@@ -985,7 +1008,7 @@ fn compact_overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'stat
     if focus == environments::EnvironmentPane::Environments {
         items.push((100, overview_footer_hint(&["Enter"], "open plan")));
         if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "include/exclude")));
+            items.push((90, overview_footer_hint(&["Space"], "toggle")));
         }
     } else if focus == environments::EnvironmentPane::Matrix {
         if let Some(action) = enter_action {

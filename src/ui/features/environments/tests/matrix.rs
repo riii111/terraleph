@@ -1199,7 +1199,7 @@ mod layout {
         );
         if width >= 120 {
             assert!(rendered.contains("* [1] Envs"));
-            assert!(rendered.contains("Space include/exclude"));
+            assert!(rendered.contains("Space toggle"));
         } else {
             assert!(!rendered.contains("Space expand selected"));
             assert!(!rendered.contains("[1] Envs"));
@@ -1570,15 +1570,12 @@ mod row_groups {
             "{environments}"
         );
         assert!(!environments.contains("Space expand"), "{environments}");
-        assert!(
-            environments.contains("Space include/exclude"),
-            "{environments}"
-        );
+        assert!(environments.contains("Space toggle"), "{environments}");
 
         press_at(&mut view, &mut state, KeyCode::Char('?'), wide);
         let environment_help = render_text(&mut view, &state, (165, 50));
         assert!(
-            !environment_help.contains("Space include/exclude"),
+            !environment_help.contains("Space toggle"),
             "{environment_help}"
         );
         press_at(&mut view, &mut state, KeyCode::Esc, wide);
@@ -1586,7 +1583,7 @@ mod row_groups {
         press_at(&mut view, &mut state, KeyCode::Char('c'), wide);
         let environment_context = render_text(&mut view, &state, (165, 50));
         assert!(
-            !environment_context.contains("Space include/exclude"),
+            !environment_context.contains("Space toggle"),
             "{environment_context}"
         );
         press_at(&mut view, &mut state, KeyCode::Esc, wide);
