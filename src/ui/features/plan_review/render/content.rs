@@ -72,21 +72,8 @@ impl PlanContent {
                 continue;
             }
             let row = notices.len() + plan.len();
-            // A frame measures each drawn span on its own, so a grapheme cluster cut where a match
-            // or emphasis splits the line counts per part. ASCII text has no cluster to cut, so
-            // only other lines are styled here to get the width a frame draws.
-            let width = if line.is_ascii() {
-                text_width(line)
-            } else {
-                display_width(&plan_line_and_matches(line, filter_query, row, None, kind).0)
-            };
-            plan_widths.push(width);
+            plan_widths.push(plan_row_width(line, filter_query, row, kind, &mut matches));
             plan.push(PlanSource { kind, line_number });
-            matches.extend(
-                search_matches(line, filter_query, row)
-                    .into_iter()
-                    .map(|(_, found)| found),
-            );
         }
         while plan
             .last()
@@ -181,14 +168,34 @@ fn plan_line<'a>(
     row: usize,
     selected: Option<&PlanReviewMatch>,
 ) -> Line<'a> {
-    plan_line_and_matches(
+    styled_plan_line(
         document.line(source.line_number),
         query,
         row,
         selected,
         source.kind,
+        |_| {},
     )
-    .0
+}
+
+// A frame measures each drawn span on its own, so a grapheme cluster cut where a match or emphasis
+// splits the line counts per part. ASCII text has no cluster to cut, so only other lines are styled
+// to measure.
+fn plan_row_width(
+    line: &str,
+    query: &str,
+    row: usize,
+    kind: PlanLineKind,
+    matches: &mut Vec<PlanReviewMatch>,
+) -> usize {
+    if line.is_ascii() {
+        matches.extend(search_matches(line, query, row).map(|(_, found)| found));
+        text_width(line)
+    } else {
+        display_width(&styled_plan_line(line, query, row, None, kind, |found| {
+            matches.push(found);
+        }))
+    }
 }
 
 /// Keeps the prepared plan body between frames and key presses. The body is prepared again only
@@ -270,20 +277,20 @@ fn diagnostic_lines(review: &PlanReview) -> Vec<Line<'static>> {
     lines
 }
 
-pub(super) fn plan_line_and_matches<'a>(
+pub(super) fn styled_plan_line<'a>(
     line: &'a str,
     query: &str,
     line_index: usize,
     selected: Option<&PlanReviewMatch>,
     kind: PlanLineKind,
-) -> (Line<'a>, Vec<PlanReviewMatch>) {
+    mut on_match: impl FnMut(PlanReviewMatch),
+) -> Line<'a> {
     let style = plan_line_style(line, kind);
     let emphasis = emphasized_ranges(line, kind);
     if query.is_empty() && emphasis.is_empty() {
-        return (Line::from(Span::styled(line, style)), Vec::new());
+        return Line::from(Span::styled(line, style));
     }
     let mut result = Line::default();
-    let mut matches = Vec::new();
     let mut cursor = 0;
     for (range, rendered_match) in search_matches(line, query, line_index) {
         push_emphasized(&mut result, line, cursor..range.start, style, &emphasis);
@@ -296,38 +303,36 @@ pub(super) fn plan_line_and_matches<'a>(
             });
         // A match keeps its own style over the line style and any emphasis under it.
         result.push_span(Span::styled(&line[range.clone()], match_style));
-        matches.push(rendered_match);
+        on_match(rendered_match);
         cursor = range.end;
     }
     push_emphasized(&mut result, line, cursor..line.len(), style, &emphasis);
-    (result, matches)
+    result
 }
 
-// Finds each match of `query` with its byte range and drawn columns. Columns measure the raw text
-// between matches, so they do not depend on how the line is styled.
-fn search_matches(
-    line: &str,
-    query: &str,
+// Columns measure the raw text between matches, so they do not depend on how the line is styled.
+fn search_matches<'a>(
+    line: &'a str,
+    query: &'a str,
     line_index: usize,
-) -> Vec<(Range<usize>, PlanReviewMatch)> {
-    let mut found = Vec::new();
-    if query.is_empty() {
-        return found;
-    }
+) -> impl Iterator<Item = (Range<usize>, PlanReviewMatch)> + 'a {
     let mut cursor = 0;
     let mut column = 0;
-    for (index, match_text) in line.match_indices(query) {
-        column += text_width(&line[cursor..index]);
-        let start_column = column;
-        column += text_width(match_text);
-        let end = index + match_text.len();
-        found.push((
-            index..end,
-            PlanReviewMatch::new(line_index, start_column, column),
-        ));
-        cursor = end;
-    }
-    found
+    // An empty query would match between every pair of characters.
+    (!query.is_empty())
+        .then(|| line.match_indices(query))
+        .into_iter()
+        .flatten()
+        .map(move |(index, match_text)| {
+            column += text_width(&line[cursor..index]);
+            let start_column = column;
+            column += text_width(match_text);
+            cursor = index + match_text.len();
+            (
+                index..cursor,
+                PlanReviewMatch::new(line_index, start_column, column),
+            )
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -378,7 +383,6 @@ fn emphasized_ranges(line: &str, kind: PlanLineKind) -> Vec<(Range<usize>, Empha
     ranges
 }
 
-// Pushes `range` of `line` in the line style, adding the emphasis of each part it overlaps.
 fn push_emphasized<'a>(
     result: &mut Line<'a>,
     line: &'a str,
@@ -503,7 +507,6 @@ fn span_width(span: &Span<'_>) -> usize {
         .sum()
 }
 
-// The drawn width of text shown as one span.
 fn text_width(text: &str) -> usize {
     span_width(&Span::raw(text))
 }

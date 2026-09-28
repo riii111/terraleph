@@ -40,13 +40,27 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{display_width, plan_line_and_matches, visible_lines},
+    content::{display_width, styled_plan_line, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
     status::{horizontal_offset, search_query_line},
     *,
 };
+
+fn plan_line_and_matches<'a>(
+    line: &'a str,
+    query: &str,
+    line_index: usize,
+    selected: Option<&PlanReviewMatch>,
+    kind: PlanLineKind,
+) -> (Line<'a>, Vec<PlanReviewMatch>) {
+    let mut matches = Vec::new();
+    let styled = styled_plan_line(line, query, line_index, selected, kind, |found| {
+        matches.push(found);
+    });
+    (styled, matches)
+}
 
 const SIZES: [(u16, u16); 3] = [(80, 24), (120, 40), (160, 60)];
 const PLAN_AGE: Duration = Duration::from_mins(12);
@@ -4259,6 +4273,115 @@ mod line_styles {
                     .collect::<Vec<_>>(),
                 "{query:?}"
             );
+        }
+    }
+
+    #[test]
+    fn heredoc_lines_after_a_terminator_lookalike_keep_the_heredoc_style() {
+        // Heredoc bodies from Terraform 1.16.1 plans whose text reads like terminators, with the
+        // kinds the text parser gives them. Only `EOT`, or an element's `EOT,`, in the column of
+        // the opening name closes a heredoc, so the lines after each lookalike keep its style.
+        let lines = [
+            ("  # terraform_data.attr will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"attr\" {", None),
+            ("      ~ input  = <<-EOT", None),
+            ("            EOT,", Some(10)),
+            ("            - dash", Some(10)),
+            ("              EOT,", Some(10)),
+            ("          EOT -> null", Some(10)),
+            ("        EOT,", Some(10)),
+            ("            last", Some(10)),
+            ("          + changed", Some(10)),
+            ("        EOT", None),
+            ("    }", None),
+            ("", None),
+            ("  # terraform_data.list will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"list\" {", None),
+            ("      ~ input  = [", None),
+            ("          ~ <<-EOT", None),
+            ("                EOT,", Some(14)),
+            ("              - - dash", Some(14)),
+            ("              - EOT", Some(14)),
+            ("              + two", Some(14)),
+            ("            EOT,", None),
+            ("          - \"plain\",", None),
+            ("        ]", None),
+            ("    }", None),
+        ];
+        let line_kinds = lines
+            .iter()
+            .enumerate()
+            .map(|(line, (_, marker_column))| match (line, marker_column) {
+                (0 | 13, _) => PlanLineKind::ResourceHeader,
+                (_, Some(marker_column)) => PlanLineKind::HeredocBody {
+                    marker_column: *marker_column,
+                },
+                (_, None) => PlanLineKind::Body,
+            })
+            .collect();
+        let plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                lines.map(|(text, _)| text).join("\n"),
+                vec![
+                    PlanBlock::new(0..13, PlanBlockKind::Resource),
+                    PlanBlock::new(13..lines.len(), PlanBlockKind::Resource),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        let state = review_state(plan);
+        let buffer = render_to_buffer(AREA, |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        });
+
+        // Each expected row is searched for below the previous one, since the lookalikes repeat.
+        let mut first_row = buffer.area().y;
+        for (text, color) in [
+            ("~ input  = <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- dash", BODY),
+            ("EOT,", BODY),
+            ("EOT -> null", BODY),
+            ("EOT,", BODY),
+            ("last", BODY),
+            ("+ changed", ADD),
+            ("EOT", BODY),
+            ("~ <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- - dash", DESTROY),
+            ("- EOT", DESTROY),
+            ("+ two", ADD),
+            ("EOT,", BODY),
+            ("- \"plain\",", DESTROY),
+        ] {
+            let row = (first_row..buffer.area().bottom())
+                .find(|&y| {
+                    (buffer.area().x..buffer.area().right())
+                        .map(|x| buffer.cell((x, y)).expect("plan cell").symbol())
+                        .collect::<String>()
+                        .trim_end()
+                        .ends_with(&format!(" {text}"))
+                })
+                .unwrap_or_else(|| panic!("{text:?} should be drawn:\n{}", buffer_text(&buffer)));
+            assert_text_segment_uses_style_from(
+                &buffer,
+                row,
+                text,
+                0,
+                text.chars().count(),
+                (color, Color::Reset, Modifier::empty()),
+            );
+            first_row = row + 1;
         }
     }
 }
