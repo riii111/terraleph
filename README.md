@@ -31,7 +31,7 @@ brew install riii111/terraleph/terraleph
 mise use -g github:riii111/terraleph
 
 # Cargo
-cargo install --locked --git https://github.com/riii111/terraleph
+cargo install --locked terraleph
 
 # Nix
 nix run github:riii111/terraleph
