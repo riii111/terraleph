@@ -120,21 +120,25 @@ pub(crate) fn render_apply_confirmation(
         Instant::now(),
         false,
     );
-    render_apply_confirmation_dialog(frame, state, view);
+    render_apply_confirmation_dialog(frame, state, view, None);
 }
 
 /// Dims whatever the caller already drew and places the dialog over it, so each
-/// navigation mode keeps its own screen behind the confirmation.
+/// navigation mode keeps its own screen behind the confirmation. A caller that
+/// already drew its own header passes that area; the compact review header would
+/// otherwise overwrite the content below it.
 pub(crate) fn render_apply_confirmation_dialog(
     frame: &mut Frame<'_>,
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
+    drawn_header: Option<Rect>,
 ) {
     let area = frame.area();
     dim_background(frame);
     let layout = apply_confirmation_layout(area, state);
-    if layout.header().height > 0 {
-        header::render_review(frame, layout.header(), state.review());
+    let header_area = drawn_header.unwrap_or_else(|| layout.header());
+    if drawn_header.is_none() && header_area.height > 0 {
+        header::render_review(frame, header_area, state.review());
     }
     if !layout.renderable() {
         terminal_notice::render_wrapped(frame, layout.notice(), CONFIRMATION_NOTICE);
@@ -205,7 +209,7 @@ pub(crate) fn render_apply_confirmation_dialog(
         layout.frame().width,
     );
     footer::render(frame, layout.footer(), &footer_lines, None);
-    clear_dim(frame, layout.header());
+    clear_dim(frame, header_area);
     clear_dim(frame, layout.frame());
     clear_dim(frame, layout.footer());
     if let Some(overlay) = view.overlay() {
