@@ -2,18 +2,7 @@
 
 Review and apply Terraform or OpenTofu plans in your terminal.
 
-<img src="https://github.com/user-attachments/assets/ba22d687-c023-4064-923e-d2be5658af11" alt="overview" width="800">
-
-<details>
-<summary>More screenshots</summary>
-
-**Full plan review**
-
-<img src="https://github.com/user-attachments/assets/425c636b-ea71-4271-887f-3997f6911b47" alt="overview" width="800">
-
-<img src="https://github.com/user-attachments/assets/1e248721-aa3b-44b4-a0ae-ae8d78cbd796" alt="overview" width="800">
-
-</details>
+<img src="assets/demo.gif" alt="Comparing dev, stg, and prod plans, reviewing the prod plan, and applying it" width="800">
 
 ## Concept
 
@@ -29,6 +18,8 @@ Review familiar plan output and apply the exact plan you reviewed. The UI appear
 - **Saved plan apply**: Target and workspace confirmation, with no replanning
 - **Apply progress**: Resource status and logs
 - **Clipboard**: Copy the full plan or apply results
+
+<img src="https://github.com/user-attachments/assets/ba22d687-c023-4064-923e-d2be5658af11" alt="Change overview" width="600">
 
 ## Installation
 
