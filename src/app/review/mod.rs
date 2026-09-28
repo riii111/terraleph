@@ -30,6 +30,15 @@ pub(crate) enum PlanLineKind {
     Body,
     Intro,
     Note,
+    /// The `# <address> will be ...` line that starts a resource block.
+    ResourceHeader,
+    /// A line inside a heredoc value. Only a `+`, `-`, or `~` at `marker_column`, two columns right
+    /// of the opening attribute name or list element, marks a changed line; the rest is value text.
+    /// The column is kept small because every plan line stores its kind; a column past
+    /// `u16::MAX` is stored as `u16::MAX` and marks no line.
+    HeredocBody {
+        marker_column: u16,
+    },
     Summary,
     OutputSection,
 }

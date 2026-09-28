@@ -40,13 +40,27 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{plan_line_and_matches, visible_lines},
+    content::{display_width, styled_plan_line, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
     status::{horizontal_offset, search_query_line},
     *,
 };
+
+fn plan_line_and_matches<'a>(
+    line: &'a str,
+    query: &str,
+    line_index: usize,
+    selected: Option<&PlanReviewMatch>,
+    kind: PlanLineKind,
+) -> (Line<'a>, Vec<PlanReviewMatch>) {
+    let mut matches = Vec::new();
+    let styled = styled_plan_line(line, query, line_index, selected, kind, |found| {
+        matches.push(found);
+    });
+    (styled, matches)
+}
 
 const SIZES: [(u16, u16); 3] = [(80, 24), (120, 40), (160, 60)];
 const PLAN_AGE: Duration = Duration::from_mins(12);
@@ -140,26 +154,26 @@ fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
             vec![
                 PlanLineKind::Intro,
                 PlanLineKind::Intro,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Note,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
@@ -1312,6 +1326,11 @@ mod layout {
         assert_text_color(
             &buffer,
             "# terraform_data.api will be updated in-place",
+            Color::Rgb(0xe9, 0xdb, 0xdb),
+        );
+        assert_text_color(
+            &buffer,
+            "# (4 unchanged attributes hidden)",
             Color::Rgb(0xc0, 0xb8, 0xb8),
         );
         assert_text_color(&buffer, "- old_checksum", Color::Rgb(0xbf, 0x61, 0x6a));
@@ -1429,7 +1448,7 @@ mod filter {
                 vec![
                     PlanLineKind::Body,
                     PlanLineKind::Body,
-                    PlanLineKind::Note,
+                    PlanLineKind::ResourceHeader,
                     PlanLineKind::Body,
                     PlanLineKind::Body,
                     PlanLineKind::Summary,
@@ -3877,6 +3896,492 @@ mod content_cache {
             if row != selected.line() {
                 assert_eq!(line, unselected, "{row}");
             }
+        }
+    }
+}
+
+mod line_styles {
+    use std::ops::Range;
+
+    use super::*;
+
+    const AREA: (u16, u16) = (120, 60);
+    const BODY: Color = Color::Rgb(0xe9, 0xdb, 0xdb);
+    const SECONDARY: Color = Color::Rgb(0xc0, 0xb8, 0xb8);
+    const ADD: Color = Color::Rgb(0xa3, 0xbe, 0x8c);
+    const DESTROY: Color = Color::Rgb(0xbf, 0x61, 0x6a);
+    const UPDATE: Color = Color::Rgb(0xeb, 0xcb, 0x8b);
+    const MATCH: (Color, Color, Modifier) = (
+        Color::Rgb(0x11, 0x14, 0x19),
+        Color::Rgb(0xf4, 0x9e, 0x4c),
+        Modifier::BOLD,
+    );
+    // Heredoc lines follow Terraform 1.16 output: a created value keeps its text two columns right
+    // of the marker column, and an updated value puts its markers there.
+    const STYLED_PLAN: [&str; 41] = [
+        "  # terraform_data.created will be created",
+        "  + resource \"terraform_data\" \"created\" {",
+        "      + id     = (known after apply)",
+        "      + secret = (sensitive value)",
+        "      + note   = \"(known after apply) -> \\\"(sensitive value)\\\"\"",
+        "      + input  = <<-EOT",
+        "            - dash",
+        "            + plus",
+        "            (sensitive value) -> (known after apply)",
+        "        EOT",
+        "    }",
+        "",
+        "  # terraform_data.updated will be updated in-place",
+        "  ~ resource \"terraform_data\" \"updated\" {",
+        "      ~ input  = <<-EOT",
+        "            - item one",
+        "          - + item two",
+        "          + + item 2",
+        "            plain",
+        "        EOT",
+        "        # (1 unchanged attribute hidden)",
+        "    }",
+        "",
+        "  # terraform_data.destroyed will be destroyed",
+        "  - resource \"terraform_data\" \"destroyed\" {",
+        "      - input  = <<-EOT",
+        "            - gone",
+        "        EOT -> null",
+        "    }",
+        "",
+        "  # terraform_data.replaced must be replaced",
+        "-/+ resource \"terraform_data\" \"replaced\" {",
+        "      ~ input = \"before\" -> \"after\" # forces replacement",
+        "      ~ id    = \"replaced\" -> (known after apply)",
+        "    }",
+        "",
+        "  # terraform_data.swapped must be replaced",
+        "+/- resource \"terraform_data\" \"swapped\" {",
+        "    }",
+        "",
+        "Plan: 2 to add, 1 to change, 3 to destroy.",
+    ];
+
+    // The blocks and kinds the text parser gives these lines.
+    fn styled_review(query: &str) -> ReviewSessionState {
+        let line_kinds = (0..STYLED_PLAN.len())
+            .map(|line| match line {
+                0 | 12 | 23 | 30 | 36 => PlanLineKind::ResourceHeader,
+                6..=8 | 15..=18 | 26 => PlanLineKind::HeredocBody { marker_column: 10 },
+                20 => PlanLineKind::Note,
+                40 => PlanLineKind::Summary,
+                _ => PlanLineKind::Body,
+            })
+            .collect();
+        let mut plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                STYLED_PLAN.join("\n"),
+                vec![
+                    PlanBlock::new(0..12, PlanBlockKind::Resource),
+                    PlanBlock::new(12..23, PlanBlockKind::Resource),
+                    PlanBlock::new(23..30, PlanBlockKind::Resource),
+                    PlanBlock::new(30..36, PlanBlockKind::Resource),
+                    PlanBlock::new(36..40, PlanBlockKind::Resource),
+                    PlanBlock::new(40..41, PlanBlockKind::Common),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        plan.set_search_query(query.to_owned());
+        review_state(plan)
+    }
+
+    fn render_styled(query: &str) -> Buffer {
+        let state = styled_review(query);
+        render_to_buffer(AREA, |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        })
+    }
+
+    fn assert_segment(
+        buffer: &Buffer,
+        text: &str,
+        segment: Range<usize>,
+        style: (Color, Modifier),
+    ) {
+        assert_text_segment_uses_style(
+            buffer,
+            text,
+            segment.start,
+            segment.len(),
+            style.0,
+            Color::Reset,
+            style.1,
+        );
+    }
+
+    fn assert_line(buffer: &Buffer, text: &str, style: (Color, Modifier)) {
+        assert_segment(buffer, text, 0..text.chars().count(), style);
+    }
+
+    #[test]
+    fn plan_lines_take_the_style_of_their_change_header_note_or_heredoc_marker() {
+        let buffer = render_styled("");
+
+        for (text, style) in [
+            (
+                "# terraform_data.updated will be updated in-place",
+                (BODY, Modifier::BOLD),
+            ),
+            (
+                "# terraform_data.replaced must be replaced",
+                (BODY, Modifier::BOLD),
+            ),
+            (
+                "# (1 unchanged attribute hidden)",
+                (SECONDARY, Modifier::empty()),
+            ),
+            (
+                "-/+ resource \"terraform_data\" \"replaced\" {",
+                (Color::Magenta, Modifier::empty()),
+            ),
+            (
+                "+/- resource \"terraform_data\" \"swapped\" {",
+                (Color::Magenta, Modifier::empty()),
+            ),
+            ("+ input  = <<-EOT", (ADD, Modifier::empty())),
+            ("- dash", (BODY, Modifier::empty())),
+            ("+ plus", (BODY, Modifier::empty())),
+            ("~ input  = <<-EOT", (UPDATE, Modifier::empty())),
+            ("- item one", (BODY, Modifier::empty())),
+            ("- + item two", (DESTROY, Modifier::empty())),
+            ("+ + item 2", (ADD, Modifier::empty())),
+            ("plain", (BODY, Modifier::empty())),
+            ("- input  = <<-EOT", (DESTROY, Modifier::empty())),
+            ("- gone", (BODY, Modifier::empty())),
+            (
+                "Plan: 2 to add, 1 to change, 3 to destroy.",
+                (BODY, Modifier::empty()),
+            ),
+        ] {
+            assert_line(&buffer, text, style);
+        }
+        assert_segment(&buffer, "EOT -> null", 0..3, (BODY, Modifier::empty()));
+    }
+
+    #[test]
+    fn filtered_heredoc_lines_keep_their_markers_under_the_match_highlight() {
+        let buffer = render_styled("item");
+        let text = buffer_text(&buffer);
+        assert!(!text.contains("- dash"), "{text}");
+        assert!(!text.contains("- gone"), "{text}");
+
+        assert_line(
+            &buffer,
+            "# terraform_data.updated will be updated in-place",
+            (BODY, Modifier::BOLD),
+        );
+        assert_segment(&buffer, "- item one", 0..2, (BODY, Modifier::empty()));
+        assert_segment(&buffer, "- + item two", 0..4, (DESTROY, Modifier::empty()));
+        assert_segment(&buffer, "- + item two", 8..12, (DESTROY, Modifier::empty()));
+        assert_segment(&buffer, "+ + item 2", 0..4, (ADD, Modifier::empty()));
+        for text in ["- item one", "- + item two", "+ + item 2"] {
+            let start = text.find("item").expect("the query should be in the line");
+            assert_text_segment_uses_style(&buffer, text, start, 4, MATCH.0, MATCH.1, MATCH.2);
+        }
+    }
+
+    #[test]
+    fn hidden_values_fade_and_change_arrows_stand_out_only_in_plan_syntax() {
+        let buffer = render_styled("");
+
+        let id = "+ id     = (known after apply)";
+        assert_segment(&buffer, id, 0..11, (ADD, Modifier::empty()));
+        assert_segment(&buffer, id, 11..30, (ADD, Modifier::DIM));
+        let secret = "+ secret = (sensitive value)";
+        assert_segment(&buffer, secret, 0..11, (ADD, Modifier::empty()));
+        assert_segment(&buffer, secret, 11..28, (ADD, Modifier::DIM));
+        let replaced = "~ id    = \"replaced\" -> (known after apply)";
+        assert_segment(&buffer, replaced, 0..21, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, replaced, 21..23, (UPDATE, Modifier::BOLD));
+        assert_segment(&buffer, replaced, 23..24, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, replaced, 24..43, (UPDATE, Modifier::DIM));
+        let forced = "~ input = \"before\" -> \"after\" # forces replacement";
+        assert_segment(&buffer, forced, 0..19, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, forced, 19..21, (UPDATE, Modifier::BOLD));
+        assert_segment(
+            &buffer,
+            forced,
+            21..forced.len(),
+            (UPDATE, Modifier::empty()),
+        );
+        assert_segment(&buffer, "EOT -> null", 0..4, (BODY, Modifier::empty()));
+        assert_segment(&buffer, "EOT -> null", 4..6, (BODY, Modifier::BOLD));
+        assert_segment(&buffer, "EOT -> null", 6..11, (BODY, Modifier::empty()));
+
+        // Quoted text, escaped quotes included, and heredoc text are values.
+        assert_line(
+            &buffer,
+            "+ note   = \"(known after apply) -> \\\"(sensitive value)\\\"\"",
+            (ADD, Modifier::empty()),
+        );
+        assert_line(
+            &buffer,
+            "(sensitive value) -> (known after apply)",
+            (BODY, Modifier::empty()),
+        );
+    }
+
+    #[test]
+    fn search_matches_win_over_hidden_value_and_arrow_emphasis() {
+        let buffer = render_styled("known");
+
+        let id = "+ id     = (known after apply)";
+        assert_segment(&buffer, id, 11..12, (ADD, Modifier::DIM));
+        assert_text_segment_uses_style(&buffer, id, 12, 5, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, id, 17..30, (ADD, Modifier::DIM));
+        let replaced = "~ id    = \"replaced\" -> (known after apply)";
+        assert_segment(&buffer, replaced, 21..23, (UPDATE, Modifier::BOLD));
+        assert_segment(&buffer, replaced, 24..25, (UPDATE, Modifier::DIM));
+        assert_text_segment_uses_style(&buffer, replaced, 25, 5, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, replaced, 30..43, (UPDATE, Modifier::DIM));
+
+        let buffer = render_styled("-> (known");
+        assert_text_segment_uses_style(&buffer, replaced, 21, 9, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, replaced, 30..43, (UPDATE, Modifier::DIM));
+    }
+
+    #[test]
+    fn heredoc_markers_count_only_alone_in_the_marker_column() {
+        let kind = PlanLineKind::HeredocBody { marker_column: 10 };
+        for (line, expected) in [
+            ("          - removed", theme::plan_marker_style(Some('-'))),
+            ("          ~", theme::plan_marker_style(Some('~'))),
+            ("            - text", theme::body_style()),
+            ("          -text", theme::body_style()),
+            ("        x - text", theme::body_style()),
+            ("  -", theme::body_style()),
+            ("        ああ", theme::body_style()),
+        ] {
+            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+            assert!(
+                styled.spans.iter().all(|span| span.style == expected),
+                "{line:?}: {styled:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_element_heredoc_lines_color_only_markers_in_the_element_marker_column() {
+        // `          ~ <<-EOT` opens the element, so its marker column is 14.
+        let kind = PlanLineKind::HeredocBody { marker_column: 14 };
+        for (line, expected) in [
+            ("                - dash", theme::body_style()),
+            (
+                "              - item one",
+                theme::plan_marker_style(Some('-')),
+            ),
+            (
+                "              + item two",
+                theme::plan_marker_style(Some('+')),
+            ),
+            ("                plain", theme::body_style()),
+            (
+                "  # terraform_data.lookalike will be created",
+                theme::body_style(),
+            ),
+            (
+                "                a -> (known after apply)",
+                theme::body_style(),
+            ),
+        ] {
+            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+            assert!(
+                styled.spans.iter().all(|span| span.style == expected),
+                "{line:?}: {styled:?}"
+            );
+        }
+
+        // A column too wide to store saturates and marks no line.
+        let saturated = PlanLineKind::HeredocBody {
+            marker_column: u16::MAX,
+        };
+        let line = format!("{}- text", " ".repeat(usize::from(u16::MAX)));
+        let (styled, _) = plan_line_and_matches(&line, "", 0, None, saturated);
+        assert!(
+            styled
+                .spans
+                .iter()
+                .all(|span| span.style == theme::body_style())
+        );
+    }
+
+    #[test]
+    fn prepared_widths_and_matches_equal_the_styled_rows() {
+        // ASCII rows are measured from their raw text and the widest row is not ASCII, so both
+        // ways of measuring a row must agree with the rows a frame styles.
+        const LINES: [&str; 4] = [
+            "      ~ id    = \"a -> b\" -> (known after apply)",
+            "      ~ description = \"ああ\" ->\u{301} (sensitive value)",
+            "      + tags  = { \"key\" = \"value\" }",
+            "",
+        ];
+        // Every query matches the one resource block, so no notice comes before the rows.
+        for query in ["", "a", "->", "ああ"] {
+            let plan = PlanReview::new(
+                PathBuf::from("/repo"),
+                "default".to_owned(),
+                PlanDocument::with_blocks_and_line_kinds(
+                    LINES.join("\n"),
+                    vec![PlanBlock::new(0..LINES.len(), PlanBlockKind::Resource)],
+                    vec![PlanLineKind::Body; LINES.len()],
+                ),
+                Plan::empty(),
+                PlanMetadata::new(true),
+                Vec::new(),
+            );
+            let content = PlanContent::prepare(&plan, false, query);
+            let styled = LINES
+                .iter()
+                .take(3)
+                .enumerate()
+                .map(|(row, line)| {
+                    plan_line_and_matches(line, query, row, None, PlanLineKind::Body)
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(content.metrics().line_count, 3, "{query:?}");
+            assert_eq!(
+                content.metrics().max_width,
+                styled
+                    .iter()
+                    .map(|(line, _)| display_width(line))
+                    .max()
+                    .unwrap_or(0),
+                "{query:?}"
+            );
+            assert_eq!(
+                content.matches(),
+                styled
+                    .into_iter()
+                    .flat_map(|(_, matches)| matches)
+                    .collect::<Vec<_>>(),
+                "{query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn heredoc_lines_after_a_terminator_lookalike_keep_the_heredoc_style() {
+        // Heredoc bodies from Terraform 1.16.1 plans whose text reads like terminators, with the
+        // kinds the text parser gives them. Only `EOT`, or an element's `EOT,`, in the column of
+        // the opening name closes a heredoc, so the lines after each lookalike keep its style.
+        let lines = [
+            ("  # terraform_data.attr will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"attr\" {", None),
+            ("      ~ input  = <<-EOT", None),
+            ("            EOT,", Some(10)),
+            ("            - dash", Some(10)),
+            ("              EOT,", Some(10)),
+            ("          EOT -> null", Some(10)),
+            ("        EOT,", Some(10)),
+            ("            last", Some(10)),
+            ("          + changed", Some(10)),
+            ("        EOT", None),
+            ("    }", None),
+            ("", None),
+            ("  # terraform_data.list will be updated in-place", None),
+            ("  ~ resource \"terraform_data\" \"list\" {", None),
+            ("      ~ input  = [", None),
+            ("          ~ <<-EOT", None),
+            ("                EOT,", Some(14)),
+            ("              - - dash", Some(14)),
+            ("              - EOT", Some(14)),
+            ("              + two", Some(14)),
+            ("            EOT,", None),
+            ("          - \"plain\",", None),
+            ("        ]", None),
+            ("    }", None),
+        ];
+        let line_kinds = lines
+            .iter()
+            .enumerate()
+            .map(|(line, (_, marker_column))| match (line, marker_column) {
+                (0 | 13, _) => PlanLineKind::ResourceHeader,
+                (_, Some(marker_column)) => PlanLineKind::HeredocBody {
+                    marker_column: *marker_column,
+                },
+                (_, None) => PlanLineKind::Body,
+            })
+            .collect();
+        let plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                lines.map(|(text, _)| text).join("\n"),
+                vec![
+                    PlanBlock::new(0..13, PlanBlockKind::Resource),
+                    PlanBlock::new(13..lines.len(), PlanBlockKind::Resource),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        let state = review_state(plan);
+        let buffer = render_to_buffer(AREA, |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        });
+
+        // Each expected row is searched for below the previous one, since the lookalikes repeat.
+        let mut first_row = buffer.area().y;
+        for (text, color) in [
+            ("~ input  = <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- dash", BODY),
+            ("EOT,", BODY),
+            ("EOT -> null", BODY),
+            ("EOT,", BODY),
+            ("last", BODY),
+            ("+ changed", ADD),
+            ("EOT", BODY),
+            ("~ <<-EOT", UPDATE),
+            ("EOT,", BODY),
+            ("- - dash", DESTROY),
+            ("- EOT", DESTROY),
+            ("+ two", ADD),
+            ("EOT,", BODY),
+            ("- \"plain\",", DESTROY),
+        ] {
+            let row = (first_row..buffer.area().bottom())
+                .find(|&y| {
+                    (buffer.area().x..buffer.area().right())
+                        .map(|x| buffer.cell((x, y)).expect("plan cell").symbol())
+                        .collect::<String>()
+                        .trim_end()
+                        .ends_with(&format!(" {text}"))
+                })
+                .unwrap_or_else(|| panic!("{text:?} should be drawn:\n{}", buffer_text(&buffer)));
+            assert_text_segment_uses_style_from(
+                &buffer,
+                row,
+                text,
+                0,
+                text.chars().count(),
+                (color, Color::Reset, Modifier::empty()),
+            );
+            first_row = row + 1;
         }
     }
 }
