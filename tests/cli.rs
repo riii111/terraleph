@@ -1307,6 +1307,49 @@ Plan: 0 to add, 3 to change, 0 to destroy.
     }
 
     #[test]
+    fn pty_termination_signal_during_plan_stops_before_review() {
+        struct SignalCase {
+            scenario: &'static str,
+            expected: i32,
+        }
+
+        for case in [
+            SignalCase {
+                scenario: "plan_signal_group_hup",
+                expected: 129,
+            },
+            SignalCase {
+                scenario: "plan_signal_group_term",
+                expected: 143,
+            },
+            SignalCase {
+                scenario: "plan_signal_parent_int",
+                expected: 130,
+            },
+        ] {
+            let fixture = Fixture::new();
+
+            let result = fixture.run(case.scenario, 100, 24);
+
+            assert_eq!(result.exit_code, case.expected, "case: {}", case.scenario);
+            result.assert_no_tui();
+            fixture.assert_saved_plan_removed();
+            assert_child_reaped(&fixture.pid_record);
+        }
+    }
+
+    #[test]
+    fn pty_terminal_closed_before_review_removes_the_saved_plan() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run("hangup_before_review", 100, 24);
+
+        assert_eq!(result.exit_code, 1);
+        result.observed("terminal_closed");
+        fixture.assert_saved_plan_removed();
+    }
+
+    #[test]
     fn pty_closed_terminal_removes_the_saved_plan() {
         let fixture = Fixture::new();
 

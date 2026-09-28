@@ -16,6 +16,10 @@ rows = int(rows_arg)
 command = sys.argv[6:]
 pid, fd = pty.fork()
 if pid == 0:
+    if scenario == "hangup_before_review":
+        # Like nohup: Terraleph keeps an ignored SIGHUP ignored and must notice the closed
+        # terminal on its own.
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
     os.environ["TERM"] = "xterm-256color"
     os.execv(
         "/bin/sh",
@@ -411,11 +415,17 @@ def send_termination_signal(scenario):
     observed.append("signal_sent")
 
 
-def wait_exit_after_hangup(timeout=20):
+def release_plan():
+    open(os.path.join(root, "release-plan"), "w").close()
+
+
+def wait_exit_after_hangup(timeout=20, after_close=None):
     # Closing the master is what a terminal emulator or `tmux kill-server` does; the kernel
     # then delivers SIGHUP to the session, and no further output can be read.
     os.close(fd)
     observed.append("terminal_closed")
+    if after_close:
+        after_close()
     deadline = time.time() + timeout
     while time.time() < deadline:
         status = child_status()
@@ -809,6 +819,20 @@ try:
         wait_review("plan_text", timeout=30)
         send_termination_signal(scenario)
         exit_code = wait_exit()
+    elif scenario.startswith("plan_signal_group_"):
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        os.killpg(pid, TERMINATION_SIGNALS[scenario.rsplit("_", 1)[1]])
+        observed.append("signal_sent")
+        exit_code = wait_exit()
+    elif scenario.startswith("plan_signal_parent_"):
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        send_termination_signal(scenario)
+        time.sleep(0.3)
+        release_plan()
+        exit_code = wait_exit()
+    elif scenario == "hangup_before_review":
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        exit_code = wait_exit_after_hangup(after_close=release_plan)
     elif scenario == "signal_hangup":
         wait_review("plan_text", timeout=30)
         exit_code = wait_exit_after_hangup()

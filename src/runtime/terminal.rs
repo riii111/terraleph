@@ -1,21 +1,54 @@
 use std::{
     io,
     mem::ManuallyDrop,
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    panic,
+    sync::{
+        Once,
+        mpsc::{self, Receiver, RecvTimeoutError},
+    },
     thread,
     time::Duration,
 };
 
-use crossterm::event::{self, Event};
-use ratatui::DefaultTerminal;
+use crossterm::{
+    event::{self, Event},
+    terminal::{EnterAlternateScreen, enable_raw_mode},
+};
+use ratatui::{DefaultTerminal, Terminal, backend::CrosstermBackend};
 
-// ratatui::run and Terminal's drop report restore failures with eprintln!, which panics once the
-// terminal is closed; the panic hook then panics again and aborts before saved plans are removed.
+// ratatui's init, restore, panic hook, and Terminal drop report failures with eprintln!, which
+// panics once the terminal is closed; the hook then panics again and aborts before saved plans
+// are removed. Every restore here tolerates a closed terminal instead.
 pub(super) fn run<R>(session: impl FnOnce(&mut DefaultTerminal) -> io::Result<R>) -> io::Result<R> {
+    let terminal = match init() {
+        Ok(terminal) => terminal,
+        Err(error) => {
+            let _ = ratatui::try_restore();
+            return Err(error);
+        }
+    };
     let mut active = ActiveTerminal {
-        terminal: ManuallyDrop::new(ratatui::init()),
+        terminal: ManuallyDrop::new(terminal),
     };
     session(&mut active.terminal)
+}
+
+fn init() -> io::Result<DefaultTerminal> {
+    install_restoring_panic_hook();
+    enable_raw_mode()?;
+    crossterm::execute!(io::stdout(), EnterAlternateScreen)?;
+    Terminal::new(CrosstermBackend::new(io::stdout()))
+}
+
+fn install_restoring_panic_hook() {
+    static INSTALLED: Once = Once::new();
+    INSTALLED.call_once(|| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            let _ = ratatui::try_restore();
+            previous(info);
+        }));
+    });
 }
 
 struct ActiveTerminal {
