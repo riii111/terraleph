@@ -563,6 +563,7 @@ fn synthetic_execution_session(started: Instant) -> SyntheticSession {
     }
     let mut execution_view = execution::ExecutionViewState::default();
     execution_view.initialize_target_selection(&execution.progress().display_target_indices(false));
+    execution_view.measure_log(execution.progress());
     SyntheticSession::new(
         SessionState::Apply(Box::new(execution)),
         execution_view,

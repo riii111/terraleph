@@ -564,6 +564,7 @@ fn handle_execution_key_event<B: Backend>(
                     .progress()
                     .display_target_indices(state.result().is_some());
                 execution_view.select_target(direction, &targets);
+                execution_view.measure_log(state.progress());
                 let size = terminal.size()?;
                 let layout = execution::execution_layout_with_view(
                     Rect::new(0, 0, size.width, size.height),
@@ -779,7 +780,9 @@ pub(super) fn update_session(
             execution_view.initialize_target_selection(&targets);
         }
     } else if apply_result_ready {
+        let measured = *execution_view;
         *execution_view = execution::ExecutionViewState::default();
+        execution_view.keep_log_measurement(measured);
         if let Some(apply) = state.apply() {
             execution_view.select_result_target(
                 &apply.progress().display_target_indices(true),
@@ -792,6 +795,9 @@ pub(super) fn update_session(
                 apply.stage() == ExecutionStage::ApplySucceeded,
             );
         }
+    }
+    if let Some(execution) = state.execution().or_else(|| state.apply()) {
+        execution_view.measure_log(execution.progress());
     }
     effect
 }
@@ -2631,6 +2637,55 @@ mod tests {
             assert_apply_completion_and_copy_path(&mut state, &mut terminal, &mut views, now);
         }
 
+        #[test]
+        fn apply_result_keeps_the_all_logs_measurement_of_the_running_view() {
+            let started_at = Instant::now();
+            let mut state = long_apply_state(started_at, None);
+            let entries = state.apply().expect("apply state").progress().log().len();
+            // Measured over a log as long as the real one but wider, so a width measured again
+            // from the first entry would differ from the one the view keeps.
+            let mut wider =
+                ExecutionState::applying(started_at, ExecutionContext::loading("/project"));
+            for index in 0..entries {
+                wider.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Log(ExecutionLogLine {
+                        stream: EventStream::Stdout,
+                        text: if index == 0 {
+                            "x".repeat(500)
+                        } else {
+                            "short".to_owned()
+                        },
+                    }),
+                });
+            }
+            let mut view = execution::ExecutionViewState::default();
+            view.measure_log(wider.progress());
+            // The widest line the view has measured, as the all-logs panel scrolls to it.
+            let measured_width = |state: &SessionState, view: execution::ExecutionViewState| {
+                let apply = state.apply().expect("apply state");
+                let layout =
+                    execution::execution_layout_with_view(Rect::new(0, 0, 80, 24), apply, view);
+                layout.max_horizontal() + usize::from(layout.body().width)
+            };
+            assert_eq!(measured_width(&state, view), 500);
+
+            let _ = update_session(
+                &mut state,
+                Action::ApplyCompleted {
+                    status: ApplyStatus::Succeeded,
+                    summary_line: None,
+                },
+                &mut view,
+                started_at,
+            );
+
+            let apply = state.apply().expect("apply state");
+            assert!(apply.result().is_some());
+            assert_eq!(view.selected_target(), None);
+            assert_eq!(measured_width(&state, view), 500);
+        }
+
         fn assert_apply_start_path(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
@@ -2762,7 +2817,7 @@ mod tests {
         fn execution_scroll_position(
             state: &SessionState,
             view: execution::ExecutionViewState,
-        ) -> u16 {
+        ) -> usize {
             let apply = state.apply().expect("apply state");
             execution::execution_scroll_position_with_view(
                 apply,

@@ -82,7 +82,7 @@ pub(crate) fn truncate_middle(value: &str, max_width: usize) -> String {
     )
 }
 
-pub(super) fn display_width(value: &str) -> usize {
+pub(crate) fn display_width(value: &str) -> usize {
     Line::from(value)
         .styled_graphemes(Style::default())
         .map(|grapheme| usize::from(grapheme.symbol.cell_width()))
