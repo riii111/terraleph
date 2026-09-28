@@ -2,8 +2,19 @@ use std::{env, ffi::OsString, process::ExitCode};
 
 use clap::{CommandFactory, Parser, Subcommand};
 
+const AFTER_HELP: &str = "\
+Arguments after a command are passed to Terraform or OpenTofu unchanged.
+Run with no command in an interactive terminal to open the change overview.
+
+Examples:
+  terraleph                           Open the change overview
+  terraleph plan -var-file=prod.tfvars
+  terraleph apply
+  terraleph tofu plan
+  alias terraform='terraleph terraform'";
+
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, after_help = AFTER_HELP)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -11,13 +22,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run Terraform, reviewing supported interactive plans.
+    #[command(
+        about = "Run a Terraform command, reviewing supported interactive plan and apply runs"
+    )]
     Terraform,
-    /// Run `OpenTofu`, reviewing supported interactive plans.
+    #[command(
+        about = "Run an OpenTofu command, reviewing supported interactive plan and apply runs"
+    )]
     Tofu,
-    /// Review a Terraform plan.
+    #[command(about = "Review a Terraform plan (same as `terraleph terraform plan`)")]
     Plan,
-    /// Run Terraform apply.
+    #[command(
+        about = "Review a Terraform plan, then apply it (same as `terraleph terraform apply`)"
+    )]
     Apply,
 }
 
