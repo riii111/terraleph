@@ -414,6 +414,7 @@ impl PlanReviewViewState {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

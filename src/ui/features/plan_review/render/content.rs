@@ -163,10 +163,10 @@ pub(super) fn plan_line_and_matches<'a>(
         if !before.is_empty() {
             result.push_span(Span::styled(before, plan_line_style(line, kind)));
         }
-        rendered_column += Line::from(before).width();
+        rendered_column += display_width(&Line::from(before));
         let (match_text, after) = matched_and_after.split_at(query.len());
         let start_column = rendered_column;
-        rendered_column += Line::from(match_text).width();
+        rendered_column += display_width(&Line::from(match_text));
         let end_column = rendered_column;
         let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
         let style = selected
@@ -258,7 +258,7 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
     let mut visible = Line::default();
     let mut column = 0;
     for grapheme in line.styled_graphemes(Style::default()) {
-        let next = column + usize::from(grapheme.symbol.cell_width());
+        let next = column + grapheme_width(grapheme.symbol);
         if next > end {
             break;
         }
@@ -277,7 +277,20 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
 }
 
 fn max_line_width(lines: &[Line<'_>]) -> usize {
-    lines.iter().map(Line::width).max().unwrap_or(0)
+    lines.iter().map(display_width).max().unwrap_or(0)
+}
+
+// Line::width measures the whole string, which differs from the drawn cells for halfwidth sound
+// marks, some joined scripts, and control characters. Scroll limits, match columns, and the visible
+// window all measure the graphemes ratatui draws instead.
+pub(super) fn display_width(line: &Line<'_>) -> usize {
+    line.styled_graphemes(Style::default())
+        .map(|grapheme| grapheme_width(grapheme.symbol))
+        .sum()
+}
+
+fn grapheme_width(symbol: &str) -> usize {
+    usize::from(symbol.cell_width())
 }
 
 const fn severity_label(severity: DiagnosticSeverity) -> &'static str {
