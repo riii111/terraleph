@@ -3507,12 +3507,16 @@ mod line_styles {
     );
     // Heredoc lines follow Terraform 1.16 output: a created value keeps its text two columns right
     // of the marker column, and an updated value puts its markers there.
-    const STYLED_PLAN: [&str; 36] = [
+    const STYLED_PLAN: [&str; 41] = [
         "  # terraform_data.created will be created",
         "  + resource \"terraform_data\" \"created\" {",
+        "      + id     = (known after apply)",
+        "      + secret = (sensitive value)",
+        "      + note   = \"(known after apply) -> \\\"(sensitive value)\\\"\"",
         "      + input  = <<-EOT",
         "            - dash",
         "            + plus",
+        "            (sensitive value) -> (known after apply)",
         "        EOT",
         "    }",
         "",
@@ -3537,6 +3541,7 @@ mod line_styles {
         "  # terraform_data.replaced must be replaced",
         "-/+ resource \"terraform_data\" \"replaced\" {",
         "      ~ input = \"before\" -> \"after\" # forces replacement",
+        "      ~ id    = \"replaced\" -> (known after apply)",
         "    }",
         "",
         "  # terraform_data.swapped must be replaced",
@@ -3550,10 +3555,10 @@ mod line_styles {
     fn styled_review(query: &str) -> ReviewSessionState {
         let line_kinds = (0..STYLED_PLAN.len())
             .map(|line| match line {
-                0 | 8 | 19 | 26 | 31 => PlanLineKind::ResourceHeader,
-                3 | 4 | 11..=14 | 22 => PlanLineKind::HeredocBody { marker_column: 10 },
-                16 => PlanLineKind::Note,
-                35 => PlanLineKind::Summary,
+                0 | 12 | 23 | 30 | 36 => PlanLineKind::ResourceHeader,
+                6..=8 | 15..=18 | 26 => PlanLineKind::HeredocBody { marker_column: 10 },
+                20 => PlanLineKind::Note,
+                40 => PlanLineKind::Summary,
                 _ => PlanLineKind::Body,
             })
             .collect();
@@ -3563,12 +3568,12 @@ mod line_styles {
             PlanDocument::with_blocks_and_line_kinds(
                 STYLED_PLAN.join("\n"),
                 vec![
-                    PlanBlock::new(0..8, PlanBlockKind::Resource),
-                    PlanBlock::new(8..19, PlanBlockKind::Resource),
-                    PlanBlock::new(19..26, PlanBlockKind::Resource),
-                    PlanBlock::new(26..31, PlanBlockKind::Resource),
-                    PlanBlock::new(31..35, PlanBlockKind::Resource),
-                    PlanBlock::new(35..36, PlanBlockKind::Common),
+                    PlanBlock::new(0..12, PlanBlockKind::Resource),
+                    PlanBlock::new(12..23, PlanBlockKind::Resource),
+                    PlanBlock::new(23..30, PlanBlockKind::Resource),
+                    PlanBlock::new(30..36, PlanBlockKind::Resource),
+                    PlanBlock::new(36..40, PlanBlockKind::Resource),
+                    PlanBlock::new(40..41, PlanBlockKind::Common),
                 ],
                 line_kinds,
             ),
@@ -3678,6 +3683,66 @@ mod line_styles {
             let start = text.find("item").expect("the query should be in the line");
             assert_text_segment_uses_style(&buffer, text, start, 4, MATCH.0, MATCH.1, MATCH.2);
         }
+    }
+
+    #[test]
+    fn hidden_values_fade_and_change_arrows_stand_out_only_in_plan_syntax() {
+        let buffer = render_styled("");
+
+        let id = "+ id     = (known after apply)";
+        assert_segment(&buffer, id, 0..11, (ADD, Modifier::empty()));
+        assert_segment(&buffer, id, 11..30, (ADD, Modifier::DIM));
+        let secret = "+ secret = (sensitive value)";
+        assert_segment(&buffer, secret, 0..11, (ADD, Modifier::empty()));
+        assert_segment(&buffer, secret, 11..28, (ADD, Modifier::DIM));
+        let replaced = "~ id    = \"replaced\" -> (known after apply)";
+        assert_segment(&buffer, replaced, 0..21, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, replaced, 21..23, (UPDATE, Modifier::BOLD));
+        assert_segment(&buffer, replaced, 23..24, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, replaced, 24..43, (UPDATE, Modifier::DIM));
+        let forced = "~ input = \"before\" -> \"after\" # forces replacement";
+        assert_segment(&buffer, forced, 0..19, (UPDATE, Modifier::empty()));
+        assert_segment(&buffer, forced, 19..21, (UPDATE, Modifier::BOLD));
+        assert_segment(
+            &buffer,
+            forced,
+            21..forced.len(),
+            (UPDATE, Modifier::empty()),
+        );
+        assert_segment(&buffer, "EOT -> null", 0..4, (BODY, Modifier::empty()));
+        assert_segment(&buffer, "EOT -> null", 4..6, (BODY, Modifier::BOLD));
+        assert_segment(&buffer, "EOT -> null", 6..11, (BODY, Modifier::empty()));
+
+        // Quoted text, escaped quotes included, and heredoc text are values.
+        assert_line(
+            &buffer,
+            "+ note   = \"(known after apply) -> \\\"(sensitive value)\\\"\"",
+            (ADD, Modifier::empty()),
+        );
+        assert_line(
+            &buffer,
+            "(sensitive value) -> (known after apply)",
+            (BODY, Modifier::empty()),
+        );
+    }
+
+    #[test]
+    fn search_matches_win_over_hidden_value_and_arrow_emphasis() {
+        let buffer = render_styled("known");
+
+        let id = "+ id     = (known after apply)";
+        assert_segment(&buffer, id, 11..12, (ADD, Modifier::DIM));
+        assert_text_segment_uses_style(&buffer, id, 12, 5, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, id, 17..30, (ADD, Modifier::DIM));
+        let replaced = "~ id    = \"replaced\" -> (known after apply)";
+        assert_segment(&buffer, replaced, 21..23, (UPDATE, Modifier::BOLD));
+        assert_segment(&buffer, replaced, 24..25, (UPDATE, Modifier::DIM));
+        assert_text_segment_uses_style(&buffer, replaced, 25, 5, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, replaced, 30..43, (UPDATE, Modifier::DIM));
+
+        let buffer = render_styled("-> (known");
+        assert_text_segment_uses_style(&buffer, replaced, 21, 9, MATCH.0, MATCH.1, MATCH.2);
+        assert_segment(&buffer, replaced, 30..43, (UPDATE, Modifier::DIM));
     }
 
     #[test]

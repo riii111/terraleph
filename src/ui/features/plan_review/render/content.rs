@@ -253,42 +253,116 @@ pub(super) fn plan_line_and_matches<'a>(
     selected: Option<&PlanReviewMatch>,
     kind: PlanLineKind,
 ) -> (Line<'a>, Vec<PlanReviewMatch>) {
-    if query.is_empty() {
-        return (
-            Line::from(Span::styled(line, plan_line_style(line, kind))),
-            Vec::new(),
-        );
+    let style = plan_line_style(line, kind);
+    let emphasis = emphasized_ranges(line, kind);
+    if query.is_empty() && emphasis.is_empty() {
+        return (Line::from(Span::styled(line, style)), Vec::new());
     }
     let mut result = Line::default();
     let mut matches = Vec::new();
-    let mut rest = line;
+    let mut cursor = 0;
     let mut rendered_column = 0;
-    while let Some(index) = rest.find(query) {
-        let (before, matched_and_after) = rest.split_at(index);
-        if !before.is_empty() {
-            result.push_span(Span::styled(before, plan_line_style(line, kind)));
-        }
+    let found = (!query.is_empty()).then(|| line.match_indices(query));
+    for (index, match_text) in found.into_iter().flatten() {
+        let before = &line[cursor..index];
+        push_emphasized(&mut result, line, cursor..index, style, &emphasis);
         rendered_column += display_width(&Line::from(before));
-        let (match_text, after) = matched_and_after.split_at(query.len());
         let start_column = rendered_column;
         rendered_column += display_width(&Line::from(match_text));
         let end_column = rendered_column;
         let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
-        let style = selected
+        let match_style = selected
             .filter(|selected| {
                 selected.start() == rendered_match.start() && selected.end() == rendered_match.end()
             })
             .map_or_else(theme::search_match_style, |_| {
                 theme::selected_search_match_style()
             });
-        result.push_span(Span::styled(match_text, style));
+        // A match keeps its own style over the line style and any emphasis under it.
+        result.push_span(Span::styled(match_text, match_style));
         matches.push(rendered_match);
-        rest = after;
+        cursor = index + match_text.len();
     }
-    if !rest.is_empty() {
-        result.push_span(Span::styled(rest, plan_line_style(line, kind)));
-    }
+    push_emphasized(&mut result, line, cursor..line.len(), style, &emphasis);
     (result, matches)
+}
+
+#[derive(Clone, Copy)]
+enum Emphasis {
+    HiddenValue,
+    ChangeArrow,
+}
+
+const EMPHASIZED_TEXT: [(&str, Emphasis); 3] = [
+    ("(known after apply)", Emphasis::HiddenValue),
+    ("(sensitive value)", Emphasis::HiddenValue),
+    ("->", Emphasis::ChangeArrow),
+];
+
+// Placeholders for values the plan cannot show and change arrows are marked only in the plan's own
+// syntax; quoted strings and heredoc text are values that can contain the same text.
+fn emphasized_ranges(line: &str, kind: PlanLineKind) -> Vec<(Range<usize>, Emphasis)> {
+    let mut ranges = Vec::new();
+    if matches!(kind, PlanLineKind::HeredocBody { .. }) {
+        return ranges;
+    }
+    // Quotes and the emphasized text are ASCII, so the ranges found fall on character boundaries.
+    let bytes = line.as_bytes();
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+        } else if byte == b'"' {
+            quoted = true;
+        } else if let Some(&(text, emphasis)) = EMPHASIZED_TEXT
+            .iter()
+            .find(|(text, _)| bytes[index..].starts_with(text.as_bytes()))
+        {
+            ranges.push((index..index + text.len(), emphasis));
+            index += text.len();
+            continue;
+        }
+        index += 1;
+    }
+    ranges
+}
+
+// Pushes `range` of `line` in the line style, adding the emphasis of each part it overlaps.
+fn push_emphasized<'a>(
+    result: &mut Line<'a>,
+    line: &'a str,
+    range: Range<usize>,
+    style: Style,
+    emphasis: &[(Range<usize>, Emphasis)],
+) {
+    let mut cursor = range.start;
+    for (emphasized, kind) in emphasis {
+        let start = emphasized.start.clamp(cursor, range.end);
+        let end = emphasized.end.clamp(cursor, range.end);
+        if start == end {
+            continue;
+        }
+        if cursor < start {
+            result.push_span(Span::styled(&line[cursor..start], style));
+        }
+        let emphasized_style = match kind {
+            Emphasis::HiddenValue => theme::plan_hidden_value_style(style),
+            Emphasis::ChangeArrow => theme::plan_change_arrow_style(style),
+        };
+        result.push_span(Span::styled(&line[start..end], emphasized_style));
+        cursor = end;
+    }
+    if cursor < range.end {
+        result.push_span(Span::styled(&line[cursor..range.end], style));
+    }
 }
 
 fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {

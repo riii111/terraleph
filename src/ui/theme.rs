@@ -226,6 +226,14 @@ pub(crate) fn plan_resource_header_style() -> Style {
     body_style().add_modifier(Modifier::BOLD)
 }
 
+pub(crate) const fn plan_hidden_value_style(line_style: Style) -> Style {
+    line_style.add_modifier(Modifier::DIM)
+}
+
+pub(crate) const fn plan_change_arrow_style(line_style: Style) -> Style {
+    line_style.add_modifier(Modifier::BOLD)
+}
+
 pub(crate) fn plan_note_style() -> Style {
     secondary_style()
 }
