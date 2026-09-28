@@ -1,6 +1,7 @@
 # README demo. Render with assets/demo.sh, which composites the window over a generated wallpaper.
 # Uses the cloudless dev/stg/prod scenario from fixtures/environments (terraform_data + local state only).
 # The hidden terraform wrapper only paces `apply -json` events so the progress screen is visible.
+# assets/social-preview.sh reuses the first Hide...Show block and the last Hide block.
 
 Require terraform
 Require python3
