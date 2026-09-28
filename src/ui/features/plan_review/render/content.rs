@@ -301,7 +301,6 @@ pub(super) fn styled_plan_line<'a>(
             .map_or_else(theme::search_match_style, |_| {
                 theme::selected_search_match_style()
             });
-        // A match keeps its own style over the line style and any emphasis under it.
         result.push_span(Span::styled(&line[range.clone()], match_style));
         on_match(rendered_match);
         cursor = range.end;
@@ -427,8 +426,7 @@ fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {
 }
 
 // Heredoc text can start with the same characters as a diff marker, so only a marker in the
-// document's marker column, after spaces and before a space or the line end, counts. A saturated
-// column stands for one too wide to store, so it marks no line.
+// document's marker column, after spaces and before a space or the line end, counts.
 fn heredoc_marker(line: &str, marker_column: u16) -> Option<char> {
     if marker_column == u16::MAX {
         return None;
