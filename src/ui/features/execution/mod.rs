@@ -1,6 +1,8 @@
 mod input;
 mod render;
 
+use crate::app::execution::ExecutionProgress;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionScroll {
     Up,
@@ -18,7 +20,7 @@ pub(crate) enum ExecutionScroll {
 enum VerticalScroll {
     Initial,
     FollowLatest,
-    Manual(u16),
+    Manual(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,13 +29,24 @@ pub(crate) enum ExecutionTargetMove {
     Next,
 }
 
+// Widest rendered line among the first `entries` entries of a log panel. Logs only grow, so a
+// later measurement continues from here instead of measuring every entry again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct LogWidth {
+    entries: usize,
+    width: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExecutionViewState {
     vertical: VerticalScroll,
     target_vertical: VerticalScroll,
-    horizontal: u16,
+    horizontal: usize,
     logs_open: bool,
     selected_target: Option<usize>,
+    log_width: LogWidth,
+    // Measured for the selected target only, keyed by its index.
+    target_log_width: Option<(usize, LogWidth)>,
 }
 
 impl Default for ExecutionViewState {
@@ -44,6 +57,8 @@ impl Default for ExecutionViewState {
             horizontal: 0,
             logs_open: false,
             selected_target: None,
+            log_width: LogWidth::default(),
+            target_log_width: None,
         }
     }
 }
@@ -52,11 +67,11 @@ impl ExecutionViewState {
     pub(crate) fn apply_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
+        current_offset: usize,
+        max_offset: usize,
         page_height: u16,
     ) {
-        let page_height = page_height.max(1);
+        let page_height = usize::from(page_height.max(1));
         let offset = match action {
             ExecutionScroll::Up => current_offset.saturating_sub(1),
             ExecutionScroll::Down => current_offset.saturating_add(1).min(max_offset),
@@ -74,11 +89,11 @@ impl ExecutionViewState {
     pub(crate) fn apply_target_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
+        current_offset: usize,
+        max_offset: usize,
         page_height: u16,
     ) {
-        let page_height = page_height.max(1);
+        let page_height = usize::from(page_height.max(1));
         let offset = match action {
             ExecutionScroll::Up => current_offset.saturating_sub(1),
             ExecutionScroll::Down => current_offset.saturating_add(1).min(max_offset),
@@ -96,9 +111,9 @@ impl ExecutionViewState {
     pub(crate) fn apply_horizontal_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
-        current_vertical: u16,
+        current_offset: usize,
+        max_offset: usize,
+        current_vertical: usize,
     ) {
         self.vertical = VerticalScroll::Manual(current_vertical);
         self.horizontal = match action {
@@ -108,6 +123,37 @@ impl ExecutionViewState {
             ExecutionScroll::RightEdge => max_offset,
             _ => current_offset,
         };
+    }
+
+    // Measures the entries appended since the last call. Rendering measures any entries this has
+    // not seen yet on every frame, so the runtime calls this whenever the log or the selected
+    // target changes. A view belongs to one execution; the runtime resets it when an apply starts.
+    pub(crate) fn measure_log(&mut self, progress: &ExecutionProgress) {
+        self.log_width = render::measure_log_width(self.log_width, progress.log(), None);
+        self.target_log_width = self.selected_target.and_then(|index| {
+            let target = progress.targets().get(index)?;
+            let cached = self.measured_log_width(Some(index));
+            Some((
+                index,
+                render::measure_log_width(cached, progress.log(), Some(target.log_ids())),
+            ))
+        });
+    }
+
+    // Keeps what `previous` measured of all logs when the view is reset for the same execution,
+    // so a long log is not measured again at once.
+    pub(crate) const fn keep_log_measurement(&mut self, previous: Self) {
+        self.log_width = previous.log_width;
+    }
+
+    // What `measure_log` has measured for all logs, or for the target at `target`.
+    fn measured_log_width(self, target: Option<usize>) -> LogWidth {
+        target.map_or(self.log_width, |index| {
+            self.target_log_width
+                .filter(|(cached, _)| *cached == index)
+                .map(|(_, width)| width)
+                .unwrap_or_default()
+        })
     }
 
     pub(crate) const fn end(&mut self) {
@@ -148,9 +194,7 @@ impl ExecutionViewState {
             first_failed.or_else(|| successful.then(|| targets.first().copied()).flatten());
         self.logs_open = first_failed.is_some();
         self.vertical = if first_failed.is_some() {
-            VerticalScroll::Manual(
-                u16::try_from(first_failed_error_line.unwrap_or(0)).unwrap_or(u16::MAX),
-            )
+            VerticalScroll::Manual(first_failed_error_line.unwrap_or(0))
         } else {
             VerticalScroll::Initial
         };
@@ -184,9 +228,9 @@ impl ExecutionViewState {
         self.vertical = VerticalScroll::Initial;
     }
 
-    pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: u16) {
+    pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: usize) {
         let height = usize::from(height.max(1));
-        let current = usize::from(self.target_vertical_offset(0, max));
+        let current = self.target_vertical_offset(0, max);
         let next = if position < current {
             position
         } else if position >= current.saturating_add(height) {
@@ -194,8 +238,7 @@ impl ExecutionViewState {
         } else {
             current
         };
-        self.target_vertical =
-            VerticalScroll::Manual(u16::try_from(next).unwrap_or(u16::MAX).min(max));
+        self.target_vertical = VerticalScroll::Manual(next.min(max));
     }
 
     #[must_use]
@@ -214,12 +257,12 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn horizontal(self) -> u16 {
+    pub(crate) const fn horizontal(self) -> usize {
         self.horizontal
     }
 
     #[must_use]
-    pub(crate) const fn vertical_offset(self, initial: u16, max: u16) -> u16 {
+    pub(crate) const fn vertical_offset(self, initial: usize, max: usize) -> usize {
         match self.vertical {
             VerticalScroll::Initial => {
                 if initial < max {
@@ -240,7 +283,7 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn target_vertical_offset(self, initial: u16, max: u16) -> u16 {
+    pub(crate) const fn target_vertical_offset(self, initial: usize, max: usize) -> usize {
         match self.target_vertical {
             VerticalScroll::Initial => {
                 if initial < max {

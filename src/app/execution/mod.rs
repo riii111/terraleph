@@ -5,6 +5,7 @@ use super::copy;
 mod context;
 mod event;
 pub(crate) mod history;
+mod log_index;
 mod progress;
 
 pub(crate) use context::{
@@ -17,6 +18,7 @@ pub(crate) use event::{
     ResourceEvent, ResourceEventKind, SensitiveValue,
 };
 pub(crate) use history::{HistoryKey, SuccessfulTarget};
+pub(crate) use log_index::LogLineIndex;
 pub(crate) use progress::{ExecutionProgress, ExecutionTargetState, ExecutionTargetStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
