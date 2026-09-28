@@ -1869,8 +1869,16 @@ mod apply {
 
         let raw_lines = raw.lines().collect::<Vec<_>>();
         let lines = text.lines().collect::<Vec<_>>();
-        assert_eq!(lines[0], raw_lines[0], "{text}");
-        assert_eq!(lines[1], raw_lines[1], "{text}");
+        let first_plan_row = raw_lines
+            .iter()
+            .position(|line| line.starts_with("b-prod line 10"))
+            .expect("the scrolled review should show its first visible plan line");
+        assert_eq!(
+            lines[..=first_plan_row],
+            raw_lines[..=first_plan_row],
+            "{text}"
+        );
+        assert!(!text.contains("ws:default"), "{text}");
         assert_eq!(lines.last(), raw_lines.last(), "{text}");
         assert!(text.contains("Apply this reviewed plan?"), "{text}");
         let (dialog_left, _) =
@@ -1881,8 +1889,7 @@ mod apply {
                 .map(|line| line.chars().take(usize::from(dialog_left)).collect())
                 .collect()
         };
-        // The compact confirmation header spans the full width, so compare the rows below it.
-        let body_rows = 5..lines.len() - 2;
+        let body_rows = first_plan_row + 1..lines.len() - 2;
         assert_eq!(
             outside_dialog(&lines[body_rows.clone()]),
             outside_dialog(&raw_lines[body_rows]),
