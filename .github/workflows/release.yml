@@ -129,11 +129,16 @@ jobs:
             artifacts/*.zip
             artifacts/*.sha256
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   homebrew:
     name: Update Homebrew tap
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -151,6 +156,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#v}"
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' tap/Formula/terraleph.rb 2>/dev/null || true)
+          if [ -n "${current}" ] && [ "$(printf '%s\n%s\n' "${current}" "${version}" | sort -V | tail -n 1)" != "${version}" ]; then
+            echo "Formula already has ${current}; skipping older ${version}"
+            exit 0
+          fi
           base="https://github.com/riii111/terraleph/releases/download/${TAG}"
           sha() { cut -d ' ' -f 1 "artifacts/terraleph-$1.tar.gz.sha256"; }
           mkdir -p tap/Formula
