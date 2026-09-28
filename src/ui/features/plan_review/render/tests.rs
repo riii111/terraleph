@@ -4312,8 +4312,6 @@ mod control_characters {
     const AREA: Rect = Rect::new(0, 0, 80, 24);
     const MATCH_BACKGROUNDS: [Color; 2] =
         [Color::Rgb(0xf4, 0x9e, 0x4c), Color::Rgb(0xff, 0xd0, 0x8a)];
-    // A shell script in a heredoc, with a tab-indented command, a Windows line end, and a color
-    // escape left in the value.
     const PLAN: [&str; 11] = [
         "  # terraform_data.script will be created",
         "  + resource \"terraform_data\" \"script\" {",
@@ -4327,7 +4325,6 @@ mod control_characters {
         "",
         "Plan: 1 to add, 0 to change, 0 to destroy.",
     ];
-    // The plan as a terminal shows `terraform show`: tabs stop every eight columns.
     const SHOWN: [&str; 11] = [
         "  # terraform_data.script will be created",
         "  + resource \"terraform_data\" \"script\" {",
@@ -4377,7 +4374,6 @@ mod control_characters {
         })
     }
 
-    // The body columns of `row` drawn with a search match background.
     fn highlighted_columns(buffer: &Buffer, layout: &PlanReviewLayout, row: usize) -> Vec<usize> {
         let body = layout.body();
         let y = body.y + u16::try_from(row).expect("body row");

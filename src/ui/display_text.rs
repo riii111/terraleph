@@ -24,7 +24,6 @@ impl DisplayColumns {
         self.column
     }
 
-    /// Returns `text` as shown from the current column and moves past it.
     pub(crate) fn show<'a>(&mut self, text: &'a str) -> Cow<'a, str> {
         if is_printable_ascii(text) {
             self.column += text.len();
@@ -58,8 +57,8 @@ impl DisplayColumns {
     }
 }
 
-/// Returns a whole line as shown. A line without control characters is not measured, so a caller
-/// that cuts a long line at the screen edge does not walk all of it.
+/// A line without control characters is not measured, so a caller that cuts a long line at the
+/// screen edge does not walk all of it.
 pub(crate) fn shown_line(text: &str) -> Cow<'_, str> {
     if text.contains(char::is_control) {
         DisplayColumns::default().show(text)
@@ -74,7 +73,6 @@ pub(crate) fn shown_width(text: &str) -> usize {
     columns.column()
 }
 
-/// Printable ASCII takes one cell per byte and is shown as it is.
 pub(crate) fn is_printable_ascii(text: &str) -> bool {
     text.bytes()
         .all(|byte| byte.is_ascii_graphic() || byte == b' ')
@@ -113,7 +111,6 @@ mod tests {
         (shown, columns.column())
     }
 
-    // The first cell after the drawn text, found by drawing a marker right behind it.
     fn drawn_cells(text: &str) -> usize {
         let mut terminal = Terminal::new(TestBackend::new(40, 1)).expect("test terminal");
         terminal
@@ -138,7 +135,6 @@ mod tests {
             ("1234567\tx", "1234567 x"),
             ("12345678\tx", "12345678        x"),
             ("\t\tx", "                x"),
-            // Wide and zero-width graphemes move the stop by the cells they take.
             ("あ\tx", "あ      x"),
             ("e\u{301}\tx", "e\u{301}       x"),
             ("ｶﾞ\tx", "ｶﾞ      x"),

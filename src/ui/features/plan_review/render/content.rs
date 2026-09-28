@@ -335,8 +335,6 @@ pub(super) fn styled_plan_line<'a>(
     result
 }
 
-// Matches are found in the plan's own text, so a query never matches the shown spelling of a
-// control character.
 fn search_matches<'a>(line: &'a str, query: &'a str) -> impl Iterator<Item = Range<usize>> + 'a {
     // An empty query would match between every pair of characters.
     (!query.is_empty())
