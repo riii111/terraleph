@@ -37,84 +37,6 @@ const TARGET_STATUS_WIDTH: usize = "Incomplete".len();
 const TARGET_ACTION_WIDTH: usize = "delete/create".len();
 const TARGET_ELAPSED_WIDTH: usize = "Elapsed".len();
 const TARGET_PREVIOUS_WIDTH: usize = "Previous".len();
-// The log a panel shows. Its line count comes from the index the progress keeps as entries
-// arrive, its width from what the view has measured, and lines are built only for the rows on
-// screen.
-struct PreparedContent<'a> {
-    log: &'a [ExecutionLogLine],
-    // Positions in `log` of a selected target's entries; `None` shows every entry.
-    entries: Option<&'a [usize]>,
-    index: &'a LogLineIndex,
-    width: usize,
-    // Shown instead of the log while it has no lines.
-    placeholder: Option<Span<'static>>,
-}
-
-impl<'a> PreparedContent<'a> {
-    fn new(
-        log: &'a [ExecutionLogLine],
-        entries: Option<&'a [usize]>,
-        (index, measured): (&'a LogLineIndex, LogWidth),
-        placeholder: Span<'static>,
-    ) -> Self {
-        Self {
-            log,
-            entries,
-            index,
-            width: measure_log_width(measured, log, entries).width,
-            placeholder: (index.line_count() == 0).then_some(placeholder),
-        }
-    }
-
-    const fn line_count(&self) -> usize {
-        if self.placeholder.is_some() {
-            1
-        } else {
-            self.index.line_count()
-        }
-    }
-
-    fn max_width(&self) -> usize {
-        self.placeholder.as_ref().map_or(self.width, |placeholder| {
-            display_width(&placeholder.content)
-        })
-    }
-
-    // The rows drawn into `area` from line `offset` down, each starting `horizontal` cells into
-    // its line.
-    fn visible_lines(&self, offset: usize, horizontal: usize, area: Rect) -> Vec<Line<'a>> {
-        let (width, height) = (usize::from(area.width), usize::from(area.height));
-        if let Some(placeholder) = &self.placeholder {
-            return std::iter::once(Line::from(Span::styled(
-                visible_cells(&placeholder.content, horizontal, width).into_owned(),
-                placeholder.style,
-            )))
-            .skip(offset)
-            .take(height)
-            .collect();
-        }
-        let Some((first, skip)) = self.index.locate(offset) else {
-            return Vec::new();
-        };
-        self.entries.map_or_else(
-            || {
-                log_lines(&self.log[first..], (horizontal, width))
-                    .skip(skip)
-                    .take(height)
-                    .collect()
-            },
-            |entries| {
-                log_lines(
-                    entries[first..].iter().filter_map(|id| self.log.get(*id)),
-                    (horizontal, width),
-                )
-                .skip(skip)
-                .take(height)
-                .collect()
-            },
-        )
-    }
-}
 
 pub(crate) fn render_execution_with_quit_confirmation(
     frame: &mut Frame<'_>,
@@ -796,6 +718,85 @@ fn prepare_selected_content(
     }
 }
 
+// The log a panel shows. Its line count comes from the index the progress keeps as entries
+// arrive, its width from what the view has measured, and lines are built only for the rows on
+// screen.
+struct PreparedContent<'a> {
+    log: &'a [ExecutionLogLine],
+    // Positions in `log` of a selected target's entries; `None` shows every entry.
+    entries: Option<&'a [usize]>,
+    index: &'a LogLineIndex,
+    width: usize,
+    // Shown instead of the log while it has no lines.
+    placeholder: Option<Span<'static>>,
+}
+
+impl<'a> PreparedContent<'a> {
+    fn new(
+        log: &'a [ExecutionLogLine],
+        entries: Option<&'a [usize]>,
+        (index, measured): (&'a LogLineIndex, LogWidth),
+        placeholder: Span<'static>,
+    ) -> Self {
+        Self {
+            log,
+            entries,
+            index,
+            width: measure_log_width(measured, log, entries).width,
+            placeholder: (index.line_count() == 0).then_some(placeholder),
+        }
+    }
+
+    const fn line_count(&self) -> usize {
+        if self.placeholder.is_some() {
+            1
+        } else {
+            self.index.line_count()
+        }
+    }
+
+    fn max_width(&self) -> usize {
+        self.placeholder.as_ref().map_or(self.width, |placeholder| {
+            display_width(&placeholder.content)
+        })
+    }
+
+    // The rows drawn into `area` from line `offset` down, each starting `horizontal` cells into
+    // its line.
+    fn visible_lines(&self, offset: usize, horizontal: usize, area: Rect) -> Vec<Line<'a>> {
+        let (width, height) = (usize::from(area.width), usize::from(area.height));
+        if let Some(placeholder) = &self.placeholder {
+            return std::iter::once(Line::from(Span::styled(
+                visible_cells(&placeholder.content, horizontal, width).into_owned(),
+                placeholder.style,
+            )))
+            .skip(offset)
+            .take(height)
+            .collect();
+        }
+        let Some((first, skip)) = self.index.locate(offset) else {
+            return Vec::new();
+        };
+        let line = |(stream, text)| log_line(stream, text, horizontal, width);
+        self.entries.map_or_else(
+            || {
+                log_rows(&self.log[first..], skip, height)
+                    .map(line)
+                    .collect()
+            },
+            |entries| {
+                log_rows(
+                    entries[first..].iter().filter_map(|id| self.log.get(*id)),
+                    skip,
+                    height,
+                )
+                .map(line)
+                .collect()
+            },
+        )
+    }
+}
+
 // Continues `measured` over the entries it has not seen, measuring each line the way the
 // renderer draws it. `entries` selects a target's entries from `log`, as in `PreparedContent`.
 pub(super) fn measure_log_width(
@@ -804,13 +805,13 @@ pub(super) fn measure_log_width(
     entries: Option<&[usize]>,
 ) -> LogWidth {
     let total = entries.map_or(log.len(), <[usize]>::len);
-    // A view belongs to one execution and its log never shrinks, so this is only a guard against
-    // a measurement that covers more entries than there are.
-    let measured = if measured.entries > total {
-        LogWidth::default()
-    } else {
-        measured
-    };
+    // A view belongs to one execution, whose log only grows, and the runtime resets the view when
+    // an apply starts.
+    debug_assert!(
+        measured.entries <= total,
+        "measured {} log entries but only {total} exist",
+        measured.entries
+    );
     let entry_width = |line: &ExecutionLogLine| {
         line.text
             .lines()
@@ -839,20 +840,26 @@ pub(super) fn measure_log_width(
     }
 }
 
-fn log_lines<'a>(
+// Up to `height` rows of `log`, starting `skip` rows into it, each with the stream of the entry
+// it comes from. Rows stay unformatted so a window costs formatting only for the rows it keeps.
+fn log_rows<'a>(
     log: impl IntoIterator<Item = &'a ExecutionLogLine>,
-    (horizontal, width): (usize, usize),
-) -> impl Iterator<Item = Line<'a>> {
-    log.into_iter().flat_map(move |line| {
-        let style = if line.stream == EventStream::Stderr {
-            theme::warning_style()
-        } else {
-            theme::body_style()
-        };
-        line.text.lines().map(move |text| {
-            Line::from(Span::styled(visible_cells(text, horizontal, width), style))
-        })
-    })
+    skip: usize,
+    height: usize,
+) -> impl Iterator<Item = (EventStream, &'a str)> {
+    log.into_iter()
+        .flat_map(|line| line.text.lines().map(move |text| (line.stream, text)))
+        .skip(skip)
+        .take(height)
+}
+
+fn log_line(stream: EventStream, text: &str, horizontal: usize, width: usize) -> Line<'_> {
+    let style = if stream == EventStream::Stderr {
+        theme::warning_style()
+    } else {
+        theme::body_style()
+    };
+    Line::from(Span::styled(visible_cells(text, horizontal, width), style))
 }
 
 // The part of `text` drawn in a row `width` cells wide, starting `offset` cells into the line. A
@@ -2884,6 +2891,42 @@ mod tests {
             );
             assert_eq!(render_rows(&state, manual), manual_before);
             assert!(!manual_before.contains(&"line 39".to_owned()));
+        }
+
+        #[test]
+        fn a_log_window_yields_only_its_raw_rows_across_multi_line_entries() {
+            const LINE_COUNT: usize = 100_000;
+            let entry = |stream, text: String| ExecutionLogLine { stream, text };
+            let many_lines = (0..LINE_COUNT)
+                .map(|line| format!("line {line:06}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let log = [
+                entry(EventStream::Stdout, "first\nsecond".to_owned()),
+                entry(EventStream::Stderr, "third".to_owned()),
+                entry(EventStream::Stdout, String::new()),
+                entry(EventStream::Stdout, many_lines),
+            ];
+            let window = |log: &[ExecutionLogLine], skip, height| {
+                log_rows(log, skip, height)
+                    .map(|(stream, text)| (stream, text.to_owned()))
+                    .collect::<Vec<_>>()
+            };
+
+            assert_eq!(
+                window(&log, 1, 3),
+                [
+                    (EventStream::Stdout, "second".to_owned()),
+                    (EventStream::Stderr, "third".to_owned()),
+                    (EventStream::Stdout, "line 000000".to_owned()),
+                ]
+            );
+            assert_eq!(
+                window(&log[3..], LINE_COUNT - 10, 20),
+                (LINE_COUNT - 10..LINE_COUNT)
+                    .map(|line| (EventStream::Stdout, format!("line {line:06}")))
+                    .collect::<Vec<_>>()
+            );
         }
     }
 

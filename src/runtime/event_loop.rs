@@ -2641,7 +2641,14 @@ mod tests {
             }
             let mut view = execution::ExecutionViewState::default();
             view.measure_log(wider.progress());
-            assert_eq!(view.log_measurement_for_test(), (entries, 500));
+            // The widest line the view has measured, as the all-logs panel scrolls to it.
+            let measured_width = |state: &SessionState, view: execution::ExecutionViewState| {
+                let apply = state.apply().expect("apply state");
+                let layout =
+                    execution::execution_layout_with_view(Rect::new(0, 0, 80, 24), apply, view);
+                layout.max_horizontal() + usize::from(layout.body().width)
+            };
+            assert_eq!(measured_width(&state, view), 500);
 
             let _ = update_session(
                 &mut state,
@@ -2655,10 +2662,8 @@ mod tests {
 
             let apply = state.apply().expect("apply state");
             assert!(apply.result().is_some());
-            assert_eq!(
-                view.log_measurement_for_test(),
-                (apply.progress().log().len(), 500)
-            );
+            assert_eq!(view.selected_target(), None);
+            assert_eq!(measured_width(&state, view), 500);
         }
 
         fn assert_apply_start_path(

@@ -312,19 +312,6 @@ pub(crate) use render::{
 };
 
 #[cfg(test)]
-mod test_support {
-    use super::ExecutionViewState;
-
-    // Runtime tests observe the all-logs measurement a view carries, as `(entries, width)`,
-    // without going through a render.
-    impl ExecutionViewState {
-        pub(crate) const fn log_measurement_for_test(self) -> (usize, usize) {
-            (self.log_width.entries, self.log_width.width)
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
