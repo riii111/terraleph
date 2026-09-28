@@ -4,7 +4,7 @@ use crate::app::session::ReviewSessionState;
 use crate::ui::features::plan_review::PlanReviewViewState;
 use crate::ui::shell::footer;
 
-use super::{ReviewNavigation, content::PreparedContent};
+use super::{ReviewNavigation, content::PlanContent};
 
 pub(super) fn common_footer_height(
     applyable: bool,
@@ -87,32 +87,33 @@ pub(super) fn position_status(position: usize, total: usize, width: u16) -> Stri
 pub(super) fn review_footer_status(
     state: &ReviewSessionState,
     view: &PlanReviewViewState,
-    content: &PreparedContent<'_>,
+    content: &PlanContent,
     width: u16,
 ) -> String {
     let position = position_status_for_content(
         content,
         view.scroll().0,
-        state.review().document().text().split('\n').count(),
+        state.review().document().line_count(),
         width,
     );
-    filter_footer_status(state.review().search_query(), content.matches.len(), width).map_or_else(
+    filter_footer_status(
+        state.review().search_query(),
+        content.matches().len(),
+        width,
+    )
+    .map_or_else(
         || position.clone(),
         |message| review_footer_status_text(&message, &position),
     )
 }
 
 pub(super) fn position_status_for_content(
-    content: &PreparedContent<'_>,
+    content: &PlanContent,
     position: usize,
     total: usize,
     width: u16,
 ) -> String {
-    let source_position = content
-        .sources
-        .get(position)
-        .and_then(|source| source.as_ref())
-        .map_or(position, |source| source.line_number);
+    let source_position = content.source_line(position).unwrap_or(position);
     position_status(source_position, total, width)
 }
 

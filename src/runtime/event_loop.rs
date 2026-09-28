@@ -311,7 +311,7 @@ pub(super) fn reconcile_resize(
     if let Some(review) = state.review() {
         let layout = plan_review::layout_with_quit_confirmation(
             area,
-            review_view.searching(),
+            review_view,
             review,
             quit_confirmation,
         );
@@ -433,7 +433,7 @@ pub(super) fn handle_key_event<B: Backend>(
                 let size = terminal.size()?;
                 let body = plan_review::layout(
                     Rect::new(0, 0, size.width, size.height),
-                    review_view.searching(),
+                    review_view,
                     review,
                 );
                 review_view
@@ -528,6 +528,7 @@ fn jump_to_overview_address<B: Backend>(
     let size = terminal.size()?;
     let layout = plan_review::overview_detail_layout(
         Rect::new(0, 0, size.width, size.height),
+        review_view,
         overview.review(),
     );
     review_view.jump_to_line(line, layout.max_vertical());
@@ -1918,7 +1919,8 @@ mod tests {
             let area = Rect::new(0, 0, 80, 24);
             let review = state.review().expect("review state");
             let query = review.review().search_query();
-            let layout = plan_review::layout(area, false, review);
+            let layout =
+                plan_review::layout(area, &plan_review::PlanReviewViewState::default(), review);
             let mut view = plan_review::PlanReviewViewState::default();
             view.apply_with_matches(
                 plan_review::PlanReviewInput::Down,
@@ -2075,7 +2077,11 @@ mod tests {
             let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
             let mut views = ScreenViews::default();
             let review = state.review().expect("review state");
-            let layout = plan_review::layout(Rect::new(0, 0, 80, 24), false, review);
+            let layout = plan_review::layout(
+                Rect::new(0, 0, 80, 24),
+                &plan_review::PlanReviewViewState::default(),
+                review,
+            );
             views.review.apply_with_matches(
                 plan_review::PlanReviewInput::Down,
                 layout.body(),
@@ -2291,14 +2297,22 @@ mod tests {
             views
                 .handle_key(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
                 .expect("review end should be handled");
-            let shrunk_max =
-                plan_review::layout(shrunk, false, state.review().expect("review")).max_vertical();
+            let shrunk_max = plan_review::layout(
+                shrunk,
+                &plan_review::PlanReviewViewState::default(),
+                state.review().expect("review"),
+            )
+            .max_vertical();
             assert_eq!(views.review.scroll().0, shrunk_max);
 
             let grown = resize(&mut terminal, &state, &mut views.review, 80, 24);
 
-            let grown_max =
-                plan_review::layout(grown, false, state.review().expect("review")).max_vertical();
+            let grown_max = plan_review::layout(
+                grown,
+                &plan_review::PlanReviewViewState::default(),
+                state.review().expect("review"),
+            )
+            .max_vertical();
             assert!(grown_max < shrunk_max);
             assert_eq!(views.review.scroll().0, grown_max);
         }

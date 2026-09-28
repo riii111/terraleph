@@ -1,3 +1,5 @@
+use std::{cell::RefCell, fmt, ops::Range, rc::Rc};
+
 use ratatui::{
     buffer::CellWidth,
     style::Style,
@@ -5,19 +7,31 @@ use ratatui::{
 };
 
 use crate::app::{
-    execution::DiagnosticSeverity,
-    review::{FilteredPlan, PlanLineKind, PlanReview},
-    session::ReviewSessionState,
+    execution::{Diagnostic, DiagnosticSeverity},
+    review::{PlanDocument, PlanDocumentKey, PlanLineKind, PlanReview},
 };
 use crate::ui::features::plan_review::PlanReviewMatch;
 use crate::ui::theme;
 
-pub(super) struct PreparedContent<'a> {
-    pub(super) filter_query: &'a str,
-    pub(super) lines: Vec<Line<'a>>,
+/// The plan body for one document, its diagnostics, a filter query, and the filter visibility.
+/// Plan rows keep only their source line, so each frame styles just the rows it shows.
+pub(super) struct PlanContent {
+    filter_query: String,
+    rows: Vec<ContentRow>,
     metrics: ContentMetrics,
-    pub(super) sources: Vec<Option<PlanSource<'a>>>,
-    pub(super) matches: Vec<PlanReviewMatch>,
+    matches: Vec<PlanReviewMatch>,
+}
+
+enum ContentRow {
+    // Diagnostics and the no-match notice are few, so they keep their rendered line.
+    Rendered(Line<'static>),
+    Plan(PlanSource),
+}
+
+#[derive(Clone, Copy)]
+struct PlanSource {
+    kind: PlanLineKind,
+    line_number: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -26,100 +40,169 @@ pub(super) struct ContentMetrics {
     pub(super) max_width: usize,
 }
 
-impl PreparedContent<'_> {
+impl PlanContent {
+    pub(super) fn prepare(review: &PlanReview, filtered_view: bool, filter_query: &str) -> Self {
+        let filtered = review.document().filter(filter_query);
+        let mut rendered = diagnostic_lines(review);
+        if filtered.matching_resources() == 0
+            && filtered.matching_outputs() == 0
+            && !filter_query.is_empty()
+        {
+            rendered.push(Line::from(Span::styled(
+                "No matching changes.",
+                theme::warning_style(),
+            )));
+            rendered.push(Line::default());
+        }
+        // Widths are kept only to trim the trailing blank rows and to find the widest row.
+        let mut widths = rendered.iter().map(Line::width).collect::<Vec<_>>();
+        let mut rows = rendered
+            .into_iter()
+            .map(ContentRow::Rendered)
+            .collect::<Vec<_>>();
+        let mut matches = Vec::new();
+        for (line_number, line) in filtered.lines_with_indices() {
+            let kind = review.document().line_kind(line_number);
+            if kind == PlanLineKind::Intro {
+                continue;
+            }
+            if filtered_view
+                && filtered.matching_outputs() == 0
+                && kind == PlanLineKind::OutputSection
+            {
+                continue;
+            }
+            // The styled spans give the same width and match columns that a frame draws.
+            let (rendered, line_matches) =
+                plan_line_and_matches(line, filter_query, rows.len(), None, kind);
+            widths.push(rendered.width());
+            rows.push(ContentRow::Plan(PlanSource { kind, line_number }));
+            matches.extend(line_matches);
+        }
+        while widths.last() == Some(&0) {
+            widths.pop();
+            rows.pop();
+        }
+        Self {
+            filter_query: filter_query.to_owned(),
+            metrics: ContentMetrics {
+                line_count: rows.len(),
+                max_width: widths.into_iter().max().unwrap_or(0),
+            },
+            rows,
+            matches,
+        }
+    }
+
     pub(super) const fn metrics(&self) -> ContentMetrics {
         self.metrics
     }
-}
 
-#[derive(Clone, Copy)]
-pub(super) struct PlanSource<'a> {
-    text: &'a str,
-    kind: PlanLineKind,
-    pub(super) line_number: usize,
-}
-
-pub(super) fn prepare_content<'a>(
-    review: &'a PlanReview,
-    filtered_view: bool,
-    filter_query: &'a str,
-) -> PreparedContent<'a> {
-    let filtered = review.document().filter(filter_query);
-    let (lines, sources, matches) = review_lines(review, &filtered, filtered_view, filter_query);
-    let metrics = ContentMetrics {
-        line_count: lines.len(),
-        max_width: max_line_width(&lines),
-    };
-    PreparedContent {
-        filter_query,
-        lines,
-        metrics,
-        sources,
-        matches,
+    pub(super) fn filter_query(&self) -> &str {
+        &self.filter_query
     }
-}
 
-pub(super) fn prepare_view_content(
-    state: &ReviewSessionState,
-    filtered_view: bool,
-) -> PreparedContent<'_> {
-    let review = state.review();
-    prepare_content(review, filtered_view, review.search_query())
-}
-
-pub(super) fn review_lines<'a>(
-    review: &'a PlanReview,
-    filtered: &FilteredPlan<'a>,
-    filtered_view: bool,
-    filter_query: &str,
-) -> (
-    Vec<Line<'a>>,
-    Vec<Option<PlanSource<'a>>>,
-    Vec<PlanReviewMatch>,
-) {
-    let mut lines = diagnostic_lines(review);
-    let mut sources = vec![None; lines.len()];
-    let mut matches = Vec::new();
-    if filtered.matching_resources() == 0
-        && filtered.matching_outputs() == 0
-        && !filter_query.is_empty()
-    {
-        lines.push(Line::from(Span::styled(
-            "No matching changes.",
-            theme::warning_style(),
-        )));
-        sources.push(None);
-        lines.push(Line::default());
-        sources.push(None);
+    pub(super) fn matches(&self) -> &[PlanReviewMatch] {
+        &self.matches
     }
-    for (line_number, line) in filtered.lines_with_indices() {
-        let kind = review.document().line_kind(line_number);
-        if kind == PlanLineKind::Intro {
-            continue;
+
+    /// Returns the plan line shown at `row`, or `None` for diagnostics and notices.
+    pub(super) fn source_line(&self, row: usize) -> Option<usize> {
+        match self.rows.get(row)? {
+            ContentRow::Rendered(_) => None,
+            ContentRow::Plan(source) => Some(source.line_number),
         }
-        if filtered_view && filtered.matching_outputs() == 0 && kind == PlanLineKind::OutputSection
-        {
-            continue;
-        }
-        let line_index = lines.len();
-        let (rendered, line_matches) =
-            plan_line_and_matches(line, filter_query, line_index, None, kind);
-        lines.push(rendered);
-        sources.push(Some(PlanSource {
-            text: line,
-            kind,
-            line_number,
-        }));
-        matches.extend(line_matches);
     }
-    while lines.last().is_some_and(|line| line.width() == 0) {
-        lines.pop();
-        sources.pop();
+
+    /// Styles `rows` from the document they were prepared for. The selected match is highlighted
+    /// only when it falls on one of them.
+    pub(super) fn lines<'a>(
+        &'a self,
+        document: &'a PlanDocument,
+        rows: Range<usize>,
+        selected: Option<&PlanReviewMatch>,
+    ) -> Vec<Line<'a>> {
+        let end = rows.end.min(self.rows.len());
+        let start = rows.start.min(end);
+        self.rows[start..end]
+            .iter()
+            .zip(start..)
+            .map(|(row, row_index)| match row {
+                ContentRow::Rendered(line) => line.clone(),
+                ContentRow::Plan(source) => {
+                    plan_line_and_matches(
+                        document.line(source.line_number),
+                        &self.filter_query,
+                        row_index,
+                        selected.filter(|selected| selected.line() == row_index),
+                        source.kind,
+                    )
+                    .0
+                }
+            })
+            .collect()
     }
-    (lines, sources, matches)
 }
 
-fn diagnostic_lines(review: &PlanReview) -> Vec<Line<'_>> {
+/// Keeps the prepared plan body between frames and key presses. The body is prepared again only
+/// when the document, its diagnostics, the filter query, or the filter visibility changes.
+#[derive(Clone, Default)]
+pub(crate) struct PlanContentCache(RefCell<Option<CachedContent>>);
+
+#[derive(Clone)]
+struct CachedContent {
+    document: PlanDocumentKey,
+    diagnostics: Vec<Diagnostic>,
+    filtered_view: bool,
+    content: Rc<PlanContent>,
+}
+
+impl PlanContentCache {
+    pub(super) fn get(
+        &self,
+        review: &PlanReview,
+        filtered_view: bool,
+        filter_query: &str,
+    ) -> Rc<PlanContent> {
+        let mut cached = self.0.borrow_mut();
+        if let Some(cached) = cached.as_ref().filter(|cached| {
+            cached.document.is_for(review.document())
+                && cached.diagnostics.as_slice() == review.diagnostics()
+                && cached.filtered_view == filtered_view
+                && cached.content.filter_query == filter_query
+        }) {
+            return Rc::clone(&cached.content);
+        }
+        let content = Rc::new(PlanContent::prepare(review, filtered_view, filter_query));
+        *cached = Some(CachedContent {
+            document: review.document().key(),
+            diagnostics: review.diagnostics().to_vec(),
+            filtered_view,
+            content: Rc::clone(&content),
+        });
+        content
+    }
+}
+
+// The cache only mirrors the review, so views compare and print as if it were absent; printing it
+// could also expose plan text.
+impl PartialEq for PlanContentCache {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for PlanContentCache {}
+
+impl fmt::Debug for PlanContentCache {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PlanContentCache")
+            .finish_non_exhaustive()
+    }
+}
+
+fn diagnostic_lines(review: &PlanReview) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for diagnostic in review.diagnostics() {
         let style = match diagnostic.severity {
@@ -129,10 +212,10 @@ fn diagnostic_lines(review: &PlanReview) -> Vec<Line<'_>> {
         lines.push(Line::from(vec![
             Span::styled(severity_label(diagnostic.severity), style),
             Span::styled(": ", style),
-            Span::styled(diagnostic.summary.as_str(), style),
+            Span::styled(diagnostic.summary.clone(), style),
         ]));
         if let Some(detail) = diagnostic.detail.as_deref() {
-            lines.extend(detail.lines().map(Line::from));
+            lines.extend(detail.lines().map(|line| Line::from(line.to_owned())));
         }
     }
     if !lines.is_empty() && !review.document().text().is_empty() {
@@ -201,41 +284,6 @@ pub(super) fn flash_lines(lines: &[Line<'_>]) -> Vec<Line<'static>> {
         .collect()
 }
 
-pub(super) fn content_lines_with_selection<'a>(
-    content: &'a PreparedContent<'a>,
-    query: &str,
-    selected: Option<&PlanReviewMatch>,
-) -> Vec<Line<'a>> {
-    content
-        .lines
-        .iter()
-        .zip(&content.sources)
-        .enumerate()
-        .map(|(line_index, (line, source))| {
-            source.map_or_else(
-                || line.clone(),
-                |source| {
-                    selected
-                        .filter(|selected| selected.line() == line_index)
-                        .map_or_else(
-                            || line.clone(),
-                            |selected| {
-                                plan_line_and_matches(
-                                    source.text,
-                                    query,
-                                    line_index,
-                                    Some(selected),
-                                    source.kind,
-                                )
-                                .0
-                            },
-                        )
-                },
-            )
-        })
-        .collect()
-}
-
 // Paragraph::scroll takes u16 offsets, so the body receives only the visible window instead. The
 // window walks the same graphemes and cell widths as ratatui's line truncation.
 pub(super) fn visible_lines<'a>(
@@ -276,15 +324,30 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
     visible
 }
 
-fn max_line_width(lines: &[Line<'_>]) -> usize {
-    lines.iter().map(Line::width).max().unwrap_or(0)
-}
-
 const fn severity_label(severity: DiagnosticSeverity) -> &'static str {
     match severity {
         DiagnosticSeverity::Error => "Error",
         DiagnosticSeverity::Warning => "Warning",
         DiagnosticSeverity::Info => "Info",
         DiagnosticSeverity::Unknown => "Diagnostic",
+    }
+}
+
+#[cfg(test)]
+mod test_support {
+    use std::rc::Rc;
+
+    use super::{PlanContent, PlanContentCache};
+
+    impl PlanContentCache {
+        // Tests observe what a render or key left behind without preparing the body themselves.
+        pub(in crate::ui::features::plan_review::render) fn cached_for_test(
+            &self,
+        ) -> Option<Rc<PlanContent>> {
+            self.0
+                .borrow()
+                .as_ref()
+                .map(|cached| Rc::clone(&cached.content))
+        }
     }
 }
