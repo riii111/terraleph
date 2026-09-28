@@ -10,6 +10,7 @@ use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
         execution::{ExecutionContextValue, directory_display_name},
+        session::SessionState,
     },
     ui::theme,
 };
@@ -177,7 +178,11 @@ pub(crate) fn render_header(
         "terraleph ▸ {}",
         directory_display_name(state.exploration_root().unwrap_or_else(|| plan.directory()))
     );
-    let tool = plan.review().map_or_else(
+    // The confirmation hides the raw review but keeps the same plan context.
+    let review = plan
+        .review()
+        .or_else(|| plan.session().and_then(SessionState::apply_confirmation));
+    let tool = review.map_or_else(
         || plan.tool.display_name().to_owned(),
         |review| {
             let review = review.review();
