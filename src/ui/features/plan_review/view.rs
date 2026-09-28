@@ -16,12 +16,12 @@ pub(crate) enum PlanReviewOverlay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PlanReviewMatch {
     line: usize,
-    start: u16,
-    end: u16,
+    start: usize,
+    end: usize,
 }
 
 impl PlanReviewMatch {
-    pub(crate) const fn new(line: usize, start: u16, end: u16) -> Self {
+    pub(crate) const fn new(line: usize, start: usize, end: usize) -> Self {
         Self { line, start, end }
     }
 
@@ -29,11 +29,11 @@ impl PlanReviewMatch {
         self.line
     }
 
-    pub(crate) const fn start(self) -> u16 {
+    pub(crate) const fn start(self) -> usize {
         self.start
     }
 
-    pub(crate) const fn end(self) -> u16 {
+    pub(crate) const fn end(self) -> usize {
         self.end
     }
 }
@@ -43,15 +43,15 @@ struct SearchInputState {
     query: String,
     cursor: usize,
     previous_query: String,
-    previous_vertical: u16,
-    previous_horizontal: u16,
+    previous_vertical: usize,
+    previous_horizontal: usize,
     previous_selected: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PlanReviewViewState {
-    vertical: u16,
-    horizontal: u16,
+    vertical: usize,
+    horizontal: usize,
     search: Option<SearchInputState>,
     selected: Option<usize>,
     overlay: Option<PlanReviewOverlay>,
@@ -64,8 +64,8 @@ impl PlanReviewViewState {
         &mut self,
         input: PlanReviewInput,
         body: Rect,
-        max_vertical: u16,
-        max_horizontal: u16,
+        max_vertical: usize,
+        max_horizontal: usize,
         current_query: &str,
         matches: &[PlanReviewMatch],
     ) -> Option<String> {
@@ -93,13 +93,15 @@ impl PlanReviewViewState {
             PlanReviewInput::Left => self.scroll_horizontal(-1, max_horizontal),
             PlanReviewInput::Right => self.scroll_horizontal(1, max_horizontal),
             PlanReviewInput::PageUp => {
-                self.vertical = self.vertical.saturating_sub(body.height.max(1));
+                self.vertical = self
+                    .vertical
+                    .saturating_sub(usize::from(body.height.max(1)));
                 None
             }
             PlanReviewInput::PageDown => {
                 self.vertical = self
                     .vertical
-                    .saturating_add(body.height.max(1))
+                    .saturating_add(usize::from(body.height.max(1)))
                     .min(max_vertical);
                 None
             }
@@ -160,15 +162,15 @@ impl PlanReviewViewState {
         }
     }
 
-    pub(crate) fn reconcile_scroll(&mut self, max_vertical: u16, max_horizontal: u16) {
+    pub(crate) fn reconcile_scroll(&mut self, max_vertical: usize, max_horizontal: usize) {
         self.clamp_scroll(max_vertical, max_horizontal);
     }
 
     pub(crate) fn reconcile(
         &mut self,
         body: Rect,
-        max_vertical: u16,
-        max_horizontal: u16,
+        max_vertical: usize,
+        max_horizontal: usize,
         matches: &[PlanReviewMatch],
     ) {
         self.clamp_scroll(max_vertical, max_horizontal);
@@ -201,7 +203,7 @@ impl PlanReviewViewState {
         self.selected
     }
 
-    pub(crate) const fn scroll(&self) -> (u16, u16) {
+    pub(crate) const fn scroll(&self) -> (usize, usize) {
         (self.vertical, self.horizontal)
     }
 
@@ -221,8 +223,8 @@ impl PlanReviewViewState {
         &mut self.overview
     }
 
-    pub(crate) fn jump_to_line(&mut self, line: usize, max_vertical: u16) {
-        self.vertical = u16::try_from(line).unwrap_or(u16::MAX).min(max_vertical);
+    pub(crate) fn jump_to_line(&mut self, line: usize, max_vertical: usize) {
+        self.vertical = line.min(max_vertical);
         self.horizontal = 0;
         self.selected = None;
     }
@@ -255,8 +257,8 @@ impl PlanReviewViewState {
         &mut self,
         input: PlanReviewInput,
         body: Rect,
-        max_vertical: u16,
-        max_horizontal: u16,
+        max_vertical: usize,
+        max_horizontal: usize,
         matches: &[PlanReviewMatch],
     ) -> Option<String> {
         if matches!(
@@ -332,8 +334,8 @@ impl PlanReviewViewState {
         &mut self,
         direction: i8,
         body: Rect,
-        max_vertical: u16,
-        max_horizontal: u16,
+        max_vertical: usize,
+        max_horizontal: usize,
         matches: &[PlanReviewMatch],
     ) {
         if matches.is_empty() {
@@ -352,8 +354,8 @@ impl PlanReviewViewState {
     fn ensure_selected_visible(
         &mut self,
         body: Rect,
-        max_vertical: u16,
-        max_horizontal: u16,
+        max_vertical: usize,
+        max_horizontal: usize,
         matches: &[PlanReviewMatch],
     ) {
         let Some(selected) = self.selected else {
@@ -362,41 +364,37 @@ impl PlanReviewViewState {
         let Some(selected) = matches.get(selected).copied() else {
             return;
         };
-        if body.height > 0 {
-            let line = u16::try_from(selected.line()).unwrap_or(u16::MAX);
-            let bottom = u32::from(self.vertical) + u32::from(body.height);
+        let height = usize::from(body.height);
+        if height > 0 {
+            let line = selected.line();
             if line < self.vertical {
                 self.vertical = line;
-            } else if u32::from(line) >= bottom {
-                self.vertical = line
-                    .saturating_sub(body.height.saturating_sub(1))
-                    .min(max_vertical);
+            } else if line >= self.vertical.saturating_add(height) {
+                self.vertical = line.saturating_sub(height - 1).min(max_vertical);
             }
         }
-        if body.width == 0 {
+        let width = usize::from(body.width);
+        if width == 0 {
             return;
         }
         let start = selected.start();
         let end = selected.end();
         let match_width = end.saturating_sub(start);
-        if match_width >= body.width {
+        if match_width >= width {
             self.horizontal = start.min(max_horizontal);
         } else if start < self.horizontal {
             self.horizontal = start;
-        } else {
-            let right_edge = u32::from(self.horizontal) + u32::from(body.width);
-            if u32::from(end) > right_edge {
-                self.horizontal = end.saturating_sub(body.width).min(max_horizontal);
-            }
+        } else if end > self.horizontal.saturating_add(width) {
+            self.horizontal = end.saturating_sub(width).min(max_horizontal);
         }
     }
 
-    fn clamp_scroll(&mut self, max_vertical: u16, max_horizontal: u16) {
+    fn clamp_scroll(&mut self, max_vertical: usize, max_horizontal: usize) {
         self.vertical = self.vertical.min(max_vertical);
         self.horizontal = self.horizontal.min(max_horizontal);
     }
 
-    fn scroll_vertical(&mut self, delta: i16, max: u16) -> Option<String> {
+    fn scroll_vertical(&mut self, delta: isize, max: usize) -> Option<String> {
         self.vertical = if delta.is_negative() {
             self.vertical.saturating_sub(delta.unsigned_abs())
         } else {
@@ -405,7 +403,7 @@ impl PlanReviewViewState {
         None
     }
 
-    fn scroll_horizontal(&mut self, delta: i16, max: u16) -> Option<String> {
+    fn scroll_horizontal(&mut self, delta: isize, max: usize) -> Option<String> {
         self.horizontal = if delta.is_negative() {
             self.horizontal.saturating_sub(delta.unsigned_abs())
         } else {
@@ -416,14 +414,13 @@ impl PlanReviewViewState {
         None
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const BODY: Rect = Rect::new(0, 0, 10, 3);
-    const MAX_VERTICAL: u16 = 20;
-    const MAX_HORIZONTAL: u16 = 30;
+    const MAX_VERTICAL: usize = 20;
+    const MAX_HORIZONTAL: usize = 30;
 
     #[test]
     fn search_input_changes_query_and_resets_scroll() {

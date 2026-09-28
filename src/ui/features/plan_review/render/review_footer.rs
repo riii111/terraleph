@@ -74,9 +74,9 @@ pub(super) fn filter_footer_status(query: &str, match_count: usize, width: u16) 
 
 const COMPACT_POSITION_STATUS_WIDTH: u16 = 72;
 
-pub(super) fn position_status(position: u16, total: usize, width: u16) -> String {
+pub(super) fn position_status(position: usize, total: usize, width: u16) -> String {
     let total = total.max(1);
-    let position = usize::from(position).saturating_add(1).min(total);
+    let position = position.saturating_add(1).min(total);
     if width >= COMPACT_POSITION_STATUS_WIDTH {
         format!("Line {position}/{total}")
     } else {
@@ -104,24 +104,16 @@ pub(super) fn review_footer_status(
 
 pub(super) fn position_status_for_content(
     content: &PreparedContent<'_>,
-    position: u16,
+    position: usize,
     total: usize,
     width: u16,
 ) -> String {
-    let display_index = usize::from(position);
     let source_position = content
         .sources
-        .get(display_index)
+        .get(position)
         .and_then(|source| source.as_ref())
-        .map_or_else(
-            || display_index.saturating_add(1),
-            |source| source.line_number.saturating_add(1),
-        );
-    position_status(
-        u16::try_from(source_position.saturating_sub(1)).unwrap_or(u16::MAX),
-        total,
-        width,
-    )
+        .map_or(position, |source| source.line_number);
+    position_status(source_position, total, width)
 }
 
 pub(super) fn review_footer_status_text(message: &str, position: &str) -> String {

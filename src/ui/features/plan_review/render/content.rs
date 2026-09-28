@@ -1,4 +1,5 @@
 use ratatui::{
+    buffer::CellWidth,
     style::Style,
     text::{Line, Span},
 };
@@ -167,11 +168,7 @@ pub(super) fn plan_line_and_matches<'a>(
         let start_column = rendered_column;
         rendered_column += Line::from(match_text).width();
         let end_column = rendered_column;
-        let rendered_match = PlanReviewMatch::new(
-            line_index,
-            u16::try_from(start_column).unwrap_or(u16::MAX),
-            u16::try_from(end_column).unwrap_or(u16::MAX),
-        );
+        let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
         let style = selected
             .filter(|selected| {
                 selected.start() == rendered_match.start() && selected.end() == rendered_match.end()
@@ -237,6 +234,46 @@ pub(super) fn content_lines_with_selection<'a>(
             )
         })
         .collect()
+}
+
+// Paragraph::scroll takes u16 offsets, so the body receives only the visible window instead. The
+// window walks the same graphemes and cell widths as ratatui's line truncation.
+pub(super) fn visible_lines<'a>(
+    lines: &'a [Line<'_>],
+    vertical: usize,
+    horizontal: usize,
+    height: u16,
+    width: u16,
+) -> Vec<Line<'a>> {
+    lines
+        .iter()
+        .skip(vertical)
+        .take(usize::from(height))
+        .map(|line| visible_columns(line, horizontal, usize::from(width)))
+        .collect()
+}
+
+fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<'a> {
+    let end = offset.saturating_add(width);
+    let mut visible = Line::default();
+    let mut column = 0;
+    for grapheme in line.styled_graphemes(Style::default()) {
+        let next = column + usize::from(grapheme.symbol.cell_width());
+        if next > end {
+            break;
+        }
+        if next > offset {
+            if column < offset {
+                // A wide grapheme cut by the left edge leaves its visible cells blank, keeping the
+                // columns aligned with the other lines.
+                visible.push_span(Span::styled(" ".repeat(next - offset), grapheme.style));
+            } else {
+                visible.push_span(Span::styled(grapheme.symbol, grapheme.style));
+            }
+        }
+        column = next;
+    }
+    visible
 }
 
 fn max_line_width(lines: &[Line<'_>]) -> usize {

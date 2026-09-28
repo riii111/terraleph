@@ -36,7 +36,7 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{plan_line_and_matches, review_lines},
+    content::{plan_line_and_matches, review_lines, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
@@ -1005,8 +1005,8 @@ mod layout {
     fn review_buffer_at(
         area: Rect,
         state: &ReviewSessionState,
-        vertical: u16,
-        horizontal: u16,
+        vertical: usize,
+        horizontal: usize,
     ) -> (PlanReviewLayout, Buffer) {
         let layout = layout(area, false, state);
         let mut view = PlanReviewViewState::default();
@@ -1036,11 +1036,11 @@ mod layout {
         (layout, buffer)
     }
 
-    fn assert_scrollbar_positions(
+    pub(super) fn assert_scrollbar_positions(
         buffer: &Buffer,
         layout: &PlanReviewLayout,
-        vertical: u16,
-        horizontal: u16,
+        vertical: usize,
+        horizontal: usize,
     ) {
         let body = layout.body();
         if layout.vertical_scrollbar() {
@@ -1058,8 +1058,8 @@ mod layout {
             assert_thumb_endpoints(
                 &symbols[1..symbols.len() - 1],
                 "┃",
-                usize::from(vertical),
-                usize::from(layout.max_vertical()),
+                vertical,
+                layout.max_vertical(),
             );
         }
         if layout.horizontal_scrollbar() {
@@ -1078,8 +1078,8 @@ mod layout {
             assert_thumb_endpoints(
                 &symbols[1..symbols.len() - 1],
                 "═",
-                usize::from(horizontal),
-                usize::from(layout.max_horizontal()),
+                horizontal,
+                layout.max_horizontal(),
             );
         }
     }
@@ -1376,7 +1376,7 @@ mod filter {
         )
     }
 
-    fn search_match_style_counts(buffer: &Buffer, query: &str) -> (usize, usize) {
+    pub(super) fn search_match_style_counts(buffer: &Buffer, query: &str) -> (usize, usize) {
         let mut normal = 0;
         let mut selected = 0;
         let query_width = query.chars().count();
@@ -3025,5 +3025,260 @@ mod overlay {
     fn footer_hides_apply_when_the_review_cannot_apply() {
         let footer = footer_text(&review_state(review_with_apply_allowed(true, false)));
         assert!(!footer.contains("a apply"), "{footer}");
+    }
+}
+
+mod large_plan {
+    use ratatui::{buffer::CellWidth, text::Span};
+    use rstest::rstest;
+
+    use super::filter::search_match_style_counts;
+    use super::layout::assert_scrollbar_positions;
+    use super::*;
+
+    // Both sizes exceed u16::MAX, which used to cap the scroll offsets and limits.
+    const LARGE_LINE_COUNT: usize = 70_000;
+    const LARGE_COLUMN_COUNT: usize = 70_000;
+    const AREA: Rect = Rect::new(0, 0, 80, 24);
+    const NEEDLE: &str = "needle";
+
+    fn attribute_line(line: usize) -> String {
+        format!("      + attribute_{line:05} = \"synthetic\"")
+    }
+
+    // Full-width characters make the column count differ from the character count.
+    fn wide_payload_line() -> String {
+        format!(
+            "      + payload = \"{}end-of-payload\"",
+            "あ".repeat(LARGE_COLUMN_COUNT / 2)
+        )
+    }
+
+    fn large_review(lines: &[String], query: &str) -> ReviewSessionState {
+        let mut plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            plan_document(lines.join("\n")),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        plan.set_search_query(query.to_owned());
+        review_state(plan)
+    }
+
+    fn press(
+        view: &mut PlanReviewViewState,
+        state: &ReviewSessionState,
+        layout: &PlanReviewLayout,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) {
+        let query = state.review().search_query();
+        let input = key_to_input(KeyEvent::new(code, modifiers), false, !query.is_empty())
+            .expect("navigation key should map to an input");
+        view.apply_with_matches(
+            input,
+            layout.body(),
+            layout.max_vertical(),
+            layout.max_horizontal(),
+            query,
+            layout.matches(),
+        );
+    }
+
+    fn render_view(state: &ReviewSessionState, view: &PlanReviewViewState) -> Buffer {
+        render_to_buffer((AREA.width, AREA.height), |frame| {
+            render(frame, state, view, Instant::now());
+        })
+    }
+
+    // Reads each body row as text, skipping the cell that a full-width grapheme covers.
+    fn body_rows(buffer: &Buffer, layout: &PlanReviewLayout) -> Vec<String> {
+        let body = layout.body();
+        (body.y..body.bottom())
+            .map(|y| {
+                let mut row = String::new();
+                let mut x = body.x;
+                while x < body.right() {
+                    let symbol = buffer.cell((x, y)).expect("body cell").symbol();
+                    row.push_str(symbol);
+                    x += symbol.cell_width().max(1);
+                }
+                row
+            })
+            .collect()
+    }
+
+    #[rstest]
+    #[case::end(KeyCode::End, KeyModifiers::NONE)]
+    #[case::alt_greater(KeyCode::Char('>'), KeyModifiers::ALT)]
+    #[case::page_down(KeyCode::PageDown, KeyModifiers::NONE)]
+    fn bottom_keys_reach_the_last_line_beyond_u16(
+        #[case] code: KeyCode,
+        #[case] modifiers: KeyModifiers,
+    ) {
+        let state = large_review(
+            &(1..=LARGE_LINE_COUNT)
+                .map(attribute_line)
+                .collect::<Vec<_>>(),
+            "",
+        );
+        let layout = layout(AREA, false, &state);
+        let height = usize::from(layout.body().height);
+        assert_eq!(layout.max_vertical(), LARGE_LINE_COUNT - height);
+        assert!(layout.max_vertical() > usize::from(u16::MAX));
+        let presses = if code == KeyCode::PageDown {
+            layout.max_vertical().div_ceil(height)
+        } else {
+            1
+        };
+        let mut view = PlanReviewViewState::default();
+        for _ in 0..presses {
+            press(&mut view, &state, &layout, code, modifiers);
+        }
+        assert_eq!(view.scroll(), (layout.max_vertical(), 0));
+
+        let buffer = render_view(&state, &view);
+        let rows = body_rows(&buffer, &layout);
+        assert_eq!(
+            rows.first().map(|row| row.trim_end()),
+            Some(attribute_line(LARGE_LINE_COUNT - height + 1).as_str())
+        );
+        assert_eq!(
+            rows.last().map(|row| row.trim_end()),
+            Some(attribute_line(LARGE_LINE_COUNT).as_str())
+        );
+        let text = buffer_text(&buffer);
+        let position = format!("Line {}/{LARGE_LINE_COUNT}", LARGE_LINE_COUNT - height + 1);
+        assert!(text.contains(&position), "{text}");
+        assert_scrollbar_positions(&buffer, &layout, layout.max_vertical(), 0);
+    }
+
+    #[test]
+    fn right_edge_shows_the_end_of_a_line_wider_than_u16() {
+        let line = wide_payload_line();
+        let state = large_review(&[attribute_line(1), line.clone()], "");
+        let layout = layout(AREA, false, &state);
+        let width = Line::from(line.as_str()).width();
+        assert!(width > LARGE_COLUMN_COUNT);
+        assert_eq!(
+            layout.max_horizontal(),
+            width - usize::from(layout.body().width)
+        );
+
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('e'),
+            KeyModifiers::CONTROL,
+        );
+        assert_eq!(view.scroll(), (0, layout.max_horizontal()));
+
+        let buffer = render_view(&state, &view);
+        let rows = body_rows(&buffer, &layout);
+        assert!(rows[1].ends_with("あend-of-payload\""), "{}", rows[1]);
+        let body = layout.body();
+        let last_cell = buffer
+            .cell((body.right() - 1, body.y + 1))
+            .expect("last payload cell");
+        assert_eq!(last_cell.fg, Color::Rgb(0xa3, 0xbe, 0x8c));
+        assert_scrollbar_positions(&buffer, &layout, 0, layout.max_horizontal());
+    }
+
+    #[test]
+    fn next_and_previous_reach_matches_near_the_end_and_highlight_them() {
+        let mut lines = (1..=LARGE_LINE_COUNT)
+            .map(attribute_line)
+            .collect::<Vec<_>>();
+        lines[0] = format!("      + {NEEDLE}_head = \"synthetic\"");
+        lines[LARGE_LINE_COUNT - 10] = format!("      + {NEEDLE}_tail = \"synthetic\"");
+        lines[LARGE_LINE_COUNT - 1] = format!("{}{NEEDLE}\"", wide_payload_line());
+        let state = large_review(&lines, NEEDLE);
+        let layout = layout(AREA, false, &state);
+        let [_, tail, last] = layout.matches() else {
+            panic!("expected three matches: {:?}", layout.matches());
+        };
+        assert!(tail.line() > usize::from(u16::MAX));
+        assert!(last.start() > usize::from(u16::MAX));
+
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('N'),
+            KeyModifiers::SHIFT,
+        );
+        assert_eq!(view.selected(), Some(2));
+        assert_eq!(
+            view.scroll(),
+            (layout.max_vertical(), layout.max_horizontal() - 1)
+        );
+        let buffer = render_view(&state, &view);
+        assert_eq!(search_match_style_counts(&buffer, NEEDLE), (0, 1));
+        assert!(
+            body_rows(&buffer, &layout)
+                .last()
+                .is_some_and(|row| row.ends_with(NEEDLE)),
+        );
+
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('N'),
+            KeyModifiers::SHIFT,
+        );
+        assert_eq!(view.selected(), Some(1));
+        assert_eq!(view.scroll().1, tail.start());
+        let buffer = render_view(&state, &view);
+        assert_eq!(search_match_style_counts(&buffer, NEEDLE), (0, 1));
+        assert!(buffer_text(&buffer).contains(&format!("{NEEDLE}_tail")));
+
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        );
+        assert_eq!(view.selected(), Some(2));
+        let buffer = render_view(&state, &view);
+        assert_eq!(search_match_style_counts(&buffer, NEEDLE), (0, 1));
+    }
+
+    #[test]
+    fn visible_lines_cut_wide_and_combining_graphemes_at_cell_boundaries() {
+        let style = theme::warning_style();
+        let lines = [
+            Line::from("skipped"),
+            Line::from(vec![Span::raw("aあ"), Span::styled("e\u{301}b", style)]),
+        ];
+        let window = |horizontal, width| {
+            let visible = visible_lines(&lines, 1, horizontal, 1, width);
+            assert_eq!(visible.len(), 1);
+            visible[0].clone()
+        };
+
+        assert_eq!(window(0, 2).to_string(), "a");
+        assert_eq!(window(1, 3).to_string(), "あe\u{301}");
+        // The right half of a cut wide grapheme stays blank so the columns remain aligned.
+        assert_eq!(window(2, 3).to_string(), " e\u{301}b");
+        assert_eq!(window(3, 2).to_string(), "e\u{301}b");
+        let styled = window(3, 1);
+        assert_eq!(styled.to_string(), "e\u{301}");
+        assert!(styled.spans.iter().all(|span| span.style == style));
+        assert!(window(5, 3).spans.is_empty());
+        assert!(visible_lines(&lines, 2, 0, 1, 10).is_empty());
+        assert_eq!(
+            visible_lines(&lines, 0, 0, 5, 10)
+                .iter()
+                .map(Line::width)
+                .collect::<Vec<_>>(),
+            [7, 5]
+        );
     }
 }

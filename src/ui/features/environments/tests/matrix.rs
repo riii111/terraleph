@@ -537,7 +537,7 @@ mod raw_plan {
             .unwrap()
             .lines()
             .start;
-        assert_eq!(usize::from(view.reviews[0].scroll().0), block_line);
+        assert_eq!(view.reviews[0].scroll().0, block_line);
         assert!(
             render_text(&mut view, &state, (80, 24))
                 .contains("# terraform_data.server[0] will change")
@@ -617,7 +617,7 @@ mod raw_plan {
             .unwrap()
             .lines()
             .start;
-        assert_eq!(usize::from(view.reviews[0].scroll().0), block_line);
+        assert_eq!(view.reviews[0].scroll().0, block_line);
         press(&mut view, &mut state, KeyCode::Esc);
         assert!(
             render_text(&mut view, &state, (80, 24))

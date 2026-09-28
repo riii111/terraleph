@@ -508,7 +508,7 @@ fn handle_overview_key_event<B: Backend>(
     Ok(command.map(|command| match command {
         overview::OverviewCommand::Open(address) => Action::OpenReviewFromOverview { address },
         overview::OverviewCommand::ViewPlan | overview::OverviewCommand::Back => {
-            review_view.jump_to_line(0, u16::MAX);
+            review_view.jump_to_line(0, usize::MAX);
             Action::OpenReviewFromOverview { address: None }
         }
         overview::OverviewCommand::Copy => Action::Copy(CopyTarget::Plan),
