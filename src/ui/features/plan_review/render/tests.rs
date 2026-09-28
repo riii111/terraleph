@@ -6,7 +6,7 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    buffer::Buffer,
+    buffer::{Buffer, CellWidth},
     style::{Color, Modifier},
     text::Line,
     widgets::Widget,
@@ -1028,6 +1028,43 @@ fn review_with_content(line_count: u16, line_width: u16) -> PlanReview {
         PlanMetadata::new(true),
         Vec::new(),
     )
+}
+
+fn press(
+    view: &mut PlanReviewViewState,
+    state: &ReviewSessionState,
+    layout: &PlanReviewLayout,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) {
+    let query = state.review().search_query();
+    let input = key_to_input(KeyEvent::new(code, modifiers), false, !query.is_empty())
+        .expect("navigation key should map to an input");
+    view.apply_with_matches(
+        input,
+        layout.body(),
+        layout.max_vertical(),
+        layout.max_horizontal(),
+        query,
+        layout.matches(),
+    );
+}
+
+// Reads each body row as text, skipping the cell that a full-width grapheme covers.
+fn body_rows(buffer: &Buffer, layout: &PlanReviewLayout) -> Vec<String> {
+    let body = layout.body();
+    (body.y..body.bottom())
+        .map(|y| {
+            let mut row = String::new();
+            let mut x = body.x;
+            while x < body.right() {
+                let symbol = buffer.cell((x, y)).expect("body cell").symbol();
+                row.push_str(symbol);
+                x += symbol.cell_width().max(1);
+            }
+            row
+        })
+        .collect()
 }
 
 mod layout {
@@ -3417,7 +3454,7 @@ mod overlay {
 }
 
 mod large_plan {
-    use ratatui::{buffer::CellWidth, text::Span};
+    use ratatui::text::Span;
     use rstest::rstest;
 
     use super::filter::search_match_style_counts;
@@ -3455,47 +3492,10 @@ mod large_plan {
         review_state(plan)
     }
 
-    pub(super) fn press(
-        view: &mut PlanReviewViewState,
-        state: &ReviewSessionState,
-        layout: &PlanReviewLayout,
-        code: KeyCode,
-        modifiers: KeyModifiers,
-    ) {
-        let query = state.review().search_query();
-        let input = key_to_input(KeyEvent::new(code, modifiers), false, !query.is_empty())
-            .expect("navigation key should map to an input");
-        view.apply_with_matches(
-            input,
-            layout.body(),
-            layout.max_vertical(),
-            layout.max_horizontal(),
-            query,
-            layout.matches(),
-        );
-    }
-
     fn render_view(state: &ReviewSessionState, view: &PlanReviewViewState) -> Buffer {
         render_to_buffer((AREA.width, AREA.height), |frame| {
             render(frame, state, view, Instant::now());
         })
-    }
-
-    // Reads each body row as text, skipping the cell that a full-width grapheme covers.
-    pub(super) fn body_rows(buffer: &Buffer, layout: &PlanReviewLayout) -> Vec<String> {
-        let body = layout.body();
-        (body.y..body.bottom())
-            .map(|y| {
-                let mut row = String::new();
-                let mut x = body.x;
-                while x < body.right() {
-                    let symbol = buffer.cell((x, y)).expect("body cell").symbol();
-                    row.push_str(symbol);
-                    x += symbol.cell_width().max(1);
-                }
-                row
-            })
-            .collect()
     }
 
     #[rstest]
@@ -3903,6 +3903,9 @@ mod content_cache {
 mod line_styles {
     use std::ops::Range;
 
+    use ratatui::style::Style;
+    use rstest::rstest;
+
     use super::*;
 
     const AREA: (u16, u16) = (120, 60);
@@ -4276,27 +4279,30 @@ mod line_styles {
         }
     }
 
-    #[test]
-    fn heredoc_markers_are_found_in_the_plan_text_before_tabs_are_expanded() {
+    #[rstest]
+    #[case::marker_before_a_tab(
+        "          + \tindented\r",
+        "          +     indented^M",
+        theme::plan_marker_style(Some('+'))
+    )]
+    #[case::tab_right_after_the_marker("          -\t", "          -     ", theme::body_style())]
+    #[case::tab_before_the_marker_column_is_heredoc_text(
+        "\t  ~ text",
+        "          ~ text",
+        theme::body_style()
+    )]
+    fn heredoc_markers_are_found_in_the_plan_text_before_tabs_are_expanded(
+        #[case] line: &str,
+        #[case] shown: &str,
+        #[case] expected: Style,
+    ) {
         let kind = PlanLineKind::HeredocBody { marker_column: 10 };
-        for (line, shown, expected) in [
-            (
-                "          + \tindented\r",
-                "          +     indented^M",
-                theme::plan_marker_style(Some('+')),
-            ),
-            ("          -\t", "          -     ", theme::body_style()),
-            // A tab expanded in front of the marker column is heredoc text, not Terraform's
-            // indentation.
-            ("\t  ~ text", "          ~ text", theme::body_style()),
-        ] {
-            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
-            assert_eq!(styled.to_string(), shown, "{line:?}");
-            assert!(
-                styled.spans.iter().all(|span| span.style == expected),
-                "{line:?}: {styled:?}"
-            );
-        }
+        let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+        assert_eq!(styled.to_string(), shown);
+        assert!(
+            styled.spans.iter().all(|span| span.style == expected),
+            "{styled:?}"
+        );
     }
 }
 
@@ -4305,7 +4311,6 @@ mod control_characters {
 
     use rstest::rstest;
 
-    use super::large_plan::{body_rows, press};
     use super::*;
     use crate::app::copy::plan_effect;
 
