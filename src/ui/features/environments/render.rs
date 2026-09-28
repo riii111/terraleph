@@ -125,6 +125,7 @@ impl EnvironmentView {
         index: usize,
         confirmation: &ReviewSessionState,
         confirmation_view: &plan_review::ApplyConfirmationViewState,
+        now: Instant,
     ) {
         let area = frame.area();
         self.initialize(Size::new(area.width, area.height), state);
@@ -138,13 +139,14 @@ impl EnvironmentView {
             review_body(area, layout.header),
             confirmation,
             &mut self.reviews[index],
-            Instant::now(),
+            now,
         );
         plan_review::render_apply_confirmation_dialog(
             frame,
             confirmation,
             confirmation_view,
             Some(layout.header),
+            now,
         );
     }
 

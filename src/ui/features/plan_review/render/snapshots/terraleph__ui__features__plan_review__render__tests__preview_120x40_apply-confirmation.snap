@@ -21,19 +21,19 @@ Changes  +1 add  ~1 update  1 replace  -1 destroy
     }               │ Workspace: default                                                           │                   ┃
                     │ Directory: /repo/environments/production/main                                │                   ┃
   # terraform_data.o│ Tool: terraform loading...                                                   │                   ┃
-  - resource "terraf│ Plan: +1 add  ~1 update  1 replace  -1 destroy                               │                   ┃
-      id = "old-2026│                                                                              │                   ┃
-    }               │ Destroy:                                                                     │                   ┃
-                    │   terraform_data.old                                                         │                   ┃
-  # terraform_data.n│ Replace:                                                                     │                   ┃
-  + resource "terraf│   terraform_data.worker                                                      │                   ┃
-      input = "new-v│                                                                              │                   ┃
-      note  = "A del│ To confirm, type "main" below.                                               │                   ┃
-    }               │ > |                                                                          │                   ┃
-                    │                                                                              │                   ┃
-Changes to Outputs: └──────────────────────────────────────────────────────────────────────────────┘                   ┃
-  + endpoint = (knowEnter apply | Esc back | ? help                                                                    ┃
-  ~ summary  = "old summary" -> "new summary with a deliberately long value for review"                                ┃
+  - resource "terraf│ Planned: 12m ago                                                             │                   ┃
+      id = "old-2026│ Plan: +1 add  ~1 update  1 replace  -1 destroy                               │                   ┃
+    }               │                                                                              │                   ┃
+                    │ Destroy:                                                                     │                   ┃
+  # terraform_data.n│   terraform_data.old                                                         │                   ┃
+  + resource "terraf│ Replace:                                                                     │                   ┃
+      input = "new-v│   terraform_data.worker                                                      │                   ┃
+      note  = "A del│                                                                              │                   ┃
+    }               │ To confirm, type "main" below.                                               │                   ┃
+                    │ > |                                                                          │                   ┃
+Changes to Outputs: │                                                                              │                   ┃
+  + endpoint = (know└──────────────────────────────────────────────────────────────────────────────┘                   ┃
+  ~ summary  = "old Enter apply | Esc back | ? help deliberately long value for review"                                ┃
                                                                                                                        │
 Warning: Value for "pending" is not known until apply                                                                  │
                                                                                                                        │

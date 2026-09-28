@@ -31,19 +31,19 @@ Target: main [PROD] Workspace: default Tool: terraform loading... Dir: /repo/env
     }                                   │ Workspace: default                                                           │
                                         │ Directory: /repo/environments/production/main                                │
 Changes to Outputs:                     │ Tool: terraform loading...                                                   │
-  + endpoint = (known after apply)      │ Plan: +1 add  ~1 update  1 replace  -1 destroy                               │
-  ~ summary  = "old summary" -> "new sum│                                                                              │
-                                        │ Destroy:                                                                     │
-Warning: Value for "pending" is not know│   terraform_data.old                                                         │
-                                        │ Replace:                                                                     │
-Plan: 2 to add, 1 to change, 2 to destro│   terraform_data.worker                                                      │
+  + endpoint = (known after apply)      │ Planned: 12m ago                                                             │
+  ~ summary  = "old summary" -> "new sum│ Plan: +1 add  ~1 update  1 replace  -1 destroy                               │
                                         │                                                                              │
-Synthetic review text continues below so│ To confirm, type "main" below.                                               │
-The same long body is intentionally reus│ > |                                                                          │
-No Terraform process, provider, state fi│                                                                              │
-The review surface preserves Terraform o└──────────────────────────────────────────────────────────────────────────────┘
-Long lines remain unwrapped in the plan Enter apply | Esc back | ? helpes the hidden suffix.
-Vertical movement exposes later lines in this synthetic plan body.
+Warning: Value for "pending" is not know│ Destroy:                                                                     │
+                                        │   terraform_data.old                                                         │
+Plan: 2 to add, 1 to change, 2 to destro│ Replace:                                                                     │
+                                        │   terraform_data.worker                                                      │
+Synthetic review text continues below so│                                                                              │
+The same long body is intentionally reus│ To confirm, type "main" below.                                               │
+No Terraform process, provider, state fi│ > |                                                                          │
+The review surface preserves Terraform o│                                                                              │
+Long lines remain unwrapped in the plan └──────────────────────────────────────────────────────────────────────────────┘
+Vertical movement exposes later lines inEnter apply | Esc back | ? help
 
 End of synthetic plan body.
 
