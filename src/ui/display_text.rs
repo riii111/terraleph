@@ -9,23 +9,27 @@ use ratatui::{buffer::CellWidth, style::Style, text::Span};
 
 /// Columns between tab stops, as terminals set them by default.
 const TAB_WIDTH: usize = 8;
+const TAB_STOP: &str = "        ";
+const _: () = assert!(TAB_STOP.len() == TAB_WIDTH);
 
 /// The drawn column of a line shown piece by piece, so a tab in any piece stops where it would in
 /// the whole line.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Default)]
 pub(crate) struct DisplayColumns {
     column: usize,
 }
 
 impl DisplayColumns {
-    /// Returns the cells shown so far.
-    pub(crate) const fn column(self) -> usize {
+    pub(crate) const fn column(&self) -> usize {
         self.column
     }
 
-    /// Returns `text` as shown from the current column and moves past it. Text without control
-    /// characters is returned as is.
+    /// Returns `text` as shown from the current column and moves past it.
     pub(crate) fn show<'a>(&mut self, text: &'a str) -> Cow<'a, str> {
+        if is_printable_ascii(text) {
+            self.column += text.len();
+            return Cow::Borrowed(text);
+        }
         if !text.contains(char::is_control) {
             self.column += cells(text);
             return Cow::Borrowed(text);
@@ -42,8 +46,7 @@ impl DisplayColumns {
             };
             rest = tail.as_str();
             let spelled = if control == '\t' {
-                let spaces = TAB_WIDTH - self.column % TAB_WIDTH;
-                Cow::Borrowed(&"        "[..spaces])
+                Cow::Borrowed(&TAB_STOP[..TAB_WIDTH - self.column % TAB_WIDTH])
             } else {
                 caret_notation(control)
             };
@@ -53,6 +56,12 @@ impl DisplayColumns {
         }
         Cow::Owned(shown)
     }
+}
+
+/// Printable ASCII takes one cell per byte and is shown as it is.
+pub(crate) fn is_printable_ascii(text: &str) -> bool {
+    text.bytes()
+        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
 }
 
 // C0 controls and DEL use the caret notation of `cat -v` and less; C1 controls have none, so they
@@ -67,6 +76,9 @@ fn caret_notation(control: char) -> Cow<'static, str> {
 
 // Control characters split graphemes, so text between them has the graphemes ratatui draws.
 fn cells(text: &str) -> usize {
+    if is_printable_ascii(text) {
+        return text.len();
+    }
     Span::raw(text)
         .styled_graphemes(Style::default())
         .map(|grapheme| usize::from(grapheme.symbol.cell_width()))

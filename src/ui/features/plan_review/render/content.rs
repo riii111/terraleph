@@ -10,7 +10,7 @@ use crate::app::{
     execution::{Diagnostic, DiagnosticSeverity},
     review::{PlanDocument, PlanDocumentKey, PlanLineKind, PlanReview},
 };
-use crate::ui::display_text::DisplayColumns;
+use crate::ui::display_text::{DisplayColumns, is_printable_ascii};
 use crate::ui::features::plan_review::PlanReviewMatch;
 use crate::ui::theme;
 
@@ -519,11 +519,6 @@ fn span_width(span: &Span<'_>) -> usize {
     span.styled_graphemes(Style::default())
         .map(|grapheme| grapheme_width(grapheme.symbol))
         .sum()
-}
-
-fn is_printable_ascii(text: &str) -> bool {
-    text.bytes()
-        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
 }
 
 fn grapheme_width(symbol: &str) -> usize {
