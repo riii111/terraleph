@@ -6,7 +6,9 @@ rust-version = "1.98"
 description = "Review and apply Terraform or OpenTofu plans in your terminal"
 license = "MIT"
 repository = "https://github.com/riii111/terraleph"
-publish = false
+keywords = ["terraform", "opentofu", "tui", "iac", "infrastructure"]
+categories = ["command-line-utilities", "development-tools"]
+include = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
 
 [features]
 test-support = []
