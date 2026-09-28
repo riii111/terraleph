@@ -630,22 +630,10 @@ mod tests {
 
         let all = progress.log_index();
         assert_eq!(all.line_count(), 3);
-        // Widths are measured on the sanitized text that is rendered.
-        assert_eq!(
-            all.max_width(),
-            progress.log()[0]
-                .text
-                .len()
-                .max("A much longer detail line for the target".len())
-        );
         assert!(!progress.log()[0].text.contains("secret-value"));
         assert_eq!(all.locate(2), Some((1, 1)));
         let target = progress.targets()[0].log_index();
         assert_eq!(target.line_count(), 2);
-        assert_eq!(
-            target.max_width(),
-            "A much longer detail line for the target".len()
-        );
         assert_eq!(target.locate(1), Some((0, 1)));
     }
 

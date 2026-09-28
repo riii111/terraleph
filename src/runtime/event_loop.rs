@@ -549,6 +549,7 @@ fn handle_execution_key_event<B: Backend>(
                     .progress()
                     .display_target_indices(state.result().is_some());
                 execution_view.select_target(direction, &targets);
+                execution_view.measure_log(state.progress());
                 let size = terminal.size()?;
                 let layout = execution::execution_layout_with_view(
                     Rect::new(0, 0, size.width, size.height),
@@ -758,7 +759,9 @@ pub(super) fn update_session(
             execution_view.initialize_target_selection(&targets);
         }
     } else if apply_result_ready {
+        let measured = *execution_view;
         *execution_view = execution::ExecutionViewState::default();
+        execution_view.keep_log_measurement(measured);
         if let Some(apply) = state.apply() {
             execution_view.select_result_target(
                 &apply.progress().display_target_indices(true),
@@ -771,6 +774,9 @@ pub(super) fn update_session(
                 apply.stage() == ExecutionStage::ApplySucceeded,
             );
         }
+    }
+    if let Some(execution) = state.execution().or_else(|| state.apply()) {
+        execution_view.measure_log(execution.progress());
     }
     effect
 }

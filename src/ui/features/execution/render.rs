@@ -1,7 +1,10 @@
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
+use ratatui::buffer::CellWidth;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
@@ -15,10 +18,13 @@ use crate::app::{
 };
 use crate::ui::primitives::atoms::{scrollbar, separator};
 use crate::ui::primitives::molecules::terminal_notice;
-use crate::ui::shell::{context::truncate_middle, footer, header, layout as shell_layout};
+use crate::ui::shell::{
+    context::{display_width, truncate_middle},
+    footer, header, layout as shell_layout,
+};
 use crate::ui::theme;
 
-use super::ExecutionViewState;
+use super::{ExecutionViewState, LogWidth};
 
 const MIN_HEIGHT: u16 = 9;
 const MIN_WIDTH: u16 = 32;
@@ -31,28 +37,31 @@ const TARGET_STATUS_WIDTH: usize = "Incomplete".len();
 const TARGET_ACTION_WIDTH: usize = "delete/create".len();
 const TARGET_ELAPSED_WIDTH: usize = "Elapsed".len();
 const TARGET_PREVIOUS_WIDTH: usize = "Previous".len();
-// The log a panel shows. Its size comes from the index the progress keeps as entries arrive,
-// and lines are built only for the rows on screen.
+// The log a panel shows. Its line count comes from the index the progress keeps as entries
+// arrive, its width from what the view has measured, and lines are built only for the rows on
+// screen.
 struct PreparedContent<'a> {
     log: &'a [ExecutionLogLine],
     // Positions in `log` of a selected target's entries; `None` shows every entry.
     entries: Option<&'a [usize]>,
     index: &'a LogLineIndex,
+    width: usize,
     // Shown instead of the log while it has no lines.
-    placeholder: Option<Line<'static>>,
+    placeholder: Option<Span<'static>>,
 }
 
 impl<'a> PreparedContent<'a> {
     fn new(
         log: &'a [ExecutionLogLine],
         entries: Option<&'a [usize]>,
-        index: &'a LogLineIndex,
-        placeholder: Line<'static>,
+        (index, measured): (&'a LogLineIndex, LogWidth),
+        placeholder: Span<'static>,
     ) -> Self {
         Self {
             log,
             entries,
             index,
+            width: measure_log_width(measured, log, entries).width,
             placeholder: (index.line_count() == 0).then_some(placeholder),
         }
     }
@@ -66,33 +75,40 @@ impl<'a> PreparedContent<'a> {
     }
 
     fn max_width(&self) -> usize {
-        self.placeholder
-            .as_ref()
-            .map_or_else(|| self.index.max_width(), Line::width)
+        self.placeholder.as_ref().map_or(self.width, |placeholder| {
+            display_width(&placeholder.content)
+        })
     }
 
-    fn visible_lines(&self, offset: usize, height: usize) -> Vec<Line<'a>> {
+    // Rows from line `offset` down, each starting `horizontal` cells into its line.
+    fn visible_lines(&self, offset: usize, height: usize, horizontal: usize) -> Vec<Line<'a>> {
         if let Some(placeholder) = &self.placeholder {
-            return std::iter::once(placeholder.clone())
-                .skip(offset)
-                .take(height)
-                .collect();
+            return std::iter::once(Line::from(Span::styled(
+                skip_cells(&placeholder.content, horizontal).into_owned(),
+                placeholder.style,
+            )))
+            .skip(offset)
+            .take(height)
+            .collect();
         }
         let Some((first, skip)) = self.index.locate(offset) else {
             return Vec::new();
         };
         self.entries.map_or_else(
             || {
-                log_lines(&self.log[first..])
+                log_lines(&self.log[first..], horizontal)
                     .skip(skip)
                     .take(height)
                     .collect()
             },
             |entries| {
-                log_lines(entries[first..].iter().filter_map(|id| self.log.get(*id)))
-                    .skip(skip)
-                    .take(height)
-                    .collect()
+                log_lines(
+                    entries[first..].iter().filter_map(|id| self.log.get(*id)),
+                    horizontal,
+                )
+                .skip(skip)
+                .take(height)
+                .collect()
             },
         )
     }
@@ -110,7 +126,7 @@ pub(crate) fn render_execution_with_quit_confirmation(
         render_apply_execution(frame, state, view, now, quit_confirmation);
         return;
     }
-    let content = prepare_content(state);
+    let content = prepare_content(state, view);
     let notice = state.copy_feedback().notice_at(now);
     let layout = log_view_layout(
         area,
@@ -304,16 +320,18 @@ fn render_log_panel(
     let max_vertical = layout.max_vertical();
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(layout.max_horizontal());
-    let lines = content.visible_lines(scroll, usize::from(layout.body().height));
+    let lines = content.visible_lines(
+        scroll,
+        usize::from(layout.body().height),
+        usize::from(horizontal),
+    );
     let lines = if state.copy_feedback().flash_active(now) {
         flash_lines(lines)
     } else {
         lines
     };
     frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme::body_style())
-            .scroll((0, horizontal)),
+        Paragraph::new(lines).style(theme::body_style()),
         layout.body(),
     );
     render_log_scrollbars(
@@ -343,16 +361,18 @@ fn render_log_view(
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(max_horizontal);
     // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
-    let lines = content.visible_lines(scroll, usize::from(layout.log_area().height));
+    let lines = content.visible_lines(
+        scroll,
+        usize::from(layout.log_area().height),
+        usize::from(horizontal),
+    );
     let lines = if state.copy_feedback().flash_active(now) {
         flash_lines(lines)
     } else {
         lines
     };
     frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme::body_style())
-            .scroll((0, horizontal)),
+        Paragraph::new(lines).style(theme::body_style()),
         layout.log_area(),
     );
     render_log_scrollbars(
@@ -522,7 +542,7 @@ fn execution_layout_with_quit_confirmation_and_view(
     log_view_layout(
         area,
         state,
-        &prepare_content(state),
+        &prepare_content(state, view),
         notice,
         quit_confirmation,
     )
@@ -738,13 +758,13 @@ pub(crate) fn execution_horizontal_scroll_position_with_view(
     (view.horizontal().min(max), max)
 }
 
-fn prepare_content(state: &ExecutionState) -> PreparedContent<'_> {
+fn prepare_content(state: &ExecutionState, view: ExecutionViewState) -> PreparedContent<'_> {
     let progress = state.progress();
     PreparedContent::new(
         progress.log(),
         None,
-        progress.log_index(),
-        Line::from("Waiting for Terraform output..."),
+        (progress.log_index(), view.measured_log_width(None)),
+        Span::raw("Waiting for Terraform output..."),
     )
 }
 
@@ -753,7 +773,7 @@ fn prepare_selected_content(
     view: ExecutionViewState,
 ) -> PreparedContent<'_> {
     let progress = state.progress();
-    let placeholder = Line::from(Span::styled(
+    let placeholder = Span::styled(
         if finished_apply(state) {
             "No execution output."
         } else if view.selected_target().is_some() {
@@ -762,25 +782,73 @@ fn prepare_selected_content(
             "Waiting for Terraform output..."
         },
         theme::secondary_style(),
-    ));
+    );
     match view
         .selected_target()
-        .and_then(|index| progress.targets().get(index))
+        .and_then(|index| Some((index, progress.targets().get(index)?)))
     {
-        Some(target) => PreparedContent::new(
+        Some((index, target)) => PreparedContent::new(
             progress.log(),
             Some(target.log_ids()),
-            target.log_index(),
+            (target.log_index(), view.measured_log_width(Some(index))),
             placeholder,
         ),
-        None => PreparedContent::new(progress.log(), None, progress.log_index(), placeholder),
+        None => PreparedContent::new(
+            progress.log(),
+            None,
+            (progress.log_index(), view.measured_log_width(None)),
+            placeholder,
+        ),
+    }
+}
+
+// Continues `measured` over the entries it has not seen, measuring each line the way the
+// renderer draws it. `entries` selects a target's entries from `log`, as in `PreparedContent`.
+pub(super) fn measure_log_width(
+    measured: LogWidth,
+    log: &[ExecutionLogLine],
+    entries: Option<&[usize]>,
+) -> LogWidth {
+    let total = entries.map_or(log.len(), <[usize]>::len);
+    // A log never shrinks, so a longer measurement came from another execution.
+    let measured = if measured.entries > total {
+        LogWidth::default()
+    } else {
+        measured
+    };
+    let entry_width = |line: &ExecutionLogLine| {
+        line.text
+            .lines()
+            .map(display_width)
+            .max()
+            .unwrap_or_default()
+    };
+    let width = entries.map_or_else(
+        || {
+            log[measured.entries..]
+                .iter()
+                .map(entry_width)
+                .fold(measured.width, usize::max)
+        },
+        |entries| {
+            entries[measured.entries..]
+                .iter()
+                .filter_map(|id| log.get(*id))
+                .map(entry_width)
+                .fold(measured.width, usize::max)
+        },
+    );
+    LogWidth {
+        entries: total,
+        width,
     }
 }
 
 fn log_lines<'a>(
     log: impl IntoIterator<Item = &'a ExecutionLogLine>,
+    horizontal: usize,
 ) -> impl Iterator<Item = Line<'a>> {
-    log.into_iter().flat_map(|line| {
+    log.into_iter().flat_map(move |line| {
         let style = if line.stream == EventStream::Stderr {
             theme::warning_style()
         } else {
@@ -788,8 +856,28 @@ fn log_lines<'a>(
         };
         line.text
             .lines()
-            .map(move |text| Line::from(Span::styled(text, style)))
+            .map(move |text| Line::from(Span::styled(skip_cells(text, horizontal), style)))
     })
+}
+
+// The part of `text` drawn from `cells` cells in. A wide character cut by the left edge leaves
+// its remaining cells blank, so every line moves by exactly `cells` and the end of the widest
+// line can reach the right edge. `Paragraph::scroll` would draw such a character whole instead.
+fn skip_cells(text: &str, cells: usize) -> Cow<'_, str> {
+    if cells == 0 {
+        return Cow::Borrowed(text);
+    }
+    let mut skipped = 0;
+    let mut kept = String::new();
+    for grapheme in Line::from(text).styled_graphemes(Style::default()) {
+        if skipped < cells {
+            skipped += usize::from(grapheme.symbol.cell_width());
+            kept.extend(std::iter::repeat_n(' ', skipped.saturating_sub(cells)));
+        } else {
+            kept.push_str(grapheme.symbol);
+        }
+    }
+    Cow::Owned(kept)
 }
 
 fn target_line(
@@ -833,7 +921,7 @@ fn target_line(
 }
 
 // Status, action and the durations keep fixed widths so every row lines up; the address gets
-// the rest of the panel, but no more than its longest value needs.
+// the rest of the panel, but no more than its longest value needs beyond the minimum.
 struct TargetColumns {
     address: usize,
     action: usize,
@@ -858,8 +946,8 @@ impl TargetColumns {
             .fold(TARGET_ACTION_WIDTH, usize::max);
         let longest_address = targets
             .iter()
-            .map(|target| Line::from(target.address()).width())
-            .fold("Resource".len(), usize::max);
+            .map(|target| display_width(target.address()))
+            .fold(TARGET_ADDRESS_MIN_WIDTH, usize::max);
         let available = width
             .saturating_sub(Self::fixed_width(action, show_previous))
             .max(TARGET_ADDRESS_MIN_WIDTH);
@@ -877,9 +965,7 @@ impl TargetColumns {
         [status, action, elapsed, previous]: [&str; 4],
     ) -> String {
         let address = truncate_middle(address, self.address);
-        let padding = self
-            .address
-            .saturating_sub(Line::from(address.as_str()).width());
+        let padding = self.address.saturating_sub(display_width(&address));
         let address = format!("{address}{}", " ".repeat(padding));
         let action_width = self.action;
         let row = format!(
@@ -1715,6 +1801,61 @@ mod tests {
         }
 
         #[test]
+        fn wide_character_addresses_fit_whole_and_keep_the_columns_aligned() {
+            let wide_address = "terraform_data.x[\"ｶﾞ\"]";
+            let state = ExecutionState::applying_with_previous(
+                Instant::now(),
+                ExecutionContext::loading("/repo"),
+                vec![
+                    ExecutionTargetSpec {
+                        address: "terraform_data.api".to_owned(),
+                        actions: vec![PlanAction::Update],
+                    },
+                    ExecutionTargetSpec {
+                        address: wide_address.to_owned(),
+                        actions: vec![PlanAction::Create],
+                    },
+                ],
+                Vec::new(),
+                &[None, None],
+            );
+            let area = Rect::new(0, 0, 160, 60);
+            let body = execution_layout(area, &state).target_body();
+            let buffer = render_to_buffer((area.width, area.height), |frame| {
+                render_execution_with_view(
+                    frame,
+                    &state,
+                    ExecutionViewState::default(),
+                    Instant::now(),
+                );
+            });
+            // Cells of a row from `x`, with the cell a wide character covers left out.
+            let cells = |x: u16, y: u16| {
+                let mut text = String::new();
+                let mut x = x;
+                while x < body.right() {
+                    let symbol = buffer[(x, y)].symbol();
+                    text.push_str(symbol);
+                    x += u16::try_from(display_width(symbol).max(1)).expect("cell width");
+                }
+                text
+            };
+            let header = cells(body.x, body.y - 1);
+            let status_x = body.x
+                + u16::try_from(header.find("Status").expect("status header")).expect("status");
+
+            assert!(cells(body.x, body.y + 1).starts_with(&format!("  {wide_address}")));
+            for y in [body.y, body.y + 1] {
+                assert_eq!(buffer[(status_x - 1, y)].symbol(), " ");
+                assert!(
+                    cells(status_x, y).starts_with("Pending "),
+                    "{}",
+                    cells(body.x, y)
+                );
+            }
+        }
+
+        #[test]
         fn fixed_target_columns_fit_every_label() {
             for status in [
                 ExecutionTargetStatus::Pending,
@@ -2427,6 +2568,213 @@ mod tests {
         }
     }
 
+    mod appended_log {
+        use super::*;
+        use crate::ui::features::execution::ExecutionTargetMove;
+
+        fn record_log(state: &mut ExecutionState, now: Instant, text: &str) {
+            state.record(ExecutionEvent {
+                received_at: now,
+                kind: ExecutionEventKind::Log(ExecutionLogLine {
+                    stream: EventStream::Stdout,
+                    text: text.to_owned(),
+                }),
+            });
+        }
+
+        fn logs_view() -> ExecutionViewState {
+            let mut view = ExecutionViewState::default();
+            view.open_logs();
+            view
+        }
+
+        fn body_row(buffer: &Buffer, body: Rect, y: u16) -> String {
+            (body.x..body.right())
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        }
+
+        // Scrolled to the right edge, the end of the widest line meets the body's last column.
+        fn assert_right_edge(state: &ExecutionState, view: ExecutionViewState, tail: &str) {
+            let area = Rect::new(0, 0, 80, 24);
+            let layout = execution_layout_with_view(area, state, view);
+            let mut view = view;
+            let (vertical, _) = execution_scroll_position_with_view(state, view, &layout);
+            view.apply_horizontal_scroll(
+                ExecutionScroll::RightEdge,
+                0,
+                layout.max_horizontal(),
+                vertical,
+            );
+            let buffer = render_to_buffer((area.width, area.height), |frame| {
+                render_execution_with_view(frame, state, view, Instant::now());
+            });
+            let body = layout.body();
+            let tail_width = u16::try_from(tail.len()).expect("tail width");
+            let found = (body.y..body.bottom()).any(|y| {
+                (body.right() - tail_width..body.right())
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    == tail
+            });
+            assert!(found, "{}", buffer_text(&buffer));
+        }
+
+        #[test]
+        fn halfwidth_voiced_katakana_scrolls_exactly_to_the_right_edge() {
+            let (mut state, now) = applying_state_with_lines(vec!["short".to_owned()]);
+            record_log(&mut state, now, &format!("{}END", "ｶﾞ".repeat(60)));
+            record_log(&mut state, now, "after");
+            // Each `ｶﾞ` takes two cells, as the renderer draws it.
+            let width = 60 * 2 + 3;
+
+            let unmeasured = logs_view();
+            let mut measured = logs_view();
+            measured.measure_log(state.progress());
+            let area = Rect::new(0, 0, 80, 24);
+            for view in [unmeasured, measured] {
+                let layout = execution_layout_with_view(area, &state, view);
+                assert_eq!(
+                    usize::from(layout.max_horizontal()),
+                    width - usize::from(layout.body().width)
+                );
+                assert_right_edge(&state, view, "END");
+            }
+        }
+
+        #[test]
+        fn measured_widths_match_the_drawn_cells() {
+            for (text, drawn) in [("ｶﾞｷﾞ", 4), ("لا", 2), ("a\tb", 2), ("abc\x1b[0m", 6)]
+            {
+                // The marker lands on the first cell after the drawn text.
+                let buffer = render_to_buffer((20, 1), |frame| {
+                    frame.render_widget(
+                        Paragraph::new(Line::from(vec![Span::raw(text), Span::raw("|")])),
+                        frame.area(),
+                    );
+                });
+                let marker = (0..20)
+                    .position(|x| buffer[(x, 0)].symbol() == "|")
+                    .expect("marker should be drawn");
+                let log = [ExecutionLogLine {
+                    stream: EventStream::Stdout,
+                    text: text.to_owned(),
+                }];
+
+                assert_eq!(marker, drawn, "{text:?}");
+                assert_eq!(
+                    measure_log_width(LogWidth::default(), &log, None).width,
+                    drawn,
+                    "{text:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn measuring_continues_over_new_entries_for_all_logs_and_the_selected_target() {
+            let started_at = Instant::now();
+            let mut state = ExecutionState::applying_with_previous(
+                started_at,
+                ExecutionContext::loading("/repo"),
+                vec![ExecutionTargetSpec {
+                    address: "terraform_data.api".to_owned(),
+                    actions: vec![PlanAction::Update],
+                }],
+                Vec::new(),
+                &[None],
+            );
+            let mut view = logs_view();
+            view.select_target(ExecutionTargetMove::Next, &[0]);
+            let target_message = |text: &str| {
+                ExecutionEventKind::Resource(ResourceEvent {
+                    address: "terraform_data.api".to_owned(),
+                    kind: ResourceEventKind::ApplyProgress,
+                    action: Some(ResourceAction::Update),
+                    message: Some(text.to_owned()),
+                })
+            };
+            for text in ["short", "wider target line"] {
+                state.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: target_message(text),
+                });
+                record_log(&mut state, started_at, "unbound");
+                view.measure_log(state.progress());
+            }
+            record_log(&mut state, started_at, "a much wider unbound log line");
+            view.measure_log(state.progress());
+
+            assert_eq!(
+                view.measured_log_width(None),
+                LogWidth {
+                    entries: 5,
+                    width: "a much wider unbound log line".len(),
+                }
+            );
+            assert_eq!(
+                view.measured_log_width(Some(0)),
+                LogWidth {
+                    entries: 2,
+                    width: "wider target line".len(),
+                }
+            );
+        }
+
+        #[test]
+        fn appended_lines_show_while_following_and_a_manual_position_stays_put() {
+            let lines = (0..40).map(|line| format!("line {line}")).collect();
+            let (mut state, now) = applying_state_with_lines(lines);
+            let area = Rect::new(0, 0, 80, 24);
+            let mut following = logs_view();
+            following.apply_scroll(ExecutionScroll::Top, 0, 0, 1);
+            following.end();
+            let layout = execution_layout_with_view(area, &state, following);
+            let mut manual = logs_view();
+            manual.apply_scroll(
+                ExecutionScroll::Top,
+                layout.max_vertical(),
+                layout.max_vertical(),
+                layout.body().height,
+            );
+            manual.apply_scroll(
+                ExecutionScroll::PageDown,
+                0,
+                layout.max_vertical(),
+                layout.body().height,
+            );
+            let render_rows = |state: &ExecutionState, view: ExecutionViewState| {
+                let body = execution_layout_with_view(area, state, view).body();
+                let buffer = render_to_buffer((area.width, area.height), |frame| {
+                    render_execution_with_view(frame, state, view, now);
+                });
+                (body.y..body.bottom())
+                    .map(|y| body_row(&buffer, body, y))
+                    .collect::<Vec<_>>()
+            };
+            let manual_before = render_rows(&state, manual);
+            assert_eq!(
+                render_rows(&state, following).last().map(String::as_str),
+                Some("line 39")
+            );
+
+            for line in 40..43 {
+                record_log(&mut state, now, &format!("line {line}"));
+                following.measure_log(state.progress());
+                manual.measure_log(state.progress());
+            }
+
+            let following_after = render_rows(&state, following);
+            assert_eq!(
+                following_after[following_after.len() - 3..],
+                ["line 40", "line 41", "line 42"]
+            );
+            assert_eq!(render_rows(&state, manual), manual_before);
+            assert!(!manual_before.contains(&"line 39".to_owned()));
+        }
+    }
+
     mod scroll {
         use super::*;
 
@@ -3075,8 +3423,8 @@ mod tests {
             }
 
             assert_eq!(
-                prepare_content(&state)
-                    .visible_lines(0, usize::MAX)
+                prepare_content(&state, ExecutionViewState::default())
+                    .visible_lines(0, usize::MAX, 0)
                     .iter()
                     .map(Line::to_string)
                     .collect::<Vec<_>>(),

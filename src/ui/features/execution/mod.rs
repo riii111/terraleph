@@ -1,6 +1,8 @@
 mod input;
 mod render;
 
+use crate::app::execution::ExecutionProgress;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionScroll {
     Up,
@@ -27,6 +29,14 @@ pub(crate) enum ExecutionTargetMove {
     Next,
 }
 
+// Widest rendered line among the first `entries` entries of a log panel. Logs only grow, so a
+// later measurement continues from here instead of measuring every entry again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct LogWidth {
+    entries: usize,
+    width: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExecutionViewState {
     vertical: VerticalScroll,
@@ -34,6 +44,9 @@ pub(crate) struct ExecutionViewState {
     horizontal: u16,
     logs_open: bool,
     selected_target: Option<usize>,
+    log_width: LogWidth,
+    // Measured for the selected target only, keyed by its index.
+    target_log_width: Option<(usize, LogWidth)>,
 }
 
 impl Default for ExecutionViewState {
@@ -44,6 +57,8 @@ impl Default for ExecutionViewState {
             horizontal: 0,
             logs_open: false,
             selected_target: None,
+            log_width: LogWidth::default(),
+            target_log_width: None,
         }
     }
 }
@@ -108,6 +123,37 @@ impl ExecutionViewState {
             ExecutionScroll::RightEdge => max_offset,
             _ => current_offset,
         };
+    }
+
+    // Measures the entries appended since the last call. Rendering measures any entries this has
+    // not seen yet on every frame, so the runtime calls this whenever the log or the selected
+    // target changes. A view belongs to one execution; the runtime resets it when an apply starts.
+    pub(crate) fn measure_log(&mut self, progress: &ExecutionProgress) {
+        self.log_width = render::measure_log_width(self.log_width, progress.log(), None);
+        self.target_log_width = self.selected_target.and_then(|index| {
+            let target = progress.targets().get(index)?;
+            let cached = self.measured_log_width(Some(index));
+            Some((
+                index,
+                render::measure_log_width(cached, progress.log(), Some(target.log_ids())),
+            ))
+        });
+    }
+
+    // Keeps what `previous` measured of all logs when the view is reset for the same execution,
+    // so a long log is not measured again at once.
+    pub(crate) const fn keep_log_measurement(&mut self, previous: Self) {
+        self.log_width = previous.log_width;
+    }
+
+    // What `measure_log` has measured for all logs, or for the target at `target`.
+    fn measured_log_width(self, target: Option<usize>) -> LogWidth {
+        target.map_or(self.log_width, |index| {
+            self.target_log_width
+                .filter(|(cached, _)| *cached == index)
+                .map(|(_, width)| width)
+                .unwrap_or_default()
+        })
     }
 
     pub(crate) const fn end(&mut self) {
