@@ -242,7 +242,7 @@ fn render_log_panel(
     let line_count = content.line_count();
     let max_line_width = content.max_width();
     let max_vertical = layout.max_vertical();
-    let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
+    let scroll = view.vertical_offset(initial_scroll(state, view, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(layout.max_horizontal());
     let lines = content.visible_lines(scroll, horizontal, layout.body());
     let lines = if state.copy_feedback().flash_active(now) {
@@ -278,7 +278,7 @@ fn render_log_view(
     let max_line_width = content.max_width();
     let max_vertical = layout.max_vertical();
     let max_horizontal = layout.max_horizontal();
-    let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
+    let scroll = view.vertical_offset(initial_scroll(state, view, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(max_horizontal);
     // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
     let lines = content.visible_lines(scroll, horizontal, layout.log_area());
@@ -654,7 +654,7 @@ pub(crate) fn execution_scroll_position_with_view(
     layout: &ExecutionLayout,
 ) -> (usize, usize) {
     let max = layout.max_vertical();
-    let current = view.vertical_offset(initial_scroll(state, max), max);
+    let current = view.vertical_offset(initial_scroll(state, view, max), max);
     (current, max)
 }
 
@@ -1253,7 +1253,7 @@ fn flash_lines(lines: Vec<Line<'_>>) -> Vec<Line<'static>> {
         .collect()
 }
 
-fn initial_scroll(state: &ExecutionState, max: usize) -> usize {
+fn initial_scroll(state: &ExecutionState, view: ExecutionViewState, max: usize) -> usize {
     if !matches!(
         state.stage(),
         ExecutionStage::Failed | ExecutionStage::ApplyFailed
@@ -1261,11 +1261,22 @@ fn initial_scroll(state: &ExecutionState, max: usize) -> usize {
         return max;
     }
 
-    state
-        .result()
-        .and_then(ExecutionResult::first_error_line)
-        .or_else(|| state.progress().first_error_line())
-        .unwrap_or(max)
+    // A selected target's log holds only its own lines, so the all-logs error line would point
+    // at an unrelated line there.
+    let selected = view
+        .selected_target()
+        .and_then(|index| state.progress().targets().get(index));
+    selected
+        .map_or_else(
+            || {
+                state
+                    .result()
+                    .and_then(ExecutionResult::first_error_line)
+                    .or_else(|| state.progress().first_error_line())
+                    .unwrap_or(max)
+            },
+            |target| target.first_error_line().unwrap_or(0),
+        )
         .min(max)
 }
 
@@ -2932,6 +2943,7 @@ mod tests {
 
     mod scroll {
         use super::*;
+        use crate::ui::features::execution::ExecutionTargetMove;
 
         #[test]
         fn reopening_apply_logs_starts_at_the_newest_line() {
@@ -3042,6 +3054,131 @@ mod tests {
                     "case: {}",
                     case.name
                 );
+            }
+        }
+
+        // Target a fails first, late in all logs; b fails at its own third line; c has no error.
+        fn failed_apply_with_target_errors() -> (ExecutionState, Instant) {
+            let started_at = Instant::now();
+            let mut state = ExecutionState::applying_with_previous(
+                started_at,
+                ExecutionContext::loading("/repo"),
+                ["terraform_data.a", "terraform_data.b", "terraform_data.c"]
+                    .into_iter()
+                    .map(|address| ExecutionTargetSpec {
+                        address: address.to_owned(),
+                        actions: vec![PlanAction::Update],
+                    })
+                    .collect(),
+                Vec::new(),
+                &[None, None, None],
+            );
+            let mut record = |severity, summary: String, address: &str| {
+                state.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Diagnostic(Diagnostic {
+                        severity,
+                        summary,
+                        detail: None,
+                        address: Some(address.to_owned()),
+                        position: None,
+                        source: DiagnosticSource::Terraform,
+                    }),
+                });
+            };
+            for line in 0..30 {
+                record(
+                    DiagnosticSeverity::Warning,
+                    format!("a line {line}"),
+                    "terraform_data.a",
+                );
+            }
+            record(
+                DiagnosticSeverity::Error,
+                "a failure".to_owned(),
+                "terraform_data.a",
+            );
+            for line in 0..2 {
+                record(
+                    DiagnosticSeverity::Warning,
+                    format!("b line {line}"),
+                    "terraform_data.b",
+                );
+            }
+            record(
+                DiagnosticSeverity::Error,
+                "b failure".to_owned(),
+                "terraform_data.b",
+            );
+            for line in 2..40 {
+                record(
+                    DiagnosticSeverity::Warning,
+                    format!("b line {line}"),
+                    "terraform_data.b",
+                );
+            }
+            for line in 0..40 {
+                record(
+                    DiagnosticSeverity::Warning,
+                    format!("c line {line}"),
+                    "terraform_data.c",
+                );
+            }
+            let finished_at = started_at + Duration::from_secs(1);
+            state.finish_apply(
+                ApplyStatus::Failed,
+                None,
+                Some("apply failed".to_owned()),
+                finished_at,
+            );
+            (state, finished_at)
+        }
+
+        #[test]
+        fn selected_target_starts_at_its_own_first_error_after_a_failed_apply() {
+            struct SelectedTargetCase {
+                name: &'static str,
+                target: usize,
+                expected_offset: usize,
+                first_row: &'static str,
+            }
+
+            let (state, finished_at) = failed_apply_with_target_errors();
+            let area = Rect::new(0, 0, 80, 24);
+
+            for case in [
+                SelectedTargetCase {
+                    name: "target_with_an_error",
+                    target: 1,
+                    expected_offset: 2,
+                    first_row: "b failure",
+                },
+                SelectedTargetCase {
+                    name: "target_without_an_error",
+                    target: 2,
+                    expected_offset: 0,
+                    first_row: "c line 0",
+                },
+            ] {
+                let mut view = ExecutionViewState::default();
+                view.open_logs();
+                view.select_target(ExecutionTargetMove::Next, &[case.target]);
+                let layout = execution_layout_with_view(area, &state, view);
+                let body = layout.body();
+                let buffer = render_to_buffer((area.width, area.height), |frame| {
+                    render_execution_with_view(frame, &state, view, finished_at);
+                });
+                let first_row = (body.x..body.x + body.width)
+                    .map(|x| buffer[(x, body.y)].symbol())
+                    .collect::<String>();
+
+                assert_eq!(
+                    execution_scroll_position_with_view(&state, view, &layout).0,
+                    case.expected_offset,
+                    "case: {}",
+                    case.name
+                );
+                assert_eq!(first_row.trim_end(), case.first_row, "case: {}", case.name);
             }
         }
 
