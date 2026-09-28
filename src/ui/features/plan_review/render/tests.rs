@@ -7,7 +7,7 @@ use std::{
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     buffer::Buffer,
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier},
     text::Line,
     widgets::Widget,
 };
@@ -927,215 +927,6 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
             Color::Reset,
             Modifier::empty(),
         );
-    }
-}
-
-fn assert_line_segments_use_styles(buffer: &Buffer, line: &str, segments: &[(&str, Style)]) {
-    for &(segment, style) in segments {
-        let start = line
-            .find(segment)
-            .expect("segment should be part of the line");
-        assert_text_segment_uses_style(
-            buffer,
-            line,
-            line[..start].chars().count(),
-            segment.chars().count(),
-            style.fg.unwrap_or(Color::Reset),
-            style.bg.unwrap_or(Color::Reset),
-            style.add_modifier,
-        );
-    }
-}
-
-#[test]
-fn apply_confirmation_colors_each_planned_change_count_by_kind() {
-    let state = confirmation_state(review());
-    let buffer = render_to_buffer((120, 40), |frame| {
-        render_apply_confirmation(
-            frame,
-            &state,
-            &ApplyConfirmationViewState::default(),
-            confirmation_now(),
-        );
-    });
-
-    assert_line_segments_use_styles(
-        &buffer,
-        "Plan: +1 add  ~1 update  1 replace  -1 destroy",
-        &[
-            ("Plan: ", theme::secondary_style()),
-            ("+1 add", theme::success_style()),
-            ("  ", theme::secondary_style()),
-            ("~1 update", theme::warning_style()),
-            ("1 replace", theme::overview_total_replace_style()),
-            ("-1 destroy", theme::error_style()),
-        ],
-    );
-    for (label, address, style) in [
-        ("Destroy:", "  terraform_data.old", theme::error_style()),
-        (
-            "Replace:",
-            "  terraform_data.worker",
-            theme::overview_total_replace_style(),
-        ),
-    ] {
-        assert_line_segments_use_styles(&buffer, label, &[(label, style)]);
-        assert_line_segments_use_styles(&buffer, address, &[(address, style)]);
-    }
-}
-
-fn create_only_review() -> PlanReview {
-    PlanReview::new(
-        PathBuf::from("/repo"),
-        "default".to_owned(),
-        plan_document_with_blocks(
-            "+ resource \"terraform_data\" \"new\" {}".to_owned(),
-            vec![PlanBlock::new(0..1, PlanBlockKind::Resource)],
-        ),
-        Plan {
-            resource_changes: vec![resource_change(
-                "terraform_data.new",
-                ResourceChangeKind::Create,
-            )],
-            ..Plan::empty()
-        },
-        PlanMetadata::new(true),
-        Vec::new(),
-    )
-}
-
-#[test]
-fn apply_confirmation_keeps_zero_change_counts_in_the_secondary_color() {
-    let state = confirmation_state(create_only_review());
-    let buffer = render_to_buffer((80, 24), |frame| {
-        render_apply_confirmation(
-            frame,
-            &state,
-            &ApplyConfirmationViewState::default(),
-            confirmation_now(),
-        );
-    });
-
-    assert_line_segments_use_styles(
-        &buffer,
-        "Plan: +1 add  ~0 update  0 replace  -0 destroy",
-        &[
-            ("+1 add", theme::success_style()),
-            ("~0 update", theme::secondary_style()),
-            ("0 replace", theme::secondary_style()),
-            ("-0 destroy", theme::secondary_style()),
-        ],
-    );
-}
-
-#[test]
-fn apply_confirmation_shows_the_plan_age_in_whole_minutes() {
-    let planned_at = Instant::now();
-    let state = confirmation_state(review().with_planned_at(planned_at));
-    for (elapsed, expected) in [
-        (0, "Planned: <1m ago"),
-        (59, "Planned: <1m ago"),
-        (60, "Planned: 1m ago"),
-        (59 * 60, "Planned: 59m ago"),
-        (60 * 60 - 1, "Planned: 59m ago"),
-        (60 * 60, "Planned: 1h 0m ago"),
-        (65 * 60, "Planned: 1h 5m ago"),
-    ] {
-        let buffer = render_to_buffer((120, 40), |frame| {
-            render_apply_confirmation(
-                frame,
-                &state,
-                &ApplyConfirmationViewState::default(),
-                planned_at + Duration::from_secs(elapsed),
-            );
-        });
-        let text = buffer_text(&buffer);
-
-        assert!(
-            text.contains(&format!("│ {expected}  ")),
-            "{elapsed}s\n{text}"
-        );
-        let tool = text.find("│ Tool: ").expect("tool line");
-        let planned = text.find("│ Planned: ").expect("planned line");
-        let counts = text.find("│ Plan: +1 add").expect("change counts");
-        assert!(tool < planned && planned < counts, "{elapsed}s\n{text}");
-        assert_line_segments_use_styles(
-            &buffer,
-            expected,
-            &[
-                ("Planned: ", theme::secondary_style()),
-                (
-                    expected.trim_start_matches("Planned: "),
-                    theme::body_style(),
-                ),
-            ],
-        );
-    }
-}
-
-#[test]
-fn apply_confirmation_drops_the_plan_age_before_the_dialog_stops_fitting() {
-    let state = confirmation_state(review());
-    for (width, height, age_shown) in [
-        (40, 24, false),
-        (48, 24, false),
-        (40, 29, true),
-        (48, 29, true),
-        (80, 24, true),
-    ] {
-        let layout =
-            apply_confirmation_layout(Rect::new(0, 0, width, height), &state, confirmation_now());
-        let text = buffer_text(&render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(
-                frame,
-                &state,
-                &ApplyConfirmationViewState::default(),
-                confirmation_now(),
-            );
-        }));
-
-        assert!(layout.renderable(), "{width}x{height}\n{text}");
-        assert!(text.contains("> |"), "{width}x{height}\n{text}");
-        assert_eq!(
-            text.contains("Planned: 12m ago"),
-            age_shown,
-            "{width}x{height}\n{text}"
-        );
-    }
-}
-
-#[test]
-fn apply_confirmation_omits_the_plan_age_when_the_plan_time_is_unknown() {
-    let state = confirmation_state(create_only_review());
-    let buffer = render_to_buffer((120, 40), |frame| {
-        render_apply_confirmation(
-            frame,
-            &state,
-            &ApplyConfirmationViewState::default(),
-            confirmation_now(),
-        );
-    });
-
-    assert!(!buffer_text(&buffer).contains("Planned:"));
-    assert_eq!(
-        apply_confirmation_redraw_at(&state, confirmation_now()),
-        None
-    );
-}
-
-#[test]
-fn apply_confirmation_redraws_when_the_plan_age_reaches_the_next_minute() {
-    let planned_at = Instant::now();
-    let state = confirmation_state(review().with_planned_at(planned_at));
-    let minutes = |minutes| planned_at + Duration::from_mins(minutes);
-
-    for (now, expected) in [
-        (planned_at, minutes(1)),
-        (planned_at + Duration::from_secs(59), minutes(1)),
-        (minutes(1), minutes(2)),
-        (minutes(59) + Duration::from_secs(30), minutes(60)),
-    ] {
-        assert_eq!(apply_confirmation_redraw_at(&state, now), Some(expected));
     }
 }
 
@@ -2402,6 +2193,7 @@ mod filter {
 
 mod confirmation {
     use super::*;
+    use ratatui::style::Style;
 
     #[test]
     fn relative_directory_uses_the_launch_root_and_shows_dot_for_the_root() {
@@ -2636,6 +2428,218 @@ mod confirmation {
             render_apply_confirmation(frame, &state, &view, confirmation_now());
         });
         assert!(buffer_text(&buffer).contains("input|"));
+    }
+
+    fn assert_line_segments_use_styles(buffer: &Buffer, line: &str, segments: &[(&str, Style)]) {
+        for &(segment, style) in segments {
+            let start = line
+                .find(segment)
+                .expect("segment should be part of the line");
+            assert_text_segment_uses_style(
+                buffer,
+                line,
+                line[..start].chars().count(),
+                segment.chars().count(),
+                style.fg.unwrap_or(Color::Reset),
+                style.bg.unwrap_or(Color::Reset),
+                style.add_modifier,
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_colors_each_planned_change_count_by_kind() {
+        let state = confirmation_state(review());
+        let buffer = render_to_buffer((120, 40), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert_line_segments_use_styles(
+            &buffer,
+            "Plan: +1 add  ~1 update  1 replace  -1 destroy",
+            &[
+                ("Plan: ", theme::secondary_style()),
+                ("+1 add", theme::success_style()),
+                ("  ", theme::secondary_style()),
+                ("~1 update", theme::warning_style()),
+                ("1 replace", theme::overview_total_replace_style()),
+                ("-1 destroy", theme::error_style()),
+            ],
+        );
+        for (label, address, style) in [
+            ("Destroy:", "  terraform_data.old", theme::error_style()),
+            (
+                "Replace:",
+                "  terraform_data.worker",
+                theme::overview_total_replace_style(),
+            ),
+        ] {
+            assert_line_segments_use_styles(&buffer, label, &[(label, style)]);
+            assert_line_segments_use_styles(&buffer, address, &[(address, style)]);
+        }
+    }
+
+    fn create_only_review() -> PlanReview {
+        PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            plan_document_with_blocks(
+                "+ resource \"terraform_data\" \"new\" {}".to_owned(),
+                vec![PlanBlock::new(0..1, PlanBlockKind::Resource)],
+            ),
+            Plan {
+                resource_changes: vec![resource_change(
+                    "terraform_data.new",
+                    ResourceChangeKind::Create,
+                )],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn apply_confirmation_keeps_zero_change_counts_in_the_secondary_color() {
+        let state = confirmation_state(create_only_review());
+        let buffer = render_to_buffer((80, 24), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert_line_segments_use_styles(
+            &buffer,
+            "Plan: +1 add  ~0 update  0 replace  -0 destroy",
+            &[
+                ("+1 add", theme::success_style()),
+                ("~0 update", theme::secondary_style()),
+                ("0 replace", theme::secondary_style()),
+                ("-0 destroy", theme::secondary_style()),
+            ],
+        );
+    }
+
+    #[test]
+    fn apply_confirmation_shows_the_plan_age_in_whole_minutes() {
+        let planned_at = Instant::now();
+        let state = confirmation_state(review().with_planned_at(planned_at));
+        for (elapsed, expected) in [
+            (0, "Planned: <1m ago"),
+            (59, "Planned: <1m ago"),
+            (60, "Planned: 1m ago"),
+            (59 * 60, "Planned: 59m ago"),
+            (60 * 60 - 1, "Planned: 59m ago"),
+            (60 * 60, "Planned: 1h 0m ago"),
+            (65 * 60, "Planned: 1h 5m ago"),
+        ] {
+            let buffer = render_to_buffer((120, 40), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &ApplyConfirmationViewState::default(),
+                    planned_at + Duration::from_secs(elapsed),
+                );
+            });
+            let text = buffer_text(&buffer);
+
+            assert!(
+                text.contains(&format!("│ {expected}  ")),
+                "{elapsed}s\n{text}"
+            );
+            let tool = text.find("│ Tool: ").expect("tool line");
+            let planned = text.find("│ Planned: ").expect("planned line");
+            let counts = text.find("│ Plan: +1 add").expect("change counts");
+            assert!(tool < planned && planned < counts, "{elapsed}s\n{text}");
+            assert_line_segments_use_styles(
+                &buffer,
+                expected,
+                &[
+                    ("Planned: ", theme::secondary_style()),
+                    (
+                        expected.trim_start_matches("Planned: "),
+                        theme::body_style(),
+                    ),
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_drops_the_plan_age_before_the_dialog_stops_fitting() {
+        let state = confirmation_state(review());
+        for (width, height, age_shown) in [
+            (40, 24, false),
+            (48, 24, false),
+            (40, 29, true),
+            (48, 29, true),
+            (80, 24, true),
+        ] {
+            let layout = apply_confirmation_layout(
+                Rect::new(0, 0, width, height),
+                &state,
+                confirmation_now(),
+            );
+            let text = buffer_text(&render_to_buffer((width, height), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &ApplyConfirmationViewState::default(),
+                    confirmation_now(),
+                );
+            }));
+
+            assert!(layout.renderable(), "{width}x{height}\n{text}");
+            assert!(text.contains("> |"), "{width}x{height}\n{text}");
+            assert_eq!(
+                text.contains("Planned: 12m ago"),
+                age_shown,
+                "{width}x{height}\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_confirmation_omits_the_plan_age_when_the_plan_time_is_unknown() {
+        let state = confirmation_state(create_only_review());
+        let buffer = render_to_buffer((120, 40), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        });
+
+        assert!(!buffer_text(&buffer).contains("Planned:"));
+        assert_eq!(
+            apply_confirmation_redraw_at(&state, confirmation_now()),
+            None
+        );
+    }
+
+    #[test]
+    fn apply_confirmation_redraws_when_the_plan_age_reaches_the_next_minute() {
+        let planned_at = Instant::now();
+        let state = confirmation_state(review().with_planned_at(planned_at));
+        let minutes = |minutes| planned_at + Duration::from_mins(minutes);
+
+        for (now, expected) in [
+            (planned_at, minutes(1)),
+            (planned_at + Duration::from_secs(59), minutes(1)),
+            (minutes(1), minutes(2)),
+            (minutes(59) + Duration::from_secs(30), minutes(60)),
+        ] {
+            assert_eq!(apply_confirmation_redraw_at(&state, now), Some(expected));
+        }
     }
 }
 

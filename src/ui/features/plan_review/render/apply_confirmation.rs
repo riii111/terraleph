@@ -380,7 +380,6 @@ fn confirmation_footer_items(input_matches: bool) -> Vec<Line<'static>> {
     ]
 }
 
-// `age_at` is the time the plan age is measured at; None leaves the age line out.
 fn confirmation_sections(
     state: &ReviewSessionState,
     age_at: Option<Instant>,

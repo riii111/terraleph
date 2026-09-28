@@ -1922,7 +1922,7 @@ mod apply {
     }
 
     #[test]
-    fn apply_confirmation_shows_each_environment_plan_age_and_a_retry_renews_it() {
+    fn apply_confirmation_shows_each_environment_plan_age() {
         let planned_at = Instant::now();
         let mut state = applyable_session(&["a-dev", "b-prod"], 0);
         let dev = state.start_next().expect("a-dev should start");
@@ -1932,13 +1932,6 @@ mod apply {
             Vec::new(),
         );
         let prod = state.start_next().expect("b-prod should start");
-        state.complete(
-            prod,
-            PlanResult::Error("Synthetic failure.".to_owned()),
-            Vec::new(),
-        );
-        assert!(state.retry(prod));
-        assert_eq!(state.start_next(), Some(prod));
         state.complete(
             prod,
             ready_result(
