@@ -10,6 +10,7 @@ use crate::app::{
     execution::{Diagnostic, DiagnosticSeverity},
     review::{PlanDocument, PlanDocumentKey, PlanLineKind, PlanReview},
 };
+use crate::ui::display_text::DisplayColumns;
 use crate::ui::features::plan_review::PlanReviewMatch;
 use crate::ui::theme;
 
@@ -71,10 +72,10 @@ impl PlanContent {
             {
                 continue;
             }
-            // The styled spans give the same width and match columns that a frame draws.
-            let (rendered, line_matches) =
-                plan_line_and_matches(line, filter_query, notices.len() + plan.len(), None, kind);
-            plan_widths.push(display_width(&rendered));
+            // The shown spans give the same width and match columns that a frame draws.
+            let (_, line_matches, width) =
+                shown_plan_line(line, filter_query, notices.len() + plan.len(), None, kind);
+            plan_widths.push(width);
             plan.push(PlanSource { kind, line_number });
             matches.extend(line_matches);
         }
@@ -268,24 +269,43 @@ pub(super) fn plan_line_and_matches<'a>(
     selected: Option<&PlanReviewMatch>,
     kind: PlanLineKind,
 ) -> (Line<'a>, Vec<PlanReviewMatch>) {
+    let (shown, matches, _) = shown_plan_line(line, query, line_index, selected, kind);
+    (shown, matches)
+}
+
+// Styles and matches are found in the plan's own text, and each piece is then shown with tabs and
+// control characters spelled out, so match columns, the returned width, and the visible window all
+// count the shown cells.
+fn shown_plan_line<'a>(
+    line: &'a str,
+    query: &str,
+    line_index: usize,
+    selected: Option<&PlanReviewMatch>,
+    kind: PlanLineKind,
+) -> (Line<'a>, Vec<PlanReviewMatch>, usize) {
     let style = plan_line_style(line, kind);
     let emphasis = emphasized_ranges(line, kind);
+    let mut columns = DisplayColumns::default();
     if query.is_empty() && emphasis.is_empty() {
-        return (Line::from(Span::styled(line, style)), Vec::new());
+        let shown = Line::from(Span::styled(columns.show(line), style));
+        return (shown, Vec::new(), columns.column());
     }
     let mut result = Line::default();
     let mut matches = Vec::new();
     let mut cursor = 0;
-    let mut rendered_column = 0;
     let found = (!query.is_empty()).then(|| line.match_indices(query));
     for (index, match_text) in found.into_iter().flatten() {
-        let before = &line[cursor..index];
-        push_emphasized(&mut result, line, cursor..index, style, &emphasis);
-        rendered_column += display_width(&Line::from(before));
-        let start_column = rendered_column;
-        rendered_column += display_width(&Line::from(match_text));
-        let end_column = rendered_column;
-        let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
+        push_emphasized(
+            &mut result,
+            &mut columns,
+            line,
+            cursor..index,
+            style,
+            &emphasis,
+        );
+        let start_column = columns.column();
+        let shown = columns.show(match_text);
+        let rendered_match = PlanReviewMatch::new(line_index, start_column, columns.column());
         let match_style = selected
             .filter(|selected| {
                 selected.start() == rendered_match.start() && selected.end() == rendered_match.end()
@@ -294,12 +314,19 @@ pub(super) fn plan_line_and_matches<'a>(
                 theme::selected_search_match_style()
             });
         // A match keeps its own style over the line style and any emphasis under it.
-        result.push_span(Span::styled(match_text, match_style));
+        result.push_span(Span::styled(shown, match_style));
         matches.push(rendered_match);
         cursor = index + match_text.len();
     }
-    push_emphasized(&mut result, line, cursor..line.len(), style, &emphasis);
-    (result, matches)
+    push_emphasized(
+        &mut result,
+        &mut columns,
+        line,
+        cursor..line.len(),
+        style,
+        &emphasis,
+    );
+    (result, matches, columns.column())
 }
 
 #[derive(Clone, Copy)]
@@ -353,6 +380,7 @@ fn emphasized_ranges(line: &str, kind: PlanLineKind) -> Vec<(Range<usize>, Empha
 // Pushes `range` of `line` in the line style, adding the emphasis of each part it overlaps.
 fn push_emphasized<'a>(
     result: &mut Line<'a>,
+    columns: &mut DisplayColumns,
     line: &'a str,
     range: Range<usize>,
     style: Style,
@@ -366,17 +394,20 @@ fn push_emphasized<'a>(
             continue;
         }
         if cursor < start {
-            result.push_span(Span::styled(&line[cursor..start], style));
+            result.push_span(Span::styled(columns.show(&line[cursor..start]), style));
         }
         let emphasized_style = match kind {
             Emphasis::HiddenValue => theme::plan_hidden_value_style(style),
             Emphasis::ChangeArrow => theme::plan_change_arrow_style(style),
         };
-        result.push_span(Span::styled(&line[start..end], emphasized_style));
+        result.push_span(Span::styled(
+            columns.show(&line[start..end]),
+            emphasized_style,
+        ));
         cursor = end;
     }
     if cursor < range.end {
-        result.push_span(Span::styled(&line[cursor..range.end], style));
+        result.push_span(Span::styled(columns.show(&line[cursor..range.end]), style));
     }
 }
 
@@ -395,7 +426,8 @@ fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {
 }
 
 // Heredoc text can start with the same characters as a diff marker, so only a marker in the
-// document's marker column, after spaces and before a space or the line end, counts.
+// document's marker column, after spaces and before a space or the line end, counts. Only spaces
+// come before it, so its byte offset in the plan text is also its shown column.
 fn heredoc_marker(line: &str, marker_column: usize) -> Option<char> {
     let (indent, rest) = line.split_at_checked(marker_column)?;
     let mut rest = rest.chars();
