@@ -1831,9 +1831,8 @@ mod apply {
         ));
     }
 
-    /// Opens the second environment, scrolls its review, and opens the apply
-    /// confirmation. Returns the review before confirming and the confirmation screen.
-    fn confirm_scrolled_review() -> (String, ratatui::buffer::Buffer) {
+    #[test]
+    fn apply_confirmation_keeps_the_environment_review_behind_the_dialog() {
         let mut state = applyable_session(&["a-dev", "b-prod"], 2);
         let mut view = EnvironmentView::default();
         let size = Size::new(120, 40);
@@ -1846,6 +1845,7 @@ mod apply {
         let raw = render_text(&mut view, &state, (120, 40));
         assert!(raw.contains("terraform 1.9.0"), "{raw}");
         assert!(raw.contains("Line 11/60"), "{raw}");
+
         let Some(EnvironmentInput::Review(index, action)) =
             handle_key_code(&mut view, KeyCode::Char('a'), size, &state)
         else {
@@ -1865,41 +1865,8 @@ mod apply {
                 &ApplyConfirmationViewState::default(),
             );
         });
-        (raw, buffer)
-    }
-
-    #[test]
-    fn apply_confirmation_keeps_the_environment_review_behind_the_dialog() {
-        let (raw, buffer) = confirm_scrolled_review();
-
         let text = buffer_text(&buffer);
-        let raw_lines = raw.lines().collect::<Vec<_>>();
-        let lines = text.lines().collect::<Vec<_>>();
-        assert_eq!(lines[0], raw_lines[0], "{text}");
-        assert_eq!(lines[1], raw_lines[1], "{text}");
-        assert_eq!(lines.last(), raw_lines.last(), "{text}");
-        assert!(text.contains("Apply this reviewed plan?"), "{text}");
-        let (dialog_left, _) =
-            text_position(&buffer, "┌").expect("the confirmation frame should be drawn");
-        let outside_dialog = |lines: &[&str]| -> Vec<String> {
-            lines
-                .iter()
-                .map(|line| line.chars().take(usize::from(dialog_left)).collect())
-                .collect()
-        };
-        let body_rows = 2..lines.len() - 2;
-        assert_eq!(
-            outside_dialog(&lines[body_rows.clone()]),
-            outside_dialog(&raw_lines[body_rows]),
-            "{text}"
-        );
-    }
 
-    #[test]
-    fn apply_confirmation_keeps_plan_content_under_the_environment_header() {
-        let (raw, buffer) = confirm_scrolled_review();
-
-        let text = buffer_text(&buffer);
         let raw_lines = raw.lines().collect::<Vec<_>>();
         let lines = text.lines().collect::<Vec<_>>();
         let first_plan_row = raw_lines
@@ -1912,6 +1879,22 @@ mod apply {
             "{text}"
         );
         assert!(!text.contains("ws:default"), "{text}");
+        assert_eq!(lines.last(), raw_lines.last(), "{text}");
+        assert!(text.contains("Apply this reviewed plan?"), "{text}");
+        let (dialog_left, _) =
+            text_position(&buffer, "┌").expect("the confirmation frame should be drawn");
+        let outside_dialog = |lines: &[&str]| -> Vec<String> {
+            lines
+                .iter()
+                .map(|line| line.chars().take(usize::from(dialog_left)).collect())
+                .collect()
+        };
+        let body_rows = first_plan_row + 1..lines.len() - 2;
+        assert_eq!(
+            outside_dialog(&lines[body_rows.clone()]),
+            outside_dialog(&raw_lines[body_rows]),
+            "{text}"
+        );
     }
 
     #[test]
