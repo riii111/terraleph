@@ -82,6 +82,18 @@ class Screen:
                     del self.pending[:final + 1]
                     self.csi(sequence.decode("ascii", "ignore"), command)
                     continue
+                if self.pending[1] == ord("]"):
+                    # Terminals consume an OSC string, ended by BEL or ST, without drawing it.
+                    end = next(
+                        (index for index in range(2, len(self.pending))
+                         if self.pending[index] == 0x07
+                         or self.pending[index:index + 2] == b"\x1b\\"),
+                        None,
+                    )
+                    if end is None:
+                        return
+                    del self.pending[:end + (1 if self.pending[end] == 0x07 else 2)]
+                    continue
                 del self.pending[:2]
                 continue
 
@@ -220,6 +232,14 @@ def observe_current_or_wait(marker, name, timeout=20):
         observed.append(name)
         return
     wait_new(marker, name, timeout)
+
+
+def wait_copy_notice(name, description):
+    notices = ("Copied.", "Sent to terminal clipboard.", "Copy failed.")
+    wait_screen(lambda current: any(notice in current for notice in notices), name, description)
+    # Without a system clipboard, as on a headless runner, the copy reaches the terminal as OSC 52.
+    if "Sent to terminal clipboard." in screen.text() and b"\x1b]52;c;" not in output:
+        raise RuntimeError(f"{name} did not send OSC 52; tail={bytes(output)[-1200:]!r}")
 
 
 def wait_parts(markers, name, timeout=20):
@@ -663,11 +683,7 @@ try:
         send_key(b"\x1b")
         wait_new("y copy all", "filter_context_closed")
         send_key(b"y")
-        wait_screen(
-            lambda current: "Copied." in current or "Copy failed." in current,
-            "filter_copy",
-            "copy notice after filtering",
-        )
+        wait_copy_notice("filter_copy", "copy notice after filtering")
         send_key(b"a")
         wait_new("Apply this reviewed plan?", "filter_apply_confirmation")
         send_key(b"\x1b")
@@ -985,11 +1001,7 @@ try:
         send_key(b"q")
         wait_new("Quit Terraleph?", "quit_confirmation_again")
         send_key(b"y")
-        wait_screen(
-            lambda current: "Copied." in current or "Copy failed." in current,
-            "quit_copy",
-            "copy notice after cancelling quit confirmation",
-        )
+        wait_copy_notice("quit_copy", "copy notice after cancelling quit confirmation")
         send_key(b"q")
         wait_new("Quit Terraleph?", "quit_confirmation_after_copy")
         send_key(b"\r")
