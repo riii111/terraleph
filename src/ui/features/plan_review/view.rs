@@ -5,7 +5,7 @@ use crate::ui::{
     text_input,
 };
 
-use super::PlanReviewInput;
+use super::{PlanReviewInput, render::PlanContentCache};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlanReviewOverlay {
@@ -57,6 +57,8 @@ pub(crate) struct PlanReviewViewState {
     overlay: Option<PlanReviewOverlay>,
     overlay_scroll: DialogScroll,
     overview: OverviewViewState,
+    // Filled by the first render or key that needs the body, so it is shared through `&self`.
+    content: PlanContentCache,
 }
 
 impl PlanReviewViewState {
@@ -213,6 +215,19 @@ impl PlanReviewViewState {
 
     pub(crate) const fn overlay_scroll(&self) -> &DialogScroll {
         &self.overlay_scroll
+    }
+
+    pub(super) const fn content_cache(&self) -> &PlanContentCache {
+        &self.content
+    }
+
+    /// Returns a fresh view, unscrolled and without a search or selection, that starts from the
+    /// body this view has prepared.
+    pub(super) fn fresh_with_content(&self) -> Self {
+        Self {
+            content: self.content.clone(),
+            ..Self::default()
+        }
     }
 
     pub(crate) const fn overview(&self) -> &OverviewViewState {

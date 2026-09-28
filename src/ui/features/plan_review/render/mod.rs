@@ -5,7 +5,7 @@ mod overlay;
 mod review_footer;
 mod status;
 
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
 use ratatui::{
     Frame,
@@ -27,11 +27,12 @@ pub(crate) use apply_confirmation::{
     apply_confirmation_layout, apply_confirmation_redraw_at, render_apply_confirmation,
     render_apply_confirmation_dialog,
 };
+pub(super) use content::PlanContentCache;
 pub(crate) use layout::{
     environment_layout, layout, layout_with_quit_confirmation, overview_detail_layout,
 };
 
-use content::{content_lines_with_selection, flash_lines, prepare_view_content, visible_lines};
+use content::{PlanContent, flash_lines, visible_lines};
 use layout::layout_with_content;
 use overlay::render_overlay;
 use review_footer::review_footer_status;
@@ -118,7 +119,9 @@ pub(crate) fn render_with_quit_confirmation(
     quit_confirmation: bool,
 ) {
     // The clone only keeps body scroll reconciliation local; the overlay records its scroll
-    // limit on the caller's view so the next key starts from the rendered offset.
+    // limit on the caller's view so the next key starts from the rendered offset. The body is
+    // prepared on the caller's view first so the next key reuses it instead of the clone's copy.
+    view_content(state, view);
     let mut reconciled = view.clone();
     if render_for_navigation(
         frame,
@@ -171,13 +174,11 @@ fn render_for_navigation(
         return false;
     }
 
-    let filtered_view = filter_active(view.searching(), state);
-    let content = prepare_view_content(state, filtered_view);
     let layout = layout_with_content(
         area,
         view.searching(),
         state.review(),
-        &content,
+        view_content(state, view),
         state.copy_feedback().notice_at(now),
         footer_mode,
         navigation,
@@ -202,6 +203,7 @@ fn render_for_navigation(
     );
     render_status(frame, &layout, state, view);
 
+    let content = layout.content();
     let content_metrics = content.metrics();
     let line_count = content_metrics.line_count;
     let max_line_width = content_metrics.max_width;
@@ -210,26 +212,21 @@ fn render_for_navigation(
     let (vertical, horizontal) = view.scroll();
     let vertical = vertical.min(max_vertical);
     let horizontal = horizontal.min(max_horizontal);
-    let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(&content.lines)
-    } else {
-        content_lines_with_selection(
-            &content,
-            state.review().search_query(),
-            view.selected()
-                .and_then(|selected| content.matches.get(selected)),
-        )
-    };
     let body = layout.body();
+    // Only the rows on screen are styled.
+    let lines = content.lines(
+        state.review().document(),
+        vertical..vertical.saturating_add(usize::from(body.height)),
+        view.selected()
+            .and_then(|selected| content.matches().get(selected)),
+    );
+    let lines = if state.copy_feedback().flash_active(now) {
+        flash_lines(&lines)
+    } else {
+        lines
+    };
     frame.render_widget(
-        Paragraph::new(visible_lines(
-            &lines,
-            vertical,
-            horizontal,
-            body.height,
-            body.width,
-        ))
-        .style(theme::body_style()),
+        Paragraph::new(visible_lines(&lines, horizontal, body.width)).style(theme::body_style()),
         body,
     );
     let scrollbar_area = Rect::new(
@@ -263,7 +260,7 @@ fn render_for_navigation(
             layout.footer_status.clone()
         } else {
             Some((
-                review_footer_status(state, view, &content, layout.shell.footer().width),
+                review_footer_status(state, view, content, layout.shell.footer().width),
                 theme::secondary_style(),
             ))
         };
@@ -284,6 +281,30 @@ fn render_for_navigation(
 
 fn filter_active(searching: bool, state: &ReviewSessionState) -> bool {
     searching || !state.review().search_query().is_empty()
+}
+
+// Renders and keys share the view's prepared body, so moving through a large plan does not
+// prepare it again.
+fn view_content(state: &ReviewSessionState, view: &PlanReviewViewState) -> Rc<PlanContent> {
+    let review = state.review();
+    view.content_cache().get(
+        review,
+        filter_active(view.searching(), state),
+        review.search_query(),
+    )
+}
+
+// Returns a fresh view that shares the body kept on `view`. The body is prepared on `view` first,
+// so a fresh view made for every frame does not prepare it again.
+fn fresh_view(state: &ReviewSessionState, view: &PlanReviewViewState) -> PlanReviewViewState {
+    let fresh = PlanReviewViewState::default();
+    let review = state.review();
+    view.content_cache().get(
+        review,
+        filter_active(fresh.searching(), state),
+        review.search_query(),
+    );
+    view.fresh_with_content()
 }
 
 fn terminal_notice_message(

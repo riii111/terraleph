@@ -40,7 +40,7 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{plan_line_and_matches, review_lines, visible_lines},
+    content::{plan_line_and_matches, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
@@ -202,6 +202,21 @@ fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
 // Every confirmation fixture renders the same plan age, so snapshots stay stable.
 fn confirmation_now() -> Instant {
     *PLANNED_AT + PLAN_AGE
+}
+
+fn searching_view() -> PlanReviewViewState {
+    let mut view = PlanReviewViewState::default();
+    view.apply_with_matches(PlanReviewInput::SearchStart, Rect::default(), 0, 0, "", &[]);
+    view
+}
+
+// The plan body rows as text, prepared the way a frame prepares them.
+fn content_text(review: &PlanReview, filtered_view: bool) -> Vec<String> {
+    PlanContent::prepare(review, filtered_view, review.search_query())
+        .lines(review.document(), 0..usize::MAX, None)
+        .iter()
+        .map(Line::to_string)
+        .collect()
 }
 
 fn review_state(plan: PlanReview) -> ReviewSessionState {
@@ -395,7 +410,7 @@ fn renders_long_target_header_and_preserves_position_for_overlays() {
     );
     let state = review_state(plan);
     let area = Rect::new(0, 0, 120, 40);
-    let layout = layout(area, false, &state);
+    let layout = layout(area, &PlanReviewViewState::default(), &state);
     let mut view = PlanReviewViewState::default();
     view.apply_with_matches(
         PlanReviewInput::Down,
@@ -604,10 +619,22 @@ fn confirmation_opened_from_the_overview_detail_draws_the_same_background() {
         let view = ApplyConfirmationViewState::default();
         assert_eq!(
             render_to_buffer(size, |frame| {
-                render_apply_confirmation(frame, from_overview, &view, confirmation_now());
+                render_apply_confirmation(
+                    frame,
+                    from_overview,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             }),
             render_to_buffer(size, |frame| {
-                render_apply_confirmation(frame, &direct, &view, confirmation_now());
+                render_apply_confirmation(
+                    frame,
+                    &direct,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             }),
             "{size:?}"
         );
@@ -630,7 +657,8 @@ fn overview_detail_layout_matches_the_raw_review_opened_from_the_overview() {
     );
     let overview = session.overview().expect("overview should be visible");
     let area = Rect::new(0, 0, 80, 24);
-    let predicted = overview_detail_layout(area, overview.review());
+    let predicted =
+        overview_detail_layout(area, &PlanReviewViewState::default(), overview.review());
 
     session::update(
         &mut session,
@@ -639,7 +667,7 @@ fn overview_detail_layout_matches_the_raw_review_opened_from_the_overview() {
     );
     let raw = layout(
         area,
-        false,
+        &PlanReviewViewState::default(),
         session.review().expect("raw review should be visible"),
     );
     assert_eq!(predicted.body(), raw.body());
@@ -664,7 +692,13 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
             None
         );
         let help = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &view, confirmation_now());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
         let help_text = buffer_text(&help);
         assert!(
@@ -706,7 +740,13 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         if width == 40 {
             view.overlay_bottom();
             let bottom = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &view, confirmation_now());
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             });
             let bottom_text = buffer_text(&bottom);
             assert!(
@@ -731,7 +771,13 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         None
     );
     let context = render_to_buffer((120, 40), |frame| {
-        render_apply_confirmation(frame, &state, &view, confirmation_now());
+        render_apply_confirmation(
+            frame,
+            &state,
+            &PlanReviewViewState::default(),
+            &view,
+            confirmation_now(),
+        );
     });
     assert!(buffer_text(&context).contains("Execution directory"));
     assert!(buffer_text(&context).contains("/repo/environments/production/main"));
@@ -777,7 +823,7 @@ fn renders_normal_plan_height_variants_at_small_and_large_sizes() {
         for &(width, height) in &[(80, 24), (160, 60)] {
             let state = review_state(review_with_content(height_case.line_count, 48));
             let area = Rect::new(0, 0, width, height);
-            let layout = layout(area, false, &state);
+            let layout = layout(area, &PlanReviewViewState::default(), &state);
             let buffer = render_to_buffer((width, height), |frame| {
                 render(
                     frame,
@@ -843,7 +889,13 @@ fn renders_apply_confirmation_at_all_supported_sizes() {
         let state = confirmation_state(review());
         let view = ApplyConfirmationViewState::default();
         let buffer = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &view, confirmation_now());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
 
         snapshot(
@@ -881,7 +933,13 @@ fn renders_rejected_apply_confirmation_vrt() {
             }
             view.apply(ApplyConfirmationInput::Confirm, "main", 0);
             let buffer = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &view, confirmation_now());
+                render_apply_confirmation(
+                    frame,
+                    &state,
+                    &PlanReviewViewState::default(),
+                    &view,
+                    confirmation_now(),
+                );
             });
 
             assert!(
@@ -905,7 +963,13 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
     let mut view = ApplyConfirmationViewState::default();
     let render = |view: &ApplyConfirmationViewState| {
         render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, view, confirmation_now());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                view,
+                confirmation_now(),
+            );
         })
     };
 
@@ -1028,7 +1092,7 @@ mod layout {
         vertical: usize,
         horizontal: usize,
     ) -> (PlanReviewLayout, Buffer) {
-        let layout = layout(area, false, state);
+        let layout = layout(area, &PlanReviewViewState::default(), state);
         let mut view = PlanReviewViewState::default();
         for _ in 0..vertical {
             view.apply_with_matches(
@@ -1134,8 +1198,9 @@ mod layout {
     fn quit_confirmation_preserves_the_plan_body_and_scroll_limits() {
         let state = review_state(review());
         let area = Rect::new(0, 0, 50, 24);
-        let normal = layout(area, false, &state);
-        let waiting = layout_with_quit_confirmation(area, false, &state, true);
+        let normal = layout(area, &PlanReviewViewState::default(), &state);
+        let waiting =
+            layout_with_quit_confirmation(area, &PlanReviewViewState::default(), &state, true);
 
         assert_eq!(waiting.body(), normal.body());
         assert_eq!(waiting.max_vertical(), normal.max_vertical());
@@ -1147,15 +1212,15 @@ mod layout {
         let mut plan = filter_height_review();
         let state = review_state(plan.clone());
         let area = Rect::new(0, 0, 80, 24);
-        let normal = layout(area, false, &state);
+        let normal = layout(area, &PlanReviewViewState::default(), &state);
 
         plan.set_search_query("api".to_owned());
         let first_filter_state = review_state(plan.clone());
         plan.set_search_query("missing".to_owned());
         let second_filter_state = review_state(plan);
-        let first_filter = layout(area, false, &first_filter_state);
-        let second_filter = layout(area, false, &second_filter_state);
-        let searching = layout(area, true, &state);
+        let first_filter = layout(area, &PlanReviewViewState::default(), &first_filter_state);
+        let second_filter = layout(area, &PlanReviewViewState::default(), &second_filter_state);
+        let searching = layout(area, &searching_view(), &state);
 
         assert_eq!(
             first_filter.shell.header().y,
@@ -1183,10 +1248,10 @@ mod layout {
     fn filter_input_keeps_a_common_only_plan_height_stable() {
         let mut plan = common_only_review();
         let area = Rect::new(0, 0, 80, 24);
-        let empty_filter = layout(area, true, &review_state(plan.clone()));
+        let empty_filter = layout(area, &searching_view(), &review_state(plan.clone()));
 
         plan.set_search_query("missing".to_owned());
-        let typed_filter = layout(area, true, &review_state(plan));
+        let typed_filter = layout(area, &searching_view(), &review_state(plan));
 
         assert_eq!(typed_filter.shell.header().y, empty_filter.shell.header().y);
         assert_eq!(
@@ -1200,7 +1265,7 @@ mod layout {
         let state = review_state(review());
         let view = PlanReviewViewState::default();
         let area = Rect::new(0, 0, 80, 24);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, &state, &view, Instant::now());
         });
@@ -1258,7 +1323,7 @@ mod layout {
         let state = review_state(review());
         let mut previous_body = None;
         for area in [Rect::new(0, 0, 80, 24), Rect::new(0, 0, 88, 24)] {
-            let layout = layout(area, false, &state);
+            let layout = layout(area, &PlanReviewViewState::default(), &state);
             assert!(layout.vertical_scrollbar());
             assert!(layout.horizontal_scrollbar());
             assert!(layout.max_vertical() > 1);
@@ -1277,7 +1342,7 @@ mod layout {
         }
 
         let area = Rect::new(0, 0, 80, 24);
-        let base_layout = layout(area, false, &state);
+        let base_layout = layout(area, &PlanReviewViewState::default(), &state);
         let vertical_state = review_state(review_with_content(
             base_layout.body().height.saturating_add(2),
             base_layout.body().width,
@@ -1322,11 +1387,8 @@ mod layout {
             PlanMetadata::new(true),
             Vec::new(),
         );
-        let filtered = review.document().filter(review.search_query());
-        let lines = review_lines(&review, &filtered, false, "").0;
-
         assert_eq!(
-            lines.iter().map(Line::to_string).collect::<Vec<_>>(),
+            content_text(&review, false),
             ["body", "Plan: 1 to add, 0 to change, 0 to destroy."]
         );
     }
@@ -1341,11 +1403,8 @@ mod layout {
             PlanMetadata::new(false),
             Vec::new(),
         );
-        let filtered = review.document().filter(review.search_query());
-        let lines = review_lines(&review, &filtered, false, "").0;
-
         assert_eq!(
-            lines.iter().map(Line::to_string).collect::<Vec<_>>(),
+            content_text(&review, false),
             ["Plan: application text", "following body text"]
         );
     }
@@ -1603,7 +1662,7 @@ mod filter {
         plan.set_search_query(SEARCH_TERM.to_owned());
         let state = review_state(plan);
         let area = Rect::new(0, 0, 80, 24);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         assert!(layout.matches().len() >= 2);
         let mut view = PlanReviewViewState::default();
         view.apply_with_matches(
@@ -1671,7 +1730,7 @@ mod filter {
         plan.set_search_query(SEARCH_TERM.to_owned());
         let state = review_state(plan);
         let area = Rect::new(0, 0, 80, 24);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let mut view = PlanReviewViewState::default();
         view.apply_with_matches(
             PlanReviewInput::SearchStart,
@@ -1742,7 +1801,11 @@ mod filter {
             };
             plan.set_search_query(case.query.to_owned());
             let state = review_state(plan);
-            let layout = layout(Rect::new(0, 0, 120, 40), false, &state);
+            let layout = layout(
+                Rect::new(0, 0, 120, 40),
+                &PlanReviewViewState::default(),
+                &state,
+            );
             assert_eq!(
                 layout.matches().len(),
                 case.expected_matches,
@@ -1870,7 +1933,7 @@ mod filter {
     fn filter_input_keeps_the_footer_count_and_plan_body_fixed_while_typing() {
         let area = Rect::new(0, 0, 120, 40);
         let normal_state = review_state(review());
-        let normal_layout = layout(area, false, &normal_state);
+        let normal_layout = layout(area, &PlanReviewViewState::default(), &normal_state);
         let mut positions = Vec::new();
 
         for query in ["a", "worker", "a-very-long-filter-query"] {
@@ -1879,7 +1942,7 @@ mod filter {
             let state = review_state(plan);
             let mut view = PlanReviewViewState::default();
             view.apply_with_matches(PlanReviewInput::SearchStart, area, 0, 0, query, &[]);
-            let layout = layout(area, true, &state);
+            let layout = layout(area, &view, &state);
             let buffer = render_to_buffer((area.width, area.height), |frame| {
                 render(frame, &state, &view, Instant::now());
             });
@@ -1944,8 +2007,8 @@ mod filter {
 
         for (width, height) in [(48, 24), (80, 24), (120, 40), (160, 60)] {
             let area = Rect::new(0, 0, width, height);
-            let normal_layout = layout(area, false, &normal);
-            let filtered_layout = layout(area, false, &filtered);
+            let normal_layout = layout(area, &PlanReviewViewState::default(), &normal);
+            let filtered_layout = layout(area, &PlanReviewViewState::default(), &filtered);
             assert_eq!(
                 normal_layout.body().y,
                 filtered_layout.body().y,
@@ -2011,7 +2074,7 @@ mod filter {
         plan.set_search_query("worker".to_owned());
         let state = review_state(plan);
         let area = Rect::new(0, 0, 80, 20);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let status = layout.status();
         let separator = layout.separator();
         assert_eq!(status.height, 1);
@@ -2056,7 +2119,7 @@ mod filter {
         let area = Rect::new(0, 0, 24, 6);
         let state = review_state(review());
         let mut view = PlanReviewViewState::default();
-        let initial_layout = layout(area, false, &state);
+        let initial_layout = layout(area, &PlanReviewViewState::default(), &state);
         view.apply_with_matches(
             PlanReviewInput::SearchStart,
             initial_layout.body(),
@@ -2066,7 +2129,7 @@ mod filter {
             &[],
         );
 
-        let searching_layout = layout(area, view.searching(), &state);
+        let searching_layout = layout(area, &view, &state);
         assert_eq!(searching_layout.body().height, 0);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, &state, &view, Instant::now());
@@ -2176,17 +2239,12 @@ mod filter {
         );
         review.set_search_query("api".to_owned());
 
-        let filtered = review.document().filter(review.search_query());
-        let lines = review_lines(&review, &filtered, true, "api").0;
+        let lines = content_text(&review, true);
+        assert!(lines.iter().all(|line| line != "Plan total (full plan):"));
         assert!(
             lines
                 .iter()
-                .all(|line| line.to_string() != "Plan total (full plan):")
-        );
-        assert!(
-            lines
-                .iter()
-                .any(|line| { line.to_string() == "Plan: 1 to add, 0 to change, 0 to destroy." })
+                .any(|line| line == "Plan: 1 to add, 0 to change, 0 to destroy.")
         );
     }
 }
@@ -2236,7 +2294,13 @@ mod confirmation {
             view.apply(ApplyConfirmationInput::Character(character), "yes", 0);
         }
         let buffer = render_to_buffer((120, 40), |frame| {
-            render_apply_confirmation(frame, &state, &view, confirmation_now());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
 
         assert_text_prefix_uses_style(
@@ -2299,6 +2363,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2309,6 +2374,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2343,6 +2409,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2361,6 +2428,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2425,7 +2493,13 @@ mod confirmation {
         assert!(confirmation_input_scroll(&view, layout.input().width) > 0);
 
         let buffer = render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, &view, confirmation_now());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &view,
+                confirmation_now(),
+            );
         });
         assert!(buffer_text(&buffer).contains("input|"));
     }
@@ -2454,6 +2528,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2511,6 +2586,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2545,6 +2621,7 @@ mod confirmation {
                 render_apply_confirmation(
                     frame,
                     &state,
+                    &PlanReviewViewState::default(),
                     &ApplyConfirmationViewState::default(),
                     planned_at + Duration::from_secs(elapsed),
                 );
@@ -2592,6 +2669,7 @@ mod confirmation {
                 render_apply_confirmation(
                     frame,
                     &state,
+                    &PlanReviewViewState::default(),
                     &ApplyConfirmationViewState::default(),
                     confirmation_now(),
                 );
@@ -2614,6 +2692,7 @@ mod confirmation {
             render_apply_confirmation(
                 frame,
                 &state,
+                &PlanReviewViewState::default(),
                 &ApplyConfirmationViewState::default(),
                 confirmation_now(),
             );
@@ -2707,7 +2786,13 @@ mod overlay {
                 let rows = |view: &ApplyConfirmationViewState| {
                     dialog_body_rows(
                         &render_to_buffer((40, 16), |frame| {
-                            render_apply_confirmation(frame, &state, view, confirmation_now());
+                            render_apply_confirmation(
+                                frame,
+                                &state,
+                                &PlanReviewViewState::default(),
+                                view,
+                                confirmation_now(),
+                            );
                         }),
                         title,
                     )
@@ -2945,7 +3030,7 @@ mod overlay {
         let mut plan = review();
         plan.set_search_query(SEARCH_TERM.to_owned());
         let state = review_state(plan);
-        let scroll_layout = layout(area, false, &state);
+        let scroll_layout = layout(area, &PlanReviewViewState::default(), &state);
         let mut view = PlanReviewViewState::default();
         view.apply_with_matches(
             PlanReviewInput::Right,
@@ -2980,7 +3065,7 @@ mod overlay {
         );
         let layout = layout(
             area,
-            true,
+            &searching_view(),
             session.review().expect("review should be visible"),
         );
         session::update(
@@ -3063,7 +3148,7 @@ mod overlay {
         let state = review_state(review_with_applyable(false));
         let view = PlanReviewViewState::default();
         let area = Rect::new(0, 0, 120, 40);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, &state, &view, Instant::now());
         });
@@ -3087,7 +3172,7 @@ mod overlay {
         let state = review_state(review_with_applyable(false));
         let view = PlanReviewViewState::default();
         let area = Rect::new(0, 0, 24, 24);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, &state, &view, Instant::now());
         });
@@ -3189,7 +3274,7 @@ mod overlay {
         let state = review_state(review_with_applyable(true).with_apply_entry(true));
         let view = PlanReviewViewState::default();
         let area = Rect::new(0, 0, 38, 24);
-        let layout = layout(area, false, &state);
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, &state, &view, Instant::now());
         });
@@ -3271,7 +3356,7 @@ mod overlay {
     fn footer_text(state: &ReviewSessionState) -> String {
         let view = PlanReviewViewState::default();
         let area = Rect::new(0, 0, 120, 40);
-        let layout = layout(area, false, state);
+        let layout = layout(area, &PlanReviewViewState::default(), state);
         let buffer = render_to_buffer((area.width, area.height), |frame| {
             render(frame, state, &view, Instant::now());
         });
@@ -3408,7 +3493,7 @@ mod large_plan {
                 .collect::<Vec<_>>(),
             "",
         );
-        let layout = layout(AREA, false, &state);
+        let layout = layout(AREA, &PlanReviewViewState::default(), &state);
         let height = usize::from(layout.body().height);
         assert_eq!(layout.max_vertical(), LARGE_LINE_COUNT - height);
         assert!(layout.max_vertical() > usize::from(u16::MAX));
@@ -3443,7 +3528,7 @@ mod large_plan {
     fn right_edge_shows_the_end_of_a_line_wider_than_u16() {
         let line = wide_payload_line();
         let state = large_review(&[attribute_line(1), line.clone()], "");
-        let layout = layout(AREA, false, &state);
+        let layout = layout(AREA, &PlanReviewViewState::default(), &state);
         let width = Line::from(line.as_str()).width();
         assert!(width > LARGE_COLUMN_COUNT);
         assert_eq!(
@@ -3481,7 +3566,7 @@ mod large_plan {
         lines[LARGE_LINE_COUNT - 10] = format!("      + {NEEDLE}_tail = \"synthetic\"");
         lines[LARGE_LINE_COUNT - 1] = format!("{}{NEEDLE}\"", wide_payload_line());
         let state = large_review(&lines, NEEDLE);
-        let layout = layout(AREA, false, &state);
+        let layout = layout(AREA, &PlanReviewViewState::default(), &state);
         let [_, tail, last] = layout.matches() else {
             panic!("expected three matches: {:?}", layout.matches());
         };
@@ -3544,7 +3629,7 @@ mod large_plan {
         assert!(Line::from(line.as_str()).width() < drawn_width);
 
         let state = large_review(std::slice::from_ref(&line), "");
-        let raw = layout(AREA, false, &state);
+        let raw = layout(AREA, &PlanReviewViewState::default(), &state);
         assert_eq!(
             raw.max_horizontal(),
             drawn_width - usize::from(raw.body().width)
@@ -3562,7 +3647,7 @@ mod large_plan {
         assert!(rows[0].ends_with(&format!("ｷﾟ{NEEDLE}\"")), "{}", rows[0]);
 
         let state = large_review(&[line], NEEDLE);
-        let filtered = layout(AREA, false, &state);
+        let filtered = layout(AREA, &PlanReviewViewState::default(), &state);
         let [matched] = filtered.matches() else {
             panic!("expected one match: {:?}", filtered.matches());
         };
@@ -3590,12 +3675,12 @@ mod large_plan {
     #[test]
     fn visible_lines_cut_wide_and_combining_graphemes_at_cell_boundaries() {
         let style = theme::warning_style();
-        let lines = [
-            Line::from("skipped"),
-            Line::from(vec![Span::raw("aあ"), Span::styled("e\u{301}b", style)]),
-        ];
+        let lines = [Line::from(vec![
+            Span::raw("aあ"),
+            Span::styled("e\u{301}b", style),
+        ])];
         let window = |horizontal, width| {
-            let visible = visible_lines(&lines, 1, horizontal, 1, width);
+            let visible = visible_lines(&lines, horizontal, width);
             assert_eq!(visible.len(), 1);
             visible[0].clone()
         };
@@ -3609,13 +3694,189 @@ mod large_plan {
         assert_eq!(styled.to_string(), "e\u{301}");
         assert!(styled.spans.iter().all(|span| span.style == style));
         assert!(window(5, 3).spans.is_empty());
-        assert!(visible_lines(&lines, 2, 0, 1, 10).is_empty());
-        assert_eq!(
-            visible_lines(&lines, 0, 0, 5, 10)
-                .iter()
-                .map(Line::width)
-                .collect::<Vec<_>>(),
-            [7, 5]
+    }
+}
+
+mod content_cache {
+    use super::*;
+
+    const AREA: Rect = Rect::new(0, 0, 80, 24);
+
+    fn cached(view: &PlanReviewViewState) -> Option<Rc<PlanContent>> {
+        view.content_cache().cached_for_test()
+    }
+
+    fn prepared(view: &PlanReviewViewState, state: &ReviewSessionState) -> Rc<PlanContent> {
+        Rc::clone(layout(AREA, view, state).content())
+    }
+
+    fn press(view: &mut PlanReviewViewState, state: &ReviewSessionState, input: PlanReviewInput) {
+        let layout = layout(AREA, view, state);
+        view.apply_with_matches(
+            input,
+            layout.body(),
+            layout.max_vertical(),
+            layout.max_horizontal(),
+            state.review().search_query(),
+            layout.matches(),
         );
+    }
+
+    fn draw(state: &ReviewSessionState, view: &PlanReviewViewState, size: (u16, u16)) {
+        render_to_buffer(size, |frame| render(frame, state, view, Instant::now()));
+    }
+
+    // Clones the review as the session does when it moves between screens.
+    fn with_query(state: &ReviewSessionState, query: &str) -> ReviewSessionState {
+        let mut plan = state.review().clone();
+        plan.set_search_query(query.to_owned());
+        review_state(plan)
+    }
+
+    #[test]
+    fn frames_and_keys_share_the_body_the_first_frame_prepared() {
+        let state = with_query(&review_state(review()), SEARCH_TERM);
+        let mut view = PlanReviewViewState::default();
+        assert!(cached(&view).is_none());
+
+        draw(&state, &view, (80, 24));
+        let body = cached(&view).expect("the frame should keep its body on the view");
+        for input in [
+            PlanReviewInput::Down,
+            PlanReviewInput::Right,
+            PlanReviewInput::PageDown,
+            PlanReviewInput::SearchNext,
+            PlanReviewInput::SearchNext,
+            PlanReviewInput::SearchPrevious,
+            PlanReviewInput::Bottom,
+        ] {
+            press(&mut view, &state, input);
+            draw(&state, &view, (80, 24));
+            draw(&state, &view, (120, 40));
+        }
+        draw(&with_query(&state, SEARCH_TERM), &view, (80, 24));
+
+        assert_eq!(view.selected(), Some(0));
+        assert_ne!(view.scroll(), (0, 0));
+        assert!(Rc::ptr_eq(
+            &body,
+            &cached(&view).expect("the body should stay cached")
+        ));
+    }
+
+    #[test]
+    fn the_apply_confirmation_draws_the_review_body_unscrolled_without_preparing_it_again() {
+        let state = with_query(&review_state(review()), SEARCH_TERM);
+        let confirmation = confirmation_state(state.review().clone());
+        let draw_confirmation = |review_view: &PlanReviewViewState| {
+            render_to_buffer((80, 24), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &confirmation,
+                    review_view,
+                    &ApplyConfirmationViewState::default(),
+                    confirmation_now(),
+                );
+            })
+        };
+        let unscrolled = draw_confirmation(&PlanReviewViewState::default());
+
+        let mut view = PlanReviewViewState::default();
+        draw_confirmation(&view);
+        let body = cached(&view).expect("the confirmation should keep its body on the review view");
+        let fresh = fresh_view(&confirmation, &view);
+        assert!(Rc::ptr_eq(
+            &body,
+            &cached(&fresh).expect("the fresh view should share the body")
+        ));
+        assert!(Rc::ptr_eq(&body, &view_content(&confirmation, &fresh)));
+
+        draw(&state, &view, (80, 24));
+        for input in [
+            PlanReviewInput::Down,
+            PlanReviewInput::Right,
+            PlanReviewInput::SearchNext,
+        ] {
+            press(&mut view, &state, input);
+        }
+        assert_ne!(view.scroll(), (0, 0));
+        assert!(view.selected().is_some());
+        for _ in 0..3 {
+            assert_eq!(draw_confirmation(&view), unscrolled);
+        }
+        assert!(Rc::ptr_eq(
+            &body,
+            &cached(&view).expect("the body should stay cached")
+        ));
+    }
+
+    #[test]
+    fn the_body_is_prepared_again_only_when_its_inputs_change() {
+        let state = review_state(review());
+        let mut view = PlanReviewViewState::default();
+        let mut previous = prepared(&view, &state);
+        let mut assert_prepared_again =
+            |view: &PlanReviewViewState, state: &ReviewSessionState, change: &str| {
+                let body = prepared(view, state);
+                assert!(!Rc::ptr_eq(&previous, &body), "{change}");
+                assert!(Rc::ptr_eq(&body, &prepared(view, state)), "{change}");
+                previous = body;
+            };
+
+        press(&mut view, &state, PlanReviewInput::SearchStart);
+        assert_prepared_again(&view, &state, "opening the filter");
+        let filtered = with_query(&state, "worker");
+        assert_prepared_again(&view, &filtered, "changing the filter query");
+        let diagnosed =
+            review_state(filtered.review().clone().with_diagnostics(vec![Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                summary: "Synthetic diagnostic".to_owned(),
+                detail: None,
+                address: None,
+                position: None,
+                source: DiagnosticSource::Terraform,
+            }]));
+        assert_prepared_again(&view, &diagnosed, "changing the diagnostics");
+        let mut replanned = review().with_diagnostics(diagnosed.review().diagnostics().to_vec());
+        replanned.set_search_query("worker".to_owned());
+        assert_prepared_again(
+            &view,
+            &review_state(replanned),
+            "a new plan with the same text",
+        );
+    }
+
+    #[test]
+    fn a_window_matches_the_full_body_and_highlights_only_the_selected_match() {
+        let mut plan = review();
+        plan.set_search_query(SEARCH_TERM.to_owned());
+        let content = PlanContent::prepare(&plan, false, SEARCH_TERM);
+        let selected = content.matches()[1];
+        let unselected = content.lines(plan.document(), 0..usize::MAX, None);
+        let full = content.lines(plan.document(), 0..usize::MAX, Some(&selected));
+        assert_eq!(full.len(), content.metrics().line_count);
+
+        for start in 0..=full.len() {
+            let end = (start + 3).min(full.len());
+            assert_eq!(
+                content.lines(plan.document(), start..start + 3, Some(&selected)),
+                full[start..end],
+                "{start}"
+            );
+        }
+        let selected_spans = |lines: &[Line<'_>]| {
+            lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .filter(|span| span.style == theme::selected_search_match_style())
+                .count()
+        };
+        assert_eq!(selected_spans(&full), 1);
+        assert_eq!(selected_spans(&full[selected.line()..=selected.line()]), 1);
+        for (row, (line, unselected)) in full.iter().zip(&unselected).enumerate() {
+            if row != selected.line() {
+                assert_eq!(line, unselected, "{row}");
+            }
+        }
     }
 }

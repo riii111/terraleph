@@ -688,7 +688,7 @@ impl EnvironmentView {
             PlanReviewInput::OpenOverview => return None,
             _ => {}
         }
-        let layout = plan_review::environment_layout(area, view.searching(), review);
+        let layout = plan_review::environment_layout(area, view, review);
         view.apply_with_matches(
             input,
             layout.body(),

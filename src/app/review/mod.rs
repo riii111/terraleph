@@ -3,6 +3,7 @@ use std::{
     fmt::{Debug, Formatter},
     ops::Range,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -85,7 +86,11 @@ impl PlanBlock {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct PlanDocument {
-    text: String,
+    // Shared so clones keep one text and a view can tell whether its derived work still belongs
+    // to this document.
+    text: Arc<str>,
+    // Byte offsets of each '\n'-separated line, counted once instead of on every frame.
+    line_starts: Vec<usize>,
     blocks: Vec<PlanBlock>,
     line_kinds: Vec<PlanLineKind>,
     address_blocks: BTreeMap<String, usize>,
@@ -131,8 +136,12 @@ impl PlanDocument {
                 address_blocks.entry(address.clone()).or_insert(index);
             }
         }
+        let line_starts = std::iter::once(0)
+            .chain(text.match_indices('\n').map(|(index, _)| index + 1))
+            .collect();
         Self {
-            text,
+            text: text.into(),
+            line_starts,
             blocks,
             line_kinds,
             address_blocks,
@@ -144,9 +153,34 @@ impl PlanDocument {
         &self.text
     }
 
+    /// Returns the number of '\n'-separated lines, so an empty text still has one line.
+    #[must_use]
+    pub(crate) const fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+
+    /// Returns one '\n'-separated line without its separator.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `index` is not below [`Self::line_count`].
+    #[must_use]
+    pub(crate) fn line(&self, index: usize) -> &str {
+        let start = self.line_starts[index];
+        let end = self
+            .line_starts
+            .get(index + 1)
+            .map_or(self.text.len(), |next| next - 1);
+        &self.text[start..end]
+    }
+
+    #[must_use]
+    pub(crate) fn key(&self) -> PlanDocumentKey {
+        PlanDocumentKey(Arc::clone(&self.text))
+    }
+
     #[must_use]
     pub(crate) fn filter(&self, query: &str) -> FilteredPlan<'_> {
-        let lines = self.text.split('\n').collect::<Vec<_>>();
         let mut filtered = Vec::new();
         let mut matching_resources = 0;
         let mut matching_outputs = 0;
@@ -156,7 +190,7 @@ impl PlanDocument {
                 || block
                     .lines()
                     .clone()
-                    .any(|line| lines[line].contains(query));
+                    .any(|line| self.line(line).contains(query));
             if !matches {
                 continue;
             }
@@ -168,7 +202,7 @@ impl PlanDocument {
             for line in block.lines().clone() {
                 filtered.push(FilteredLine {
                     line_index: line,
-                    text: lines[line],
+                    text: self.line(line),
                 });
             }
         }
@@ -192,6 +226,18 @@ impl PlanDocument {
         self.address_blocks
             .get(address)
             .and_then(|index| self.blocks.get(*index))
+    }
+}
+
+/// Identifies the text of one document for work derived from it. Clones of a document share the
+/// key; holding it keeps the text alive, so a later document cannot reuse its allocation.
+#[derive(Clone)]
+pub(crate) struct PlanDocumentKey(Arc<str>);
+
+impl PlanDocumentKey {
+    #[must_use]
+    pub(crate) fn is_for(&self, document: &PlanDocument) -> bool {
+        Arc::ptr_eq(&self.0, &document.text)
     }
 }
 
@@ -581,6 +627,33 @@ mod tests {
 
         assert!(!debug.contains("secret"));
         assert!(debug.contains("<redacted>"));
+    }
+
+    #[test]
+    fn document_reads_the_same_lines_as_splitting_its_text() {
+        for text in ["", "single", "first\r\n\n  last\n", "\n\n"] {
+            let document = plan_document(text.to_owned());
+
+            assert_eq!(
+                (0..document.line_count())
+                    .map(|line| document.line(line))
+                    .collect::<Vec<_>>(),
+                text.split('\n').collect::<Vec<_>>(),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn document_key_follows_clones_but_not_rebuilt_documents() {
+        let document = plan_document("same text".to_owned());
+        let key = document.key();
+        let rebuilt = plan_document("same text".to_owned());
+        let documents = [document.clone(), document];
+
+        assert!(documents.iter().all(|document| key.is_for(document)));
+        assert_eq!(rebuilt, documents[0]);
+        assert!(!key.is_for(&rebuilt));
     }
 
     #[test]

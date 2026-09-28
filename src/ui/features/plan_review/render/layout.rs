@@ -1,18 +1,20 @@
+use std::rc::Rc;
+
 use ratatui::{layout::Rect, style::Style, text::Line};
 
 use crate::app::{copy::CopyNotice, review::PlanReview, session::ReviewSessionState};
-use crate::ui::features::plan_review::PlanReviewMatch;
+use crate::ui::features::plan_review::{PlanReviewMatch, PlanReviewViewState};
 use crate::ui::shell::{footer, header, layout as shell_layout};
 use crate::ui::theme;
 
 use super::{
     FooterMode, ReviewNavigation,
-    content::{PreparedContent, prepare_content, prepare_view_content},
-    filter_active,
+    content::PlanContent,
     review_footer::{
         common_footer_height, filter_footer_status, footer_items, position_status_for_content,
         required_footer_items, review_footer_status_text,
     },
+    view_content,
 };
 
 pub(crate) struct PlanReviewLayout {
@@ -25,7 +27,7 @@ pub(crate) struct PlanReviewLayout {
     horizontal_scrollbar: bool,
     max_vertical: usize,
     max_horizontal: usize,
-    matches: Vec<PlanReviewMatch>,
+    content: Rc<PlanContent>,
 }
 
 impl PlanReviewLayout {
@@ -58,22 +60,30 @@ impl PlanReviewLayout {
     }
 
     pub(crate) fn matches(&self) -> &[PlanReviewMatch] {
-        &self.matches
+        self.content.matches()
+    }
+
+    pub(super) const fn content(&self) -> &Rc<PlanContent> {
+        &self.content
     }
 }
 
-pub(crate) fn layout(area: Rect, searching: bool, state: &ReviewSessionState) -> PlanReviewLayout {
-    layout_with_quit_confirmation(area, searching, state, false)
+pub(crate) fn layout(
+    area: Rect,
+    view: &PlanReviewViewState,
+    state: &ReviewSessionState,
+) -> PlanReviewLayout {
+    layout_with_quit_confirmation(area, view, state, false)
 }
 
 pub(crate) fn environment_layout(
     area: Rect,
-    searching: bool,
+    view: &PlanReviewViewState,
     state: &ReviewSessionState,
 ) -> PlanReviewLayout {
     layout_for_navigation(
         area,
-        searching,
+        view,
         state,
         FooterMode::Actions,
         ReviewNavigation::Environments,
@@ -82,13 +92,13 @@ pub(crate) fn environment_layout(
 
 pub(crate) fn layout_with_quit_confirmation(
     area: Rect,
-    searching: bool,
+    view: &PlanReviewViewState,
     state: &ReviewSessionState,
     quit_confirmation: bool,
 ) -> PlanReviewLayout {
     layout_for_navigation(
         area,
-        searching,
+        view,
         state,
         if quit_confirmation {
             FooterMode::QuitConfirmation
@@ -101,18 +111,16 @@ pub(crate) fn layout_with_quit_confirmation(
 
 fn layout_for_navigation(
     area: Rect,
-    searching: bool,
+    view: &PlanReviewViewState,
     state: &ReviewSessionState,
     footer_mode: FooterMode,
     navigation: ReviewNavigation,
 ) -> PlanReviewLayout {
-    let filtered_view = filter_active(searching, state);
-    let content = prepare_view_content(state, filtered_view);
     layout_with_content(
         area,
-        searching,
+        view.searching(),
         state.review(),
-        &content,
+        view_content(state, view),
         state.copy_feedback().notice(),
         footer_mode,
         navigation,
@@ -121,13 +129,16 @@ fn layout_for_navigation(
 
 /// Layout of the raw plan opened from the overview, which starts unfiltered and without a copy
 /// notice.
-pub(crate) fn overview_detail_layout(area: Rect, review: &PlanReview) -> PlanReviewLayout {
-    let content = prepare_content(review, false, "");
+pub(crate) fn overview_detail_layout(
+    area: Rect,
+    view: &PlanReviewViewState,
+    review: &PlanReview,
+) -> PlanReviewLayout {
     layout_with_content(
         area,
         false,
         review,
-        &content,
+        view.content_cache().get(review, false, ""),
         None,
         FooterMode::Actions,
         ReviewNavigation::Standalone,
@@ -142,7 +153,7 @@ pub(super) fn layout_with_content(
     area: Rect,
     searching: bool,
     review: &PlanReview,
-    content: &PreparedContent<'_>,
+    content: Rc<PlanContent>,
     copy_notice: Option<CopyNotice>,
     footer_mode: FooterMode,
     navigation: ReviewNavigation,
@@ -150,8 +161,9 @@ pub(super) fn layout_with_content(
     let panel_width = area.width;
     let content_metrics = content.metrics();
     let applyable = review.apply_allowed() && review.metadata().applyable();
-    let filter_visible = searching || !content.filter_query.is_empty();
-    let showing = filter_footer_status(content.filter_query, content.matches.len(), panel_width);
+    let filter_visible = searching || !content.filter_query().is_empty();
+    let showing =
+        filter_footer_status(content.filter_query(), content.matches().len(), panel_width);
     let footer_status = match footer_mode {
         FooterMode::QuitConfirmation => None,
         FooterMode::Suppressed => copy_notice.map(|notice| {
@@ -182,9 +194,9 @@ pub(super) fn layout_with_content(
                             review_footer_status_text(
                                 message,
                                 &position_status_for_content(
-                                    content,
+                                    &content,
                                     0,
-                                    review.document().text().split('\n').count(),
+                                    review.document().line_count(),
                                     panel_width,
                                 ),
                             ),
@@ -194,9 +206,9 @@ pub(super) fn layout_with_content(
                 } else {
                     Some((
                         position_status_for_content(
-                            content,
+                            &content,
                             0,
-                            review.document().text().split('\n').count(),
+                            review.document().line_count(),
                             panel_width,
                         ),
                         theme::secondary_style(),
@@ -210,7 +222,7 @@ pub(super) fn layout_with_content(
         footer_items(
             searching,
             applyable,
-            content.matches.len(),
+            content.matches().len(),
             filter_visible,
             navigation,
             available_footer_width,
@@ -218,12 +230,17 @@ pub(super) fn layout_with_content(
         available_footer_width,
     );
     let normal_required = footer::layout_prioritized(
-        required_footer_items(searching, content.matches.len(), filter_visible, navigation),
+        required_footer_items(
+            searching,
+            content.matches().len(),
+            filter_visible,
+            navigation,
+        ),
         available_footer_width,
     );
     let footer_height = common_footer_height(
         applyable,
-        content.matches.len(),
+        content.matches().len(),
         panel_width,
         copy_notice.map(CopyNotice::message),
         showing.as_deref(),
@@ -293,7 +310,7 @@ pub(super) fn layout_with_content(
         horizontal_scrollbar,
         max_vertical,
         max_horizontal,
-        matches: content.matches.clone(),
+        content,
     }
 }
 
