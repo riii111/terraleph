@@ -231,9 +231,10 @@ pub(super) fn layout_with_content(
     );
     let frame_footer_lines = footer::pad_lines(normal_footer_lines, footer_height);
     let frame_required = footer::pad_lines(normal_required, footer_height);
+    // The quit prompt replaces the copy notice here, so it keeps the whole footer width.
     let confirmation_lines = || {
         footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, copy_notice.map(CopyNotice::message)),
+            footer::quit_confirmation_lines(panel_width, None),
             footer_height,
         )
     };

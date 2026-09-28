@@ -4,6 +4,8 @@ use arboard::Clipboard;
 
 use crate::app::copy::{CopyEffect, CopyResult};
 
+// Inside tmux, applications can set the clipboard with OSC 52 only under `set-clipboard on`; the
+// default `external` ignores the sequence. Passthrough is not used, so tmux keeps a paste buffer.
 const OSC52_PREFIX: &str = "\x1b]52;c;";
 // BEL is accepted as the OSC terminator by more terminals than ST.
 const OSC52_TERMINATOR: &str = "\x07";

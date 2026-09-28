@@ -1,4 +1,5 @@
 
+import base64
 import os
 import pty
 import re
@@ -238,8 +239,18 @@ def wait_copy_notice(name, description):
     notices = ("Copied.", "Sent to terminal clipboard.", "Copy failed.")
     wait_screen(lambda current: any(notice in current for notice in notices), name, description)
     # Without a system clipboard, as on a headless runner, the copy reaches the terminal as OSC 52.
-    if "Sent to terminal clipboard." in screen.text() and b"\x1b]52;c;" not in output:
+    if "Sent to terminal clipboard." not in screen.text():
+        return
+    prefix = b"\x1b]52;c;"
+    start = output.rfind(prefix)
+    end = output.find(b"\x07", start) if start >= 0 else -1
+    if end < 0:
         raise RuntimeError(f"{name} did not send OSC 52; tail={bytes(output)[-1200:]!r}")
+    copied = base64.b64decode(bytes(output[start + len(prefix):end]), validate=True).decode("utf-8")
+    with open(os.environ["TERRALEPH_FAKE_SHOW_TEXT"], encoding="utf-8") as show_text:
+        expected = show_text.read()
+    if expected not in copied:
+        raise RuntimeError(f"{name} sent other text over OSC 52: {copied!r}")
 
 
 def wait_parts(markers, name, timeout=20):

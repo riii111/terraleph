@@ -67,6 +67,8 @@ alias terraform='terraleph terraform'
 alias tofu='terraleph tofu'
 ```
 
+Without a system clipboard, such as over SSH, `y` sends the copy to your terminal with OSC 52. Inside tmux, this requires `set -g set-clipboard on`.
+
 ---
 
 P.S. The day I named this tool, I had an Ethiopian coffee made from Heleph beans, and it really calmed me down. Later I found out "Heleph" means something like *change*. A Terraform plan is basically a list of changes, so the name just stuck.
