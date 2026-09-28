@@ -16,7 +16,7 @@ use super::event::{
     ExecutionTargetSpec, ProcessTermination, ResourceAction, ResourceEvent, ResourceEventKind,
     SensitiveValue,
 };
-use super::{ExecutionContext, HistoryKey, SuccessfulTarget};
+use super::{ExecutionContext, HistoryKey, LogLineIndex, SuccessfulTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionTargetStatus {
@@ -34,6 +34,7 @@ pub(crate) struct ExecutionTargetState {
     status: ExecutionTargetStatus,
     completed_stages: usize,
     log_ids: Vec<usize>,
+    log_index: LogLineIndex,
     first_error_line: Option<usize>,
     started_at: Option<Instant>,
     duration: Option<Duration>,
@@ -48,6 +49,7 @@ impl Debug for ExecutionTargetState {
             .field("status", &self.status)
             .field("completed_stages", &self.completed_stages)
             .field("log_ids", &self.log_ids)
+            .field("log_index", &self.log_index)
             .field("first_error_line", &self.first_error_line)
             .field("started_at", &self.started_at)
             .field("duration", &self.duration)
@@ -83,6 +85,11 @@ impl ExecutionTargetState {
     }
 
     #[must_use]
+    pub(crate) const fn log_index(&self) -> &LogLineIndex {
+        &self.log_index
+    }
+
+    #[must_use]
     pub(crate) const fn first_error_line(&self) -> Option<usize> {
         self.first_error_line
     }
@@ -110,6 +117,7 @@ impl ExecutionTargetState {
 pub(crate) struct ExecutionProgress {
     diagnostics: Vec<Diagnostic>,
     log: Vec<ExecutionLogLine>,
+    log_index: LogLineIndex,
     targets: Vec<ExecutionTargetState>,
     sensitive_values: Vec<SensitiveValue>,
     first_error_line: Option<usize>,
@@ -123,6 +131,7 @@ impl Debug for ExecutionProgress {
             .debug_struct("ExecutionProgress")
             .field("diagnostics", &self.diagnostics)
             .field("log", &self.log)
+            .field("log_index", &self.log_index)
             .field("targets", &self.targets)
             .field("sensitive_values", &"<redacted>")
             .field("first_error_line", &self.first_error_line)
@@ -156,6 +165,7 @@ impl ExecutionProgress {
         Self {
             diagnostics: Vec::new(),
             log: Vec::new(),
+            log_index: LogLineIndex::default(),
             targets: targets
                 .into_iter()
                 .enumerate()
@@ -164,6 +174,7 @@ impl ExecutionProgress {
                     status: ExecutionTargetStatus::Pending,
                     completed_stages: 0,
                     log_ids: Vec::new(),
+                    log_index: LogLineIndex::default(),
                     first_error_line: None,
                     started_at: None,
                     duration: None,
@@ -188,7 +199,7 @@ impl ExecutionProgress {
                         .lines()
                         .any(|text| text.trim_start().starts_with("Error:"))
                 {
-                    self.first_error_line = Some(rendered_line_count(&self.log));
+                    self.first_error_line = Some(self.log_index.line_count());
                 }
                 self.append_log(line.stream, &line.text, None);
             }
@@ -213,7 +224,7 @@ impl ExecutionProgress {
                 if diagnostic.severity == super::event::DiagnosticSeverity::Error
                     && self.first_error_line.is_none()
                 {
-                    self.first_error_line = Some(rendered_line_count(&self.log));
+                    self.first_error_line = Some(self.log_index.line_count());
                 }
                 let address = diagnostic.address.clone();
                 let target = address
@@ -274,6 +285,11 @@ impl ExecutionProgress {
     #[must_use]
     pub(crate) fn log(&self) -> &[ExecutionLogLine] {
         &self.log
+    }
+
+    #[must_use]
+    pub(crate) const fn log_index(&self) -> &LogLineIndex {
+        &self.log_index
     }
 
     #[must_use]
@@ -388,26 +404,20 @@ impl ExecutionProgress {
 
     fn append_log(&mut self, stream: EventStream, text: &str, target: Option<usize>) {
         let log_id = self.log.len();
-        self.log.push(ExecutionLogLine {
-            stream,
-            text: super::super::copy::sanitize_text(text, &self.sensitive_values),
-        });
+        let text = super::super::copy::sanitize_text(text, &self.sensitive_values);
+        self.log_index.push(&text);
         if let Some(target) = target {
             self.targets[target].log_ids.push(log_id);
+            self.targets[target].log_index.push(&text);
         }
+        self.log.push(ExecutionLogLine { stream, text });
     }
 
     fn mark_target_error_line(&mut self, target: usize) {
         if self.targets[target].first_error_line.is_some() {
             return;
         }
-        let line = self.targets[target]
-            .log_ids
-            .iter()
-            .filter_map(|id| self.log.get(*id))
-            .map(|line| line.text.lines().count())
-            .sum();
-        self.targets[target].first_error_line = Some(line);
+        self.targets[target].first_error_line = Some(self.targets[target].log_index.line_count());
     }
 
     fn record_resource(&mut self, received_at: Instant, resource: &ResourceEvent) {
@@ -534,10 +544,6 @@ const fn action_matches(action: &ResourceAction, expected: &PlanAction) -> bool 
     )
 }
 
-fn rendered_line_count(log: &[ExecutionLogLine]) -> usize {
-    log.iter().map(|line| line.text.lines().count()).sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::event::{
@@ -598,6 +604,49 @@ mod tests {
             })
         );
         assert_eq!(progress.last_event_at(), Some(termination_at));
+    }
+
+    #[test]
+    fn log_indexes_follow_appended_lines_for_all_logs_and_each_target() {
+        let mut progress = ExecutionProgress::new(
+            vec![ExecutionTargetSpec {
+                address: "terraform_data.api".to_owned(),
+                actions: vec![PlanAction::Update],
+            }],
+            vec![SensitiveValue::Text("secret-value".to_owned())],
+        );
+        progress.record(event(ExecutionEventKind::Log(ExecutionLogLine {
+            stream: EventStream::Stdout,
+            text: "unbound output with secret-value".to_owned(),
+        })));
+        progress.record(event(ExecutionEventKind::Diagnostic(Diagnostic {
+            severity: DiagnosticSeverity::Warning,
+            summary: "Deprecated attribute".to_owned(),
+            detail: Some("A much longer detail line for the target".to_owned()),
+            address: Some("terraform_data.api".to_owned()),
+            position: None,
+            source: DiagnosticSource::Terraform,
+        })));
+
+        let all = progress.log_index();
+        assert_eq!(all.line_count(), 3);
+        // Widths are measured on the sanitized text that is rendered.
+        assert_eq!(
+            all.max_width(),
+            progress.log()[0]
+                .text
+                .len()
+                .max("A much longer detail line for the target".len())
+        );
+        assert!(!progress.log()[0].text.contains("secret-value"));
+        assert_eq!(all.locate(2), Some((1, 1)));
+        let target = progress.targets()[0].log_index();
+        assert_eq!(target.line_count(), 2);
+        assert_eq!(
+            target.max_width(),
+            "A much longer detail line for the target".len()
+        );
+        assert_eq!(target.locate(1), Some((0, 1)));
     }
 
     #[test]

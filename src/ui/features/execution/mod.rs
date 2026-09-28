@@ -18,7 +18,7 @@ pub(crate) enum ExecutionScroll {
 enum VerticalScroll {
     Initial,
     FollowLatest,
-    Manual(u16),
+    Manual(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,11 +52,11 @@ impl ExecutionViewState {
     pub(crate) fn apply_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
+        current_offset: usize,
+        max_offset: usize,
         page_height: u16,
     ) {
-        let page_height = page_height.max(1);
+        let page_height = usize::from(page_height.max(1));
         let offset = match action {
             ExecutionScroll::Up => current_offset.saturating_sub(1),
             ExecutionScroll::Down => current_offset.saturating_add(1).min(max_offset),
@@ -74,11 +74,11 @@ impl ExecutionViewState {
     pub(crate) fn apply_target_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
+        current_offset: usize,
+        max_offset: usize,
         page_height: u16,
     ) {
-        let page_height = page_height.max(1);
+        let page_height = usize::from(page_height.max(1));
         let offset = match action {
             ExecutionScroll::Up => current_offset.saturating_sub(1),
             ExecutionScroll::Down => current_offset.saturating_add(1).min(max_offset),
@@ -98,7 +98,7 @@ impl ExecutionViewState {
         action: ExecutionScroll,
         current_offset: u16,
         max_offset: u16,
-        current_vertical: u16,
+        current_vertical: usize,
     ) {
         self.vertical = VerticalScroll::Manual(current_vertical);
         self.horizontal = match action {
@@ -148,9 +148,7 @@ impl ExecutionViewState {
             first_failed.or_else(|| successful.then(|| targets.first().copied()).flatten());
         self.logs_open = first_failed.is_some();
         self.vertical = if first_failed.is_some() {
-            VerticalScroll::Manual(
-                u16::try_from(first_failed_error_line.unwrap_or(0)).unwrap_or(u16::MAX),
-            )
+            VerticalScroll::Manual(first_failed_error_line.unwrap_or(0))
         } else {
             VerticalScroll::Initial
         };
@@ -184,9 +182,9 @@ impl ExecutionViewState {
         self.vertical = VerticalScroll::Initial;
     }
 
-    pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: u16) {
+    pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: usize) {
         let height = usize::from(height.max(1));
-        let current = usize::from(self.target_vertical_offset(0, max));
+        let current = self.target_vertical_offset(0, max);
         let next = if position < current {
             position
         } else if position >= current.saturating_add(height) {
@@ -194,8 +192,7 @@ impl ExecutionViewState {
         } else {
             current
         };
-        self.target_vertical =
-            VerticalScroll::Manual(u16::try_from(next).unwrap_or(u16::MAX).min(max));
+        self.target_vertical = VerticalScroll::Manual(next.min(max));
     }
 
     #[must_use]
@@ -219,7 +216,7 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn vertical_offset(self, initial: u16, max: u16) -> u16 {
+    pub(crate) const fn vertical_offset(self, initial: usize, max: usize) -> usize {
         match self.vertical {
             VerticalScroll::Initial => {
                 if initial < max {
@@ -240,7 +237,7 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn target_vertical_offset(self, initial: u16, max: u16) -> u16 {
+    pub(crate) const fn target_vertical_offset(self, initial: usize, max: usize) -> usize {
         match self.target_vertical {
             VerticalScroll::Initial => {
                 if initial < max {

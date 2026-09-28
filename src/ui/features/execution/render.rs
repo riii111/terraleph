@@ -9,7 +9,7 @@ use crate::app::{
     copy::CopyNotice,
     execution::{
         EventStream, ExecutionLogLine, ExecutionResult, ExecutionStage, ExecutionState,
-        ExecutionTargetState, ExecutionTargetStatus,
+        ExecutionTargetState, ExecutionTargetStatus, LogLineIndex,
     },
     plan::PlanAction,
 };
@@ -31,9 +31,71 @@ const TARGET_STATUS_WIDTH: usize = "Incomplete".len();
 const TARGET_ACTION_WIDTH: usize = "delete/create".len();
 const TARGET_ELAPSED_WIDTH: usize = "Elapsed".len();
 const TARGET_PREVIOUS_WIDTH: usize = "Previous".len();
+// The log a panel shows. Its size comes from the index the progress keeps as entries arrive,
+// and lines are built only for the rows on screen.
 struct PreparedContent<'a> {
-    lines: Vec<Line<'a>>,
-    max_width: usize,
+    log: &'a [ExecutionLogLine],
+    // Positions in `log` of a selected target's entries; `None` shows every entry.
+    entries: Option<&'a [usize]>,
+    index: &'a LogLineIndex,
+    // Shown instead of the log while it has no lines.
+    placeholder: Option<Line<'static>>,
+}
+
+impl<'a> PreparedContent<'a> {
+    fn new(
+        log: &'a [ExecutionLogLine],
+        entries: Option<&'a [usize]>,
+        index: &'a LogLineIndex,
+        placeholder: Line<'static>,
+    ) -> Self {
+        Self {
+            log,
+            entries,
+            index,
+            placeholder: (index.line_count() == 0).then_some(placeholder),
+        }
+    }
+
+    const fn line_count(&self) -> usize {
+        if self.placeholder.is_some() {
+            1
+        } else {
+            self.index.line_count()
+        }
+    }
+
+    fn max_width(&self) -> usize {
+        self.placeholder
+            .as_ref()
+            .map_or_else(|| self.index.max_width(), Line::width)
+    }
+
+    fn visible_lines(&self, offset: usize, height: usize) -> Vec<Line<'a>> {
+        if let Some(placeholder) = &self.placeholder {
+            return std::iter::once(placeholder.clone())
+                .skip(offset)
+                .take(height)
+                .collect();
+        }
+        let Some((first, skip)) = self.index.locate(offset) else {
+            return Vec::new();
+        };
+        self.entries.map_or_else(
+            || {
+                log_lines(&self.log[first..])
+                    .skip(skip)
+                    .take(height)
+                    .collect()
+            },
+            |entries| {
+                log_lines(entries[first..].iter().filter_map(|id| self.log.get(*id)))
+                    .skip(skip)
+                    .take(height)
+                    .collect()
+            },
+        )
+    }
 }
 
 pub(crate) fn render_execution_with_quit_confirmation(
@@ -77,7 +139,7 @@ pub(crate) fn render_execution_with_quit_confirmation(
     let content_area =
         shell_layout::render_content_block(frame, layout.shell.content(), state.stage().title());
     debug_assert_eq!(content_area, layout.shell.content_inner());
-    render_log_view(frame, &layout, state, view, now, content, notice);
+    render_log_view(frame, &layout, state, view, now, &content, notice);
 }
 
 fn render_apply_execution(
@@ -132,7 +194,7 @@ fn render_apply_execution(
         view,
         now,
     );
-    render_log_panel(frame, &layout, state, view, content, now);
+    render_log_panel(frame, &layout, state, view, &content, now);
     render_footer(
         frame,
         layout.shell.footer(),
@@ -195,25 +257,22 @@ fn render_target_panel(
 
     let finished = state.result().is_some();
     let indices = state.progress().display_target_indices(finished);
-    let offset = view.target_vertical_offset(0, layout_target_max(indices.len(), body.height));
+    let max = layout_target_max(indices.len(), body.height);
+    let offset = view.target_vertical_offset(0, max);
     let lines = indices
         .iter()
+        .skip(offset)
+        .take(usize::from(body.height))
         .map(|index| target_line(state, *index, view.selected_target(), now, &columns))
         .collect::<Vec<_>>();
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme::body_style())
-            .scroll((offset, 0)),
-        body,
-    );
-    let max = layout_target_max(indices.len(), body.height);
+    frame.render_widget(Paragraph::new(lines).style(theme::body_style()), body);
     if max > 0 {
         scrollbar::render_vertical(
             frame,
             Rect::new(body.x, body.y, body.width.saturating_add(1), body.height),
             indices.len(),
             usize::from(body.height),
-            usize::from(offset),
+            offset,
         );
     }
 }
@@ -223,7 +282,7 @@ fn render_log_panel(
     layout: &ExecutionLayout,
     state: &ExecutionState,
     view: ExecutionViewState,
-    content: PreparedContent<'_>,
+    content: &PreparedContent<'_>,
     now: Instant,
 ) {
     let title = view
@@ -240,20 +299,21 @@ fn render_log_panel(
             .title(title),
         layout.log_panel(),
     );
-    let line_count = content.lines.len();
-    let max_line_width = content.max_width;
+    let line_count = content.line_count();
+    let max_line_width = content.max_width();
     let max_vertical = layout.max_vertical();
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(layout.max_horizontal());
+    let lines = content.visible_lines(scroll, usize::from(layout.body().height));
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(content.lines)
+        flash_lines(lines)
     } else {
-        content.lines
+        lines
     };
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme::body_style())
-            .scroll((scroll, horizontal)),
+            .scroll((0, horizontal)),
         layout.body(),
     );
     render_log_scrollbars(
@@ -270,27 +330,29 @@ fn render_log_view(
     state: &ExecutionState,
     view: ExecutionViewState,
     now: Instant,
-    content: PreparedContent<'_>,
+    content: &PreparedContent<'_>,
     notice: Option<CopyNotice>,
 ) {
     let status = status_lines(state, view, now);
     frame.render_widget(status_paragraph(status, false), layout.status());
 
-    let line_count = content.lines.len();
-    let max_line_width = content.max_width;
+    let line_count = content.line_count();
+    let max_line_width = content.max_width();
     let max_vertical = layout.max_vertical();
     let max_horizontal = layout.max_horizontal();
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(max_horizontal);
+    // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
+    let lines = content.visible_lines(scroll, usize::from(layout.log_area().height));
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(content.lines)
+        flash_lines(lines)
     } else {
-        content.lines
+        lines
     };
     frame.render_widget(
         Paragraph::new(lines)
             .style(theme::body_style())
-            .scroll((scroll, horizontal)),
+            .scroll((0, horizontal)),
         layout.log_area(),
     );
     render_log_scrollbars(
@@ -317,7 +379,7 @@ fn render_log_scrollbars(
     frame: &mut Frame<'_>,
     layout: &ExecutionLayout,
     (line_count, max_line_width): (usize, usize),
-    (vertical_offset, horizontal_offset): (u16, u16),
+    (vertical_offset, horizontal_offset): (usize, u16),
 ) {
     let body = layout.body();
     let scrollbar_area = Rect::new(
@@ -334,7 +396,7 @@ fn render_log_scrollbars(
             scrollbar_area,
             line_count,
             usize::from(body.height),
-            usize::from(vertical_offset),
+            vertical_offset,
         );
     }
     if layout.horizontal_scrollbar() {
@@ -380,10 +442,10 @@ pub(crate) struct ExecutionLayout {
     log_panel: Rect,
     separator: Rect,
     body: Rect,
-    target_max_vertical: u16,
+    target_max_vertical: usize,
     vertical_scrollbar: bool,
     horizontal_scrollbar: bool,
-    max_vertical: u16,
+    max_vertical: usize,
     max_horizontal: u16,
 }
 
@@ -424,11 +486,11 @@ impl ExecutionLayout {
         self.horizontal_scrollbar
     }
 
-    pub(crate) const fn max_vertical(&self) -> u16 {
+    pub(crate) const fn max_vertical(&self) -> usize {
         self.max_vertical
     }
 
-    pub(crate) const fn target_max_vertical(&self) -> u16 {
+    pub(crate) const fn target_max_vertical(&self) -> usize {
         self.target_max_vertical
     }
 
@@ -511,7 +573,7 @@ fn log_view_layout(
         .to_vec();
     let (status_area, available, separator_area) = (chunks[0], chunks[1], chunks[2]);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.lines.len(), content.max_width, available);
+        scrollbar_reservations(content.line_count(), content.max_width(), available);
     let body = Rect::new(
         available.x,
         available.y,
@@ -523,7 +585,7 @@ fn log_view_layout(
             .saturating_sub(u16::from(horizontal_scrollbar)),
     );
     let (max_vertical, max_horizontal) =
-        scroll_limits(content.lines.len(), content.max_width, body);
+        scroll_limits(content.line_count(), content.max_width(), body);
     ExecutionLayout {
         shell,
         status: status_area,
@@ -599,7 +661,7 @@ fn applying_layout(
     let target_max_vertical = layout_target_max(target_count, target_body.height);
     let log_inner = Block::new().borders(Borders::ALL).inner(log_panel);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.lines.len(), content.max_width, log_inner);
+        scrollbar_reservations(content.line_count(), content.max_width(), log_inner);
     let body = Rect::new(
         log_inner.x,
         log_inner.y,
@@ -611,7 +673,7 @@ fn applying_layout(
             .saturating_sub(u16::from(horizontal_scrollbar)),
     );
     let (max_vertical, max_horizontal) =
-        scroll_limits(content.lines.len(), content.max_width, body);
+        scroll_limits(content.line_count(), content.max_width(), body);
     ExecutionLayout {
         shell,
         status: chunks[0],
@@ -639,8 +701,8 @@ fn log_view_requested_height(
         return shell_layout::max_centered_height(area);
     }
     let body_height = shell_layout::required_body_height(
-        content.lines.len(),
-        content.max_width,
+        content.line_count(),
+        content.max_width(),
         shell_layout::centered_width(area).saturating_sub(2),
     );
     let content_height = STATUS_HEIGHT
@@ -654,7 +716,7 @@ pub(crate) fn execution_scroll_position_with_view(
     state: &ExecutionState,
     view: ExecutionViewState,
     layout: &ExecutionLayout,
-) -> (u16, u16) {
+) -> (usize, usize) {
     let max = layout.max_vertical();
     let current = view.vertical_offset(initial_scroll(state, max), max);
     (current, max)
@@ -663,7 +725,7 @@ pub(crate) fn execution_scroll_position_with_view(
 pub(crate) const fn execution_target_scroll_position_with_view(
     view: ExecutionViewState,
     layout: &ExecutionLayout,
-) -> (u16, u16) {
+) -> (usize, usize) {
     let current = view.target_vertical_offset(0, layout.target_max_vertical());
     (current, layout.target_max_vertical())
 }
@@ -677,12 +739,13 @@ pub(crate) fn execution_horizontal_scroll_position_with_view(
 }
 
 fn prepare_content(state: &ExecutionState) -> PreparedContent<'_> {
-    let mut lines = log_lines(state.progress().log());
-    if lines.is_empty() {
-        lines.push(Line::from("Waiting for Terraform output..."));
-    }
-    let max_width = max_line_width(&lines);
-    PreparedContent { lines, max_width }
+    let progress = state.progress();
+    PreparedContent::new(
+        progress.log(),
+        None,
+        progress.log_index(),
+        Line::from("Waiting for Terraform output..."),
+    )
 }
 
 fn prepare_selected_content(
@@ -690,51 +753,43 @@ fn prepare_selected_content(
     view: ExecutionViewState,
 ) -> PreparedContent<'_> {
     let progress = state.progress();
-    let log = view
+    let placeholder = Line::from(Span::styled(
+        if finished_apply(state) {
+            "No execution output."
+        } else if view.selected_target().is_some() {
+            "Waiting for target output..."
+        } else {
+            "Waiting for Terraform output..."
+        },
+        theme::secondary_style(),
+    ));
+    match view
         .selected_target()
         .and_then(|index| progress.targets().get(index))
-        .map_or_else(
-            || progress.log().iter().collect::<Vec<_>>(),
-            |target| {
-                target
-                    .log_ids()
-                    .iter()
-                    .filter_map(|id| progress.log().get(*id))
-                    .collect()
-            },
-        );
-    let mut lines = log_lines(log);
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            if finished_apply(state) {
-                "No execution output."
-            } else if view.selected_target().is_some() {
-                "Waiting for target output..."
-            } else {
-                "Waiting for Terraform output..."
-            },
-            theme::secondary_style(),
-        )));
+    {
+        Some(target) => PreparedContent::new(
+            progress.log(),
+            Some(target.log_ids()),
+            target.log_index(),
+            placeholder,
+        ),
+        None => PreparedContent::new(progress.log(), None, progress.log_index(), placeholder),
     }
-    let max_width = max_line_width(&lines);
-    PreparedContent { lines, max_width }
 }
 
-fn log_lines<'a>(log: impl IntoIterator<Item = &'a ExecutionLogLine>) -> Vec<Line<'a>> {
-    let mut lines = Vec::new();
-    for line in log {
+fn log_lines<'a>(
+    log: impl IntoIterator<Item = &'a ExecutionLogLine>,
+) -> impl Iterator<Item = Line<'a>> {
+    log.into_iter().flat_map(|line| {
         let style = if line.stream == EventStream::Stderr {
             theme::warning_style()
         } else {
             theme::body_style()
         };
-        lines.extend(
-            line.text
-                .lines()
-                .map(|text| Line::from(Span::styled(text, style))),
-        );
-    }
-    lines
+        line.text
+            .lines()
+            .map(move |text| Line::from(Span::styled(text, style)))
+    })
 }
 
 fn target_line(
@@ -1057,13 +1112,12 @@ fn required_footer_lines(
     footer::layout_with_notice(vec![item], width, notice)
 }
 
-fn layout_target_max(target_count: usize, height: u16) -> u16 {
-    u16::try_from(target_count.saturating_sub(usize::from(height))).unwrap_or(u16::MAX)
+fn layout_target_max(target_count: usize, height: u16) -> usize {
+    target_count.saturating_sub(usize::from(height))
 }
 
-fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (u16, u16) {
-    let vertical =
-        u16::try_from(line_count.saturating_sub(usize::from(body.height))).unwrap_or(u16::MAX);
+fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (usize, u16) {
+    let vertical = line_count.saturating_sub(usize::from(body.height));
     let horizontal =
         u16::try_from(line_width.saturating_sub(usize::from(body.width))).unwrap_or(u16::MAX);
     (vertical, horizontal)
@@ -1085,10 +1139,6 @@ fn scrollbar_reservations(line_count: usize, line_width: usize, area: Rect) -> (
     }
 }
 
-fn max_line_width(lines: &[Line<'_>]) -> usize {
-    lines.iter().map(Line::width).max().unwrap_or(0)
-}
-
 fn flash_lines(lines: Vec<Line<'_>>) -> Vec<Line<'static>> {
     lines
         .into_iter()
@@ -1096,7 +1146,7 @@ fn flash_lines(lines: Vec<Line<'_>>) -> Vec<Line<'static>> {
         .collect()
 }
 
-fn initial_scroll(state: &ExecutionState, max: u16) -> u16 {
+fn initial_scroll(state: &ExecutionState, max: usize) -> usize {
     if !matches!(
         state.stage(),
         ExecutionStage::Failed | ExecutionStage::ApplyFailed
@@ -1108,7 +1158,6 @@ fn initial_scroll(state: &ExecutionState, max: u16) -> u16 {
         .result()
         .and_then(ExecutionResult::first_error_line)
         .or_else(|| state.progress().first_error_line())
-        .and_then(|line| u16::try_from(line).ok())
         .unwrap_or(max)
         .min(max)
 }
@@ -1743,7 +1792,7 @@ mod tests {
             area: Rect,
             state: &ExecutionState,
             now: Instant,
-            vertical: u16,
+            vertical: usize,
             horizontal: u16,
         ) -> (ExecutionLayout, Buffer) {
             let mut view = ExecutionViewState::default();
@@ -1794,7 +1843,7 @@ mod tests {
         fn assert_scrollbar_positions(
             buffer: &Buffer,
             layout: &ExecutionLayout,
-            vertical: u16,
+            vertical: usize,
             horizontal: u16,
         ) {
             let body = layout.body();
@@ -1813,8 +1862,8 @@ mod tests {
                 assert_thumb_endpoints(
                     &symbols[1..symbols.len() - 1],
                     "┃",
-                    usize::from(vertical),
-                    usize::from(layout.max_vertical()),
+                    vertical,
+                    layout.max_vertical(),
                 );
             }
             if layout.horizontal_scrollbar() {
@@ -2100,8 +2149,8 @@ mod tests {
                 assert_panel_border(&buffer, layout.log_panel(), case.name);
                 assert_log_bar_ends(&buffer, &layout, case.name);
                 let body = layout.body();
-                let tail_row = body.y + u16::try_from(line_count - 1).expect("tail row")
-                    - layout.max_vertical();
+                let tail_row = body.y
+                    + u16::try_from(line_count - 1 - layout.max_vertical()).expect("tail row");
                 let tail = (body.x..body.x + 4)
                     .map(|x| buffer[(x, tail_row)].symbol())
                     .collect::<String>();
@@ -2164,6 +2213,216 @@ mod tests {
             for y in panel.y + 1..panel.bottom() - 1 {
                 assert_eq!(buffer[(panel.x, y)].symbol(), "│", "case: {name}");
                 assert_eq!(buffer[(panel.right() - 1, y)].symbol(), "│", "case: {name}");
+            }
+        }
+    }
+
+    mod large_log {
+        use super::*;
+        use crate::ui::features::execution::ExecutionTargetMove;
+
+        const ENTRY_COUNT: usize = 100_000;
+        const TARGET_EVERY: usize = 10;
+        const TARGET: &str = "terraform_data.bulk";
+
+        fn entry_text(entry: usize) -> String {
+            if entry.is_multiple_of(TARGET_EVERY) {
+                format!("target line {entry:06}")
+            } else {
+                format!("log line {entry:06}")
+            }
+        }
+
+        // Every tenth entry is the target's progress message; the rest is unbound output.
+        fn large_apply_state() -> (ExecutionState, Instant) {
+            let started_at = Instant::now();
+            let mut state = ExecutionState::applying_with_previous(
+                started_at,
+                ExecutionContext::loading("/repo"),
+                vec![ExecutionTargetSpec {
+                    address: TARGET.to_owned(),
+                    actions: vec![PlanAction::Update],
+                }],
+                Vec::new(),
+                &[None],
+            );
+            for entry in 0..ENTRY_COUNT {
+                let kind = if entry.is_multiple_of(TARGET_EVERY) {
+                    ExecutionEventKind::Resource(ResourceEvent {
+                        address: TARGET.to_owned(),
+                        kind: ResourceEventKind::ApplyProgress,
+                        action: Some(ResourceAction::Update),
+                        message: Some(entry_text(entry)),
+                    })
+                } else {
+                    ExecutionEventKind::Log(ExecutionLogLine {
+                        stream: EventStream::Stdout,
+                        text: entry_text(entry),
+                    })
+                };
+                state.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind,
+                });
+            }
+            (state, started_at)
+        }
+
+        fn body_rows(
+            area: Rect,
+            state: &ExecutionState,
+            view: ExecutionViewState,
+            now: Instant,
+        ) -> Vec<String> {
+            let body = execution_layout_with_view(area, state, view).body();
+            let buffer = render_to_buffer((area.width, area.height), |frame| {
+                render_execution_with_view(frame, state, view, now);
+            });
+            (body.y..body.bottom())
+                .map(|y| {
+                    (body.x..body.right())
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                        .trim_end()
+                        .to_owned()
+                })
+                .collect()
+        }
+
+        fn expected_rows(lines: impl Iterator<Item = usize>) -> Vec<String> {
+            lines.map(entry_text).collect()
+        }
+
+        #[test]
+        fn all_logs_follow_the_tail_and_scroll_past_the_u16_range() {
+            let (state, now) = large_apply_state();
+            let area = Rect::new(0, 0, 80, 24);
+            let mut view = ExecutionViewState::default();
+            view.open_logs();
+            let layout = execution_layout_with_view(area, &state, view);
+            let height = usize::from(layout.body().height);
+            let max = layout.max_vertical();
+            assert_eq!(max, ENTRY_COUNT - height);
+
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                expected_rows(max..ENTRY_COUNT)
+            );
+
+            view.apply_scroll(ExecutionScroll::Top, max, max, layout.body().height);
+            assert_eq!(body_rows(area, &state, view, now), expected_rows(0..height));
+            view.apply_scroll(ExecutionScroll::PageDown, 0, max, layout.body().height);
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                expected_rows(height..height * 2)
+            );
+            view.apply_scroll(ExecutionScroll::Down, 70_000, max, layout.body().height);
+            assert_eq!(
+                execution_scroll_position_with_view(&state, view, &layout),
+                (70_001, max)
+            );
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                expected_rows(70_001..70_001 + height)
+            );
+            view.apply_scroll(ExecutionScroll::Up, max, max, layout.body().height);
+            assert!(!view.follows_latest());
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                expected_rows(max - 1..ENTRY_COUNT - 1)
+            );
+
+            view.end();
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                expected_rows(max..ENTRY_COUNT)
+            );
+        }
+
+        #[test]
+        fn selected_target_shows_only_its_lines_across_the_whole_log() {
+            let (state, now) = large_apply_state();
+            let area = Rect::new(0, 0, 80, 24);
+            let mut view = ExecutionViewState::default();
+            view.open_logs();
+            view.select_target(ExecutionTargetMove::Next, &[0]);
+            let layout = execution_layout_with_view(area, &state, view);
+            let height = usize::from(layout.body().height);
+            let target_lines = ENTRY_COUNT / TARGET_EVERY;
+            let max = layout.max_vertical();
+            assert_eq!(max, target_lines - height);
+            let target_rows = |range: std::ops::Range<usize>| {
+                expected_rows(range.map(|line| line * TARGET_EVERY))
+            };
+
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                target_rows(max..target_lines)
+            );
+            view.apply_scroll(ExecutionScroll::Top, max, max, layout.body().height);
+            assert_eq!(body_rows(area, &state, view, now), target_rows(0..height));
+            view.apply_scroll(ExecutionScroll::Down, 5_000, max, layout.body().height);
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                target_rows(5_001..5_001 + height)
+            );
+            view.end();
+            assert_eq!(
+                body_rows(area, &state, view, now),
+                target_rows(max..target_lines)
+            );
+        }
+
+        #[test]
+        fn scrolling_can_start_inside_a_multi_line_entry() {
+            let started_at = Instant::now();
+            let mut state = ExecutionState::applying_with_previous(
+                started_at,
+                ExecutionContext::loading("/repo"),
+                vec![ExecutionTargetSpec {
+                    address: TARGET.to_owned(),
+                    actions: vec![PlanAction::Update],
+                }],
+                Vec::new(),
+                &[None],
+            );
+            let mut lines = Vec::new();
+            for entry in 0..40 {
+                let text = format!("entry {entry} first\nentry {entry} second");
+                lines.extend(text.lines().map(str::to_owned));
+                state.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Diagnostic(Diagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        summary: format!("entry {entry} first"),
+                        detail: Some(format!("entry {entry} second")),
+                        address: Some(TARGET.to_owned()),
+                        position: None,
+                        source: DiagnosticSource::Terraform,
+                    }),
+                });
+            }
+            let area = Rect::new(0, 0, 80, 24);
+            for selected in [false, true] {
+                let mut view = ExecutionViewState::default();
+                view.open_logs();
+                if selected {
+                    view.select_target(ExecutionTargetMove::Next, &[0]);
+                }
+                let layout = execution_layout_with_view(area, &state, view);
+                let height = usize::from(layout.body().height);
+                view.apply_scroll(
+                    ExecutionScroll::Down,
+                    6,
+                    layout.max_vertical(),
+                    layout.body().height,
+                );
+
+                assert_eq!(
+                    body_rows(area, &state, view, started_at),
+                    lines[7..7 + height],
+                    "selected: {selected}"
+                );
             }
         }
     }
@@ -2817,7 +3076,7 @@ mod tests {
 
             assert_eq!(
                 prepare_content(&state)
-                    .lines
+                    .visible_lines(0, usize::MAX)
                     .iter()
                     .map(Line::to_string)
                     .collect::<Vec<_>>(),

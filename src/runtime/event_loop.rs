@@ -2694,7 +2694,7 @@ mod tests {
         fn execution_scroll_position(
             state: &SessionState,
             view: execution::ExecutionViewState,
-        ) -> u16 {
+        ) -> usize {
             let apply = state.apply().expect("apply state");
             execution::execution_scroll_position_with_view(
                 apply,
