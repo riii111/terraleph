@@ -134,26 +134,26 @@ fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
             vec![
                 PlanLineKind::Intro,
                 PlanLineKind::Intro,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Note,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
-                PlanLineKind::Note,
+                PlanLineKind::ResourceHeader,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
                 PlanLineKind::Body,
@@ -1244,6 +1244,11 @@ mod layout {
         assert_text_color(
             &buffer,
             "# terraform_data.api will be updated in-place",
+            Color::Rgb(0xe9, 0xdb, 0xdb),
+        );
+        assert_text_color(
+            &buffer,
+            "# (4 unchanged attributes hidden)",
             Color::Rgb(0xc0, 0xb8, 0xb8),
         );
         assert_text_color(&buffer, "- old_checksum", Color::Rgb(0xbf, 0x61, 0x6a));
@@ -1361,7 +1366,7 @@ mod filter {
                 vec![
                     PlanLineKind::Body,
                     PlanLineKind::Body,
-                    PlanLineKind::Note,
+                    PlanLineKind::ResourceHeader,
                     PlanLineKind::Body,
                     PlanLineKind::Body,
                     PlanLineKind::Summary,
@@ -3480,6 +3485,218 @@ mod content_cache {
             if row != selected.line() {
                 assert_eq!(line, unselected, "{row}");
             }
+        }
+    }
+}
+
+mod line_styles {
+    use std::ops::Range;
+
+    use super::*;
+
+    const AREA: (u16, u16) = (120, 60);
+    const BODY: Color = Color::Rgb(0xe9, 0xdb, 0xdb);
+    const SECONDARY: Color = Color::Rgb(0xc0, 0xb8, 0xb8);
+    const ADD: Color = Color::Rgb(0xa3, 0xbe, 0x8c);
+    const DESTROY: Color = Color::Rgb(0xbf, 0x61, 0x6a);
+    const UPDATE: Color = Color::Rgb(0xeb, 0xcb, 0x8b);
+    const MATCH: (Color, Color, Modifier) = (
+        Color::Rgb(0x11, 0x14, 0x19),
+        Color::Rgb(0xf4, 0x9e, 0x4c),
+        Modifier::BOLD,
+    );
+    // Heredoc lines follow Terraform 1.16 output: a created value keeps its text two columns right
+    // of the marker column, and an updated value puts its markers there.
+    const STYLED_PLAN: [&str; 36] = [
+        "  # terraform_data.created will be created",
+        "  + resource \"terraform_data\" \"created\" {",
+        "      + input  = <<-EOT",
+        "            - dash",
+        "            + plus",
+        "        EOT",
+        "    }",
+        "",
+        "  # terraform_data.updated will be updated in-place",
+        "  ~ resource \"terraform_data\" \"updated\" {",
+        "      ~ input  = <<-EOT",
+        "            - item one",
+        "          - + item two",
+        "          + + item 2",
+        "            plain",
+        "        EOT",
+        "        # (1 unchanged attribute hidden)",
+        "    }",
+        "",
+        "  # terraform_data.destroyed will be destroyed",
+        "  - resource \"terraform_data\" \"destroyed\" {",
+        "      - input  = <<-EOT",
+        "            - gone",
+        "        EOT -> null",
+        "    }",
+        "",
+        "  # terraform_data.replaced must be replaced",
+        "-/+ resource \"terraform_data\" \"replaced\" {",
+        "      ~ input = \"before\" -> \"after\" # forces replacement",
+        "    }",
+        "",
+        "  # terraform_data.swapped must be replaced",
+        "+/- resource \"terraform_data\" \"swapped\" {",
+        "    }",
+        "",
+        "Plan: 2 to add, 1 to change, 3 to destroy.",
+    ];
+
+    // The blocks and kinds the text parser gives these lines.
+    fn styled_review(query: &str) -> ReviewSessionState {
+        let line_kinds = (0..STYLED_PLAN.len())
+            .map(|line| match line {
+                0 | 8 | 19 | 26 | 31 => PlanLineKind::ResourceHeader,
+                3 | 4 | 11..=14 | 22 => PlanLineKind::HeredocBody { marker_column: 10 },
+                16 => PlanLineKind::Note,
+                35 => PlanLineKind::Summary,
+                _ => PlanLineKind::Body,
+            })
+            .collect();
+        let mut plan = PlanReview::new(
+            PathBuf::from("/repo"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                STYLED_PLAN.join("\n"),
+                vec![
+                    PlanBlock::new(0..8, PlanBlockKind::Resource),
+                    PlanBlock::new(8..19, PlanBlockKind::Resource),
+                    PlanBlock::new(19..26, PlanBlockKind::Resource),
+                    PlanBlock::new(26..31, PlanBlockKind::Resource),
+                    PlanBlock::new(31..35, PlanBlockKind::Resource),
+                    PlanBlock::new(35..36, PlanBlockKind::Common),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+        plan.set_search_query(query.to_owned());
+        review_state(plan)
+    }
+
+    fn render_styled(query: &str) -> Buffer {
+        let state = styled_review(query);
+        render_to_buffer(AREA, |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        })
+    }
+
+    fn assert_segment(
+        buffer: &Buffer,
+        text: &str,
+        segment: Range<usize>,
+        style: (Color, Modifier),
+    ) {
+        assert_text_segment_uses_style(
+            buffer,
+            text,
+            segment.start,
+            segment.len(),
+            style.0,
+            Color::Reset,
+            style.1,
+        );
+    }
+
+    fn assert_line(buffer: &Buffer, text: &str, style: (Color, Modifier)) {
+        assert_segment(buffer, text, 0..text.chars().count(), style);
+    }
+
+    #[test]
+    fn plan_lines_take_the_style_of_their_change_header_note_or_heredoc_marker() {
+        let buffer = render_styled("");
+
+        for (text, style) in [
+            (
+                "# terraform_data.updated will be updated in-place",
+                (BODY, Modifier::BOLD),
+            ),
+            (
+                "# terraform_data.replaced must be replaced",
+                (BODY, Modifier::BOLD),
+            ),
+            (
+                "# (1 unchanged attribute hidden)",
+                (SECONDARY, Modifier::empty()),
+            ),
+            (
+                "-/+ resource \"terraform_data\" \"replaced\" {",
+                (Color::Magenta, Modifier::empty()),
+            ),
+            (
+                "+/- resource \"terraform_data\" \"swapped\" {",
+                (Color::Magenta, Modifier::empty()),
+            ),
+            ("+ input  = <<-EOT", (ADD, Modifier::empty())),
+            ("- dash", (BODY, Modifier::empty())),
+            ("+ plus", (BODY, Modifier::empty())),
+            ("~ input  = <<-EOT", (UPDATE, Modifier::empty())),
+            ("- item one", (BODY, Modifier::empty())),
+            ("- + item two", (DESTROY, Modifier::empty())),
+            ("+ + item 2", (ADD, Modifier::empty())),
+            ("plain", (BODY, Modifier::empty())),
+            ("- input  = <<-EOT", (DESTROY, Modifier::empty())),
+            ("- gone", (BODY, Modifier::empty())),
+            (
+                "Plan: 2 to add, 1 to change, 3 to destroy.",
+                (BODY, Modifier::empty()),
+            ),
+        ] {
+            assert_line(&buffer, text, style);
+        }
+        assert_segment(&buffer, "EOT -> null", 0..3, (BODY, Modifier::empty()));
+    }
+
+    #[test]
+    fn filtered_heredoc_lines_keep_their_markers_under_the_match_highlight() {
+        let buffer = render_styled("item");
+        let text = buffer_text(&buffer);
+        assert!(!text.contains("- dash"), "{text}");
+        assert!(!text.contains("- gone"), "{text}");
+
+        assert_line(
+            &buffer,
+            "# terraform_data.updated will be updated in-place",
+            (BODY, Modifier::BOLD),
+        );
+        assert_segment(&buffer, "- item one", 0..2, (BODY, Modifier::empty()));
+        assert_segment(&buffer, "- + item two", 0..4, (DESTROY, Modifier::empty()));
+        assert_segment(&buffer, "- + item two", 8..12, (DESTROY, Modifier::empty()));
+        assert_segment(&buffer, "+ + item 2", 0..4, (ADD, Modifier::empty()));
+        for text in ["- item one", "- + item two", "+ + item 2"] {
+            let start = text.find("item").expect("the query should be in the line");
+            assert_text_segment_uses_style(&buffer, text, start, 4, MATCH.0, MATCH.1, MATCH.2);
+        }
+    }
+
+    #[test]
+    fn heredoc_markers_count_only_alone_in_the_marker_column() {
+        let kind = PlanLineKind::HeredocBody { marker_column: 10 };
+        for (line, expected) in [
+            ("          - removed", theme::plan_marker_style(Some('-'))),
+            ("          ~", theme::plan_marker_style(Some('~'))),
+            ("            - text", theme::body_style()),
+            ("          -text", theme::body_style()),
+            ("        x - text", theme::body_style()),
+            ("  -", theme::body_style()),
+            ("        ああ", theme::body_style()),
+        ] {
+            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+            assert!(
+                styled.spans.iter().all(|span| span.style == expected),
+                "{line:?}: {styled:?}"
+            );
         }
     }
 }

@@ -45,12 +45,16 @@ fn split_blocks_with_line_kinds(
     }
     let mut candidates = Vec::new();
     let mut section_boundaries = Vec::new();
-    let mut heredoc_terminator: Option<String> = None;
+    let mut heredoc: Option<OpenHeredoc> = None;
     let mut in_output_section = false;
     for (line, text) in lines.iter().enumerate() {
-        if let Some(terminator) = &heredoc_terminator {
-            if heredoc_end(text, terminator) {
-                heredoc_terminator = None;
+        if let Some(open) = &heredoc {
+            if heredoc_end(text, &open.terminator) {
+                heredoc = None;
+            } else {
+                line_kinds[line] = PlanLineKind::HeredocBody {
+                    marker_column: open.marker_column,
+                };
             }
             continue;
         }
@@ -75,13 +79,14 @@ fn split_blocks_with_line_kinds(
                 candidates.push((line, PlanBlockKind::Output, None));
             }
         } else if let Some(index) = resource_header(text, &resource_indices) {
+            line_kinds[line] = PlanLineKind::ResourceHeader;
             candidates.push((
                 line,
                 PlanBlockKind::Resource,
                 Some(resource_addresses[index].clone()),
             ));
         }
-        heredoc_terminator = heredoc_start(text);
+        heredoc = OpenHeredoc::opened_by(text);
     }
 
     let mut blocks = Vec::new();
@@ -308,6 +313,36 @@ fn heredoc_start(line: &str) -> Option<String> {
     .then(|| terminator.to_owned())
 }
 
+struct OpenHeredoc {
+    terminator: String,
+    marker_column: usize,
+}
+
+impl OpenHeredoc {
+    fn opened_by(line: &str) -> Option<Self> {
+        heredoc_start(line).map(|terminator| Self {
+            terminator,
+            marker_column: heredoc_marker_column(line),
+        })
+    }
+}
+
+// Terraform and OpenTofu indent heredoc lines one level past the opening attribute and keep a
+// two-column action slot there, so a changed line's marker sits two columns right of the name.
+fn heredoc_marker_column(opening: &str) -> usize {
+    let indent = opening.len() - opening.trim_start_matches(' ').len();
+    let rest = &opening[indent..];
+    let name_column = if ["+ ", "- ", "~ "]
+        .iter()
+        .any(|marker| rest.starts_with(marker))
+    {
+        indent + 2
+    } else {
+        indent
+    };
+    name_column + 2
+}
+
 fn heredoc_end(line: &str, terminator: &str) -> bool {
     let trimmed = line.trim();
     if trimmed == terminator {
@@ -385,9 +420,15 @@ mod tests {
         assert_eq!(document.line_kind(1), PlanLineKind::Intro);
         assert_eq!(document.line_kind(2), PlanLineKind::Intro);
         assert_eq!(document.line_kind(4), PlanLineKind::Intro);
-        assert_eq!(document.line_kind(7), PlanLineKind::Note);
+        assert_eq!(document.line_kind(7), PlanLineKind::ResourceHeader);
         assert_eq!(document.line_kind(9), PlanLineKind::Body);
-        assert_eq!(document.line_kind(10), PlanLineKind::Body);
+        for line in [10, 11] {
+            assert_eq!(
+                document.line_kind(line),
+                PlanLineKind::HeredocBody { marker_column: 8 }
+            );
+        }
+        assert_eq!(document.line_kind(12), PlanLineKind::Body);
         assert_eq!(document.line_kind(15), PlanLineKind::OutputSection);
         assert_eq!(document.line_kind(18), PlanLineKind::Summary);
     }
@@ -415,8 +456,86 @@ mod tests {
         for line in 0..9 {
             assert_eq!(document.line_kind(line), PlanLineKind::Intro);
         }
-        assert_eq!(document.line_kind(9), PlanLineKind::Note);
+        assert_eq!(document.line_kind(9), PlanLineKind::ResourceHeader);
         assert_eq!(document.line_kind(12), PlanLineKind::Summary);
+    }
+
+    #[test]
+    fn classifies_resource_headers_and_heredoc_marker_columns_for_both_tools() {
+        let addresses = [
+            "terraform_data.created".to_owned(),
+            "terraform_data.updated".to_owned(),
+            "terraform_data.removed".to_owned(),
+        ];
+        for tool in ["Terraform", "OpenTofu"] {
+            let removed_header = format!(
+                "  # terraform_data.removed will no longer be managed by {tool}, but will not be destroyed"
+            );
+            let source = [
+                &format!("{tool} will perform the following actions:"),
+                "",
+                "  # terraform_data.created will be created",
+                "  + resource \"terraform_data\" \"created\" {",
+                "      + input  = <<-EOT",
+                "            - dash",
+                "            + plus",
+                "        EOT",
+                "    }",
+                "",
+                "  # terraform_data.updated will be updated in-place",
+                "  ~ resource \"terraform_data\" \"updated\" {",
+                "      ~ input  = <<-EOT",
+                "            - item one",
+                "          - + item two",
+                "            plain",
+                "        EOT",
+                "        # (1 unchanged attribute hidden)",
+                "      ~ nested = {",
+                "          ~ \"key\" = <<-EOT",
+                "                - value",
+                "            EOT -> null",
+                "        }",
+                "    }",
+                "",
+                &removed_header,
+                "",
+                "  # terraform_data.unknown will be created",
+                "",
+                "Plan: 1 to add, 1 to change, 0 to destroy.",
+            ]
+            .join("\n");
+            let document = parse_document(source.into_bytes(), &addresses, &[])
+                .expect("synthetic text should parse");
+
+            let heredoc = |marker_column| PlanLineKind::HeredocBody { marker_column };
+            assert_eq!(
+                (0..document.line_count())
+                    .map(|line| document.line_kind(line))
+                    .collect::<Vec<_>>(),
+                [
+                    [PlanLineKind::Intro; 2].as_slice(),
+                    &[PlanLineKind::ResourceHeader],
+                    &[PlanLineKind::Body; 2],
+                    &[heredoc(10); 2],
+                    &[PlanLineKind::Body; 3],
+                    &[PlanLineKind::ResourceHeader],
+                    &[PlanLineKind::Body; 2],
+                    &[heredoc(10); 3],
+                    &[PlanLineKind::Body],
+                    &[PlanLineKind::Note],
+                    &[PlanLineKind::Body; 2],
+                    &[heredoc(14)],
+                    &[PlanLineKind::Body; 4],
+                    &[PlanLineKind::ResourceHeader],
+                    &[PlanLineKind::Body],
+                    &[PlanLineKind::Note],
+                    &[PlanLineKind::Body],
+                    &[PlanLineKind::Summary],
+                ]
+                .concat(),
+                "{tool}"
+            );
+        }
     }
 
     #[test]

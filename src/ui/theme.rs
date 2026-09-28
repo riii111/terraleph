@@ -206,12 +206,24 @@ pub(crate) fn success_style() -> Style {
 }
 
 pub(crate) fn plan_line_style(line: &str) -> Style {
-    match line.trim_start().chars().next() {
+    let line = line.trim_start();
+    if line.starts_with("-/+") || line.starts_with("+/-") {
+        return overview_total_replace_style();
+    }
+    plan_marker_style(line.chars().next())
+}
+
+pub(crate) fn plan_marker_style(marker: Option<char>) -> Style {
+    match marker {
         Some('+') => Style::default().fg(Color::Rgb(0xa3, 0xbe, 0x8c)),
         Some('-') => Style::default().fg(Color::Rgb(0xbf, 0x61, 0x6a)),
         Some('~') => Style::default().fg(Color::Rgb(0xeb, 0xcb, 0x8b)),
         _ => body_style(),
     }
+}
+
+pub(crate) fn plan_resource_header_style() -> Style {
+    body_style().add_modifier(Modifier::BOLD)
 }
 
 pub(crate) fn plan_note_style() -> Style {

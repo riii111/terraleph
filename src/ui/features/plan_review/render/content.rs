@@ -292,11 +292,29 @@ pub(super) fn plan_line_and_matches<'a>(
 }
 
 fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {
-    if kind == PlanLineKind::Note {
-        theme::plan_note_style()
-    } else {
-        theme::plan_line_style(line)
+    match kind {
+        PlanLineKind::Note => theme::plan_note_style(),
+        PlanLineKind::ResourceHeader => theme::plan_resource_header_style(),
+        PlanLineKind::HeredocBody { marker_column } => {
+            theme::plan_marker_style(heredoc_marker(line, marker_column))
+        }
+        PlanLineKind::Body
+        | PlanLineKind::Intro
+        | PlanLineKind::Summary
+        | PlanLineKind::OutputSection => theme::plan_line_style(line),
     }
+}
+
+// Heredoc text can start with the same characters as a diff marker, so only a marker in the
+// document's marker column, after spaces and before a space or the line end, counts.
+fn heredoc_marker(line: &str, marker_column: usize) -> Option<char> {
+    let (indent, rest) = line.split_at_checked(marker_column)?;
+    let mut rest = rest.chars();
+    let marker = rest
+        .next()
+        .filter(|marker| matches!(marker, '+' | '-' | '~'))?;
+    (indent.bytes().all(|byte| byte == b' ') && rest.next().is_none_or(|next| next == ' '))
+        .then_some(marker)
 }
 
 pub(super) fn flash_lines(lines: &[Line<'_>]) -> Vec<Line<'static>> {
