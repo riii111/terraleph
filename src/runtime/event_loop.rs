@@ -2569,6 +2569,50 @@ mod tests {
             assert_apply_completion_and_copy_path(&mut state, &mut terminal, &mut views, now);
         }
 
+        #[test]
+        fn apply_result_keeps_the_all_logs_measurement_of_the_running_view() {
+            let started_at = Instant::now();
+            let mut state = long_apply_state(started_at, None);
+            let entries = state.apply().expect("apply state").progress().log().len();
+            // Measured over a log as long as the real one but wider, so a width measured again
+            // from the first entry would differ from the one the view keeps.
+            let mut wider =
+                ExecutionState::applying(started_at, ExecutionContext::loading("/project"));
+            for index in 0..entries {
+                wider.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Log(ExecutionLogLine {
+                        stream: EventStream::Stdout,
+                        text: if index == 0 {
+                            "x".repeat(500)
+                        } else {
+                            "short".to_owned()
+                        },
+                    }),
+                });
+            }
+            let mut view = execution::ExecutionViewState::default();
+            view.measure_log(wider.progress());
+            assert_eq!(view.log_measurement_for_test(), (entries, 500));
+
+            let _ = update_session(
+                &mut state,
+                Action::ApplyCompleted {
+                    status: ApplyStatus::Succeeded,
+                    summary_line: None,
+                },
+                &mut view,
+                started_at,
+            );
+
+            let apply = state.apply().expect("apply state");
+            assert!(apply.result().is_some());
+            assert_eq!(
+                view.log_measurement_for_test(),
+                (apply.progress().log().len(), 500)
+            );
+        }
+
         fn assert_apply_start_path(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,

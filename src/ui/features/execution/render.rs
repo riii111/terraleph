@@ -80,11 +80,13 @@ impl<'a> PreparedContent<'a> {
         })
     }
 
-    // Rows from line `offset` down, each starting `horizontal` cells into its line.
-    fn visible_lines(&self, offset: usize, height: usize, horizontal: usize) -> Vec<Line<'a>> {
+    // The rows drawn into `area` from line `offset` down, each starting `horizontal` cells into
+    // its line.
+    fn visible_lines(&self, offset: usize, horizontal: usize, area: Rect) -> Vec<Line<'a>> {
+        let (width, height) = (usize::from(area.width), usize::from(area.height));
         if let Some(placeholder) = &self.placeholder {
             return std::iter::once(Line::from(Span::styled(
-                skip_cells(&placeholder.content, horizontal).into_owned(),
+                visible_cells(&placeholder.content, horizontal, width).into_owned(),
                 placeholder.style,
             )))
             .skip(offset)
@@ -96,7 +98,7 @@ impl<'a> PreparedContent<'a> {
         };
         self.entries.map_or_else(
             || {
-                log_lines(&self.log[first..], horizontal)
+                log_lines(&self.log[first..], (horizontal, width))
                     .skip(skip)
                     .take(height)
                     .collect()
@@ -104,7 +106,7 @@ impl<'a> PreparedContent<'a> {
             |entries| {
                 log_lines(
                     entries[first..].iter().filter_map(|id| self.log.get(*id)),
-                    horizontal,
+                    (horizontal, width),
                 )
                 .skip(skip)
                 .take(height)
@@ -320,11 +322,7 @@ fn render_log_panel(
     let max_vertical = layout.max_vertical();
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(layout.max_horizontal());
-    let lines = content.visible_lines(
-        scroll,
-        usize::from(layout.body().height),
-        usize::from(horizontal),
-    );
+    let lines = content.visible_lines(scroll, horizontal, layout.body());
     let lines = if state.copy_feedback().flash_active(now) {
         flash_lines(lines)
     } else {
@@ -361,11 +359,7 @@ fn render_log_view(
     let scroll = view.vertical_offset(initial_scroll(state, max_vertical), max_vertical);
     let horizontal = view.horizontal().min(max_horizontal);
     // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
-    let lines = content.visible_lines(
-        scroll,
-        usize::from(layout.log_area().height),
-        usize::from(horizontal),
-    );
+    let lines = content.visible_lines(scroll, horizontal, layout.log_area());
     let lines = if state.copy_feedback().flash_active(now) {
         flash_lines(lines)
     } else {
@@ -399,7 +393,7 @@ fn render_log_scrollbars(
     frame: &mut Frame<'_>,
     layout: &ExecutionLayout,
     (line_count, max_line_width): (usize, usize),
-    (vertical_offset, horizontal_offset): (usize, u16),
+    (vertical_offset, horizontal_offset): (usize, usize),
 ) {
     let body = layout.body();
     let scrollbar_area = Rect::new(
@@ -425,7 +419,7 @@ fn render_log_scrollbars(
             scrollbar_area,
             max_line_width,
             usize::from(body.width),
-            usize::from(horizontal_offset),
+            horizontal_offset,
         );
     }
 }
@@ -466,7 +460,7 @@ pub(crate) struct ExecutionLayout {
     vertical_scrollbar: bool,
     horizontal_scrollbar: bool,
     max_vertical: usize,
-    max_horizontal: u16,
+    max_horizontal: usize,
 }
 
 impl ExecutionLayout {
@@ -514,7 +508,7 @@ impl ExecutionLayout {
         self.target_max_vertical
     }
 
-    pub(crate) const fn max_horizontal(&self) -> u16 {
+    pub(crate) const fn max_horizontal(&self) -> usize {
         self.max_horizontal
     }
 }
@@ -753,7 +747,7 @@ pub(crate) const fn execution_target_scroll_position_with_view(
 pub(crate) fn execution_horizontal_scroll_position_with_view(
     view: ExecutionViewState,
     layout: &ExecutionLayout,
-) -> (u16, u16) {
+) -> (usize, usize) {
     let max = layout.max_horizontal();
     (view.horizontal().min(max), max)
 }
@@ -810,7 +804,8 @@ pub(super) fn measure_log_width(
     entries: Option<&[usize]>,
 ) -> LogWidth {
     let total = entries.map_or(log.len(), <[usize]>::len);
-    // A log never shrinks, so a longer measurement came from another execution.
+    // A view belongs to one execution and its log never shrinks, so this is only a guard against
+    // a measurement that covers more entries than there are.
     let measured = if measured.entries > total {
         LogWidth::default()
     } else {
@@ -846,7 +841,7 @@ pub(super) fn measure_log_width(
 
 fn log_lines<'a>(
     log: impl IntoIterator<Item = &'a ExecutionLogLine>,
-    horizontal: usize,
+    (horizontal, width): (usize, usize),
 ) -> impl Iterator<Item = Line<'a>> {
     log.into_iter().flat_map(move |line| {
         let style = if line.stream == EventStream::Stderr {
@@ -854,28 +849,48 @@ fn log_lines<'a>(
         } else {
             theme::body_style()
         };
-        line.text
-            .lines()
-            .map(move |text| Line::from(Span::styled(skip_cells(text, horizontal), style)))
+        line.text.lines().map(move |text| {
+            Line::from(Span::styled(visible_cells(text, horizontal, width), style))
+        })
     })
 }
 
-// The part of `text` drawn from `cells` cells in. A wide character cut by the left edge leaves
-// its remaining cells blank, so every line moves by exactly `cells` and the end of the widest
-// line can reach the right edge. `Paragraph::scroll` would draw such a character whole instead.
-fn skip_cells(text: &str, cells: usize) -> Cow<'_, str> {
-    if cells == 0 {
+// The part of `text` drawn in a row `width` cells wide, starting `offset` cells into the line. A
+// wide character cut by the left edge leaves its remaining cells blank, so every line moves by
+// exactly `offset` and the end of the widest line can reach the right edge. `Paragraph::scroll`
+// would draw such a character whole instead. Past the left edge this keeps only what `Paragraph`
+// draws within `width`, so a long line costs the cells up to the right edge rather than its
+// length, and the row is drawn exactly as the whole remainder would be.
+fn visible_cells(text: &str, offset: usize, width: usize) -> Cow<'_, str> {
+    if width == 0 {
+        return Cow::Borrowed("");
+    }
+    if offset == 0 {
+        // `Paragraph` stops at the right edge on its own.
         return Cow::Borrowed(text);
     }
     let mut skipped = 0;
+    let mut kept_width = 0;
     let mut kept = String::new();
     for grapheme in Line::from(text).styled_graphemes(Style::default()) {
-        if skipped < cells {
-            skipped += usize::from(grapheme.symbol.cell_width());
-            kept.extend(std::iter::repeat_n(' ', skipped.saturating_sub(cells)));
-        } else {
-            kept.push_str(grapheme.symbol);
+        let cells = usize::from(grapheme.symbol.cell_width());
+        if skipped < offset {
+            skipped += cells;
+            let blank = skipped.saturating_sub(offset);
+            kept.extend(std::iter::repeat_n(' ', blank));
+            kept_width += blank;
+            continue;
         }
+        // `Paragraph` leaves out a grapheme wider than the row and stops at the first one that
+        // does not fit, so a wide character straddling the right edge is not drawn.
+        if cells > width {
+            continue;
+        }
+        if kept_width + cells > width {
+            break;
+        }
+        kept_width += cells;
+        kept.push_str(grapheme.symbol);
     }
     Cow::Owned(kept)
 }
@@ -1202,10 +1217,9 @@ fn layout_target_max(target_count: usize, height: u16) -> usize {
     target_count.saturating_sub(usize::from(height))
 }
 
-fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (usize, u16) {
+fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (usize, usize) {
     let vertical = line_count.saturating_sub(usize::from(body.height));
-    let horizontal =
-        u16::try_from(line_width.saturating_sub(usize::from(body.width))).unwrap_or(u16::MAX);
+    let horizontal = line_width.saturating_sub(usize::from(body.width));
     (vertical, horizontal)
 }
 
@@ -1934,7 +1948,7 @@ mod tests {
             state: &ExecutionState,
             now: Instant,
             vertical: usize,
-            horizontal: u16,
+            horizontal: usize,
         ) -> (ExecutionLayout, Buffer) {
             let mut view = ExecutionViewState::default();
             view.open_logs();
@@ -1985,7 +1999,7 @@ mod tests {
             buffer: &Buffer,
             layout: &ExecutionLayout,
             vertical: usize,
-            horizontal: u16,
+            horizontal: usize,
         ) {
             let body = layout.body();
             if layout.vertical_scrollbar() {
@@ -2027,8 +2041,8 @@ mod tests {
                 assert_thumb_endpoints(
                     &symbols[1..track_end],
                     "═",
-                    usize::from(horizontal),
-                    usize::from(layout.max_horizontal()),
+                    horizontal,
+                    layout.max_horizontal(),
                 );
             }
         }
@@ -2637,10 +2651,108 @@ mod tests {
             for view in [unmeasured, measured] {
                 let layout = execution_layout_with_view(area, &state, view);
                 assert_eq!(
-                    usize::from(layout.max_horizontal()),
+                    layout.max_horizontal(),
                     width - usize::from(layout.body().width)
                 );
                 assert_right_edge(&state, view, "END");
+            }
+        }
+
+        #[test]
+        fn a_line_wider_than_u16_cells_scrolls_to_its_right_end() {
+            let (mut state, now) = applying_state_with_lines(vec!["short".to_owned()]);
+            record_log(&mut state, now, &format!("{}END", "x".repeat(70_000)));
+            let view = logs_view();
+            let layout = execution_layout_with_view(Rect::new(0, 0, 80, 24), &state, view);
+
+            assert_eq!(
+                layout.max_horizontal(),
+                70_003 - usize::from(layout.body().width)
+            );
+            assert!(layout.max_horizontal() > usize::from(u16::MAX));
+            assert_right_edge(&state, view, "END");
+        }
+
+        #[test]
+        fn a_wide_character_cut_by_the_left_edge_leaves_a_blank_in_the_line_style() {
+            let (mut state, now) = applying_state_with_lines(vec!["x".repeat(200)]);
+            state.record(ExecutionEvent {
+                received_at: now,
+                kind: ExecutionEventKind::Log(ExecutionLogLine {
+                    stream: EventStream::Stderr,
+                    text: "ｶﾞabc".to_owned(),
+                }),
+            });
+            let area = Rect::new(0, 0, 80, 24);
+            let mut view = logs_view();
+            let layout = execution_layout_with_view(area, &state, view);
+            let (vertical, _) = execution_scroll_position_with_view(&state, view, &layout);
+            view.apply_horizontal_scroll(
+                ExecutionScroll::Right,
+                0,
+                layout.max_horizontal(),
+                vertical,
+            );
+            let buffer = render_to_buffer((area.width, area.height), |frame| {
+                render_execution_with_view(frame, &state, view, now);
+            });
+
+            let body = layout.body();
+            let y = (body.y..body.bottom())
+                .find(|y| body_row(&buffer, body, *y) == " abc")
+                .unwrap_or_else(|| panic!("{}", buffer_text(&buffer)));
+            let blank = &buffer[(body.x, y)];
+            assert_eq!(blank.style(), buffer[(body.x + 1, y)].style());
+            assert_eq!(Some(blank.fg), theme::warning_style().fg);
+        }
+
+        // The row the cutter produced before it stopped at the right edge: the whole line from
+        // `offset` cells in, with a wide character cut by the left edge left blank.
+        fn whole_remainder(text: &str, offset: usize) -> String {
+            let mut skipped = 0;
+            let mut kept = String::new();
+            for grapheme in Line::from(text).styled_graphemes(Style::default()) {
+                if skipped < offset {
+                    skipped += usize::from(grapheme.symbol.cell_width());
+                    kept.extend(std::iter::repeat_n(' ', skipped.saturating_sub(offset)));
+                } else {
+                    kept.push_str(grapheme.symbol);
+                }
+            }
+            kept
+        }
+
+        fn draw_row(text: &str, width: u16) -> Buffer {
+            render_to_buffer((width, 1), |frame| {
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(text, theme::warning_style())))
+                        .style(theme::body_style()),
+                    frame.area(),
+                );
+            })
+        }
+
+        #[test]
+        fn long_lines_scrolled_right_draw_only_what_fits_as_their_whole_remainder_would() {
+            let lines = [
+                "x".repeat(100_000),
+                "aｶﾞ全角b\t😀".repeat(5_000),
+                format!("{}END", "全".repeat(50_000)),
+            ];
+            for text in &lines {
+                for width in [1_u16, 2, 3, 7, 80] {
+                    for offset in [1, 2, 3, 5, 40_001] {
+                        let visible = visible_cells(text, offset, usize::from(width));
+                        let case = format!("width {width}, offset {offset}");
+
+                        assert_eq!(
+                            draw_row(&visible, width),
+                            draw_row(&whole_remainder(text, offset), width),
+                            "{case}"
+                        );
+                        assert!(display_width(&visible) <= usize::from(width), "{case}");
+                    }
+                }
             }
         }
 
@@ -3424,7 +3536,7 @@ mod tests {
 
             assert_eq!(
                 prepare_content(&state, ExecutionViewState::default())
-                    .visible_lines(0, usize::MAX, 0)
+                    .visible_lines(0, 0, Rect::new(0, 0, 80, 24))
                     .iter()
                     .map(Line::to_string)
                     .collect::<Vec<_>>(),

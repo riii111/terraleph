@@ -41,7 +41,7 @@ struct LogWidth {
 pub(crate) struct ExecutionViewState {
     vertical: VerticalScroll,
     target_vertical: VerticalScroll,
-    horizontal: u16,
+    horizontal: usize,
     logs_open: bool,
     selected_target: Option<usize>,
     log_width: LogWidth,
@@ -111,8 +111,8 @@ impl ExecutionViewState {
     pub(crate) fn apply_horizontal_scroll(
         &mut self,
         action: ExecutionScroll,
-        current_offset: u16,
-        max_offset: u16,
+        current_offset: usize,
+        max_offset: usize,
         current_vertical: usize,
     ) {
         self.vertical = VerticalScroll::Manual(current_vertical);
@@ -257,7 +257,7 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn horizontal(self) -> u16 {
+    pub(crate) const fn horizontal(self) -> usize {
         self.horizontal
     }
 
@@ -310,6 +310,19 @@ pub(crate) use render::{
     execution_scroll_position_with_view, execution_target_scroll_position_with_view,
     render_execution_with_quit_confirmation,
 };
+
+#[cfg(test)]
+mod test_support {
+    use super::ExecutionViewState;
+
+    // Runtime tests observe the all-logs measurement a view carries, as `(entries, width)`,
+    // without going through a render.
+    impl ExecutionViewState {
+        pub(crate) const fn log_measurement_for_test(self) -> (usize, usize) {
+            (self.log_width.entries, self.log_width.width)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
