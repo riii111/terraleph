@@ -34,15 +34,6 @@ pub(crate) enum CopyNotice {
 
 impl CopyNotice {
     #[must_use]
-    pub(crate) const fn from_result(target: CopyTarget, result: CopyResult) -> Self {
-        match result {
-            CopyResult::Written => Self::Copied { target },
-            CopyResult::SentToTerminal => Self::SentToTerminal { target },
-            CopyResult::Failed => Self::Failed,
-        }
-    }
-
-    #[must_use]
     pub(crate) const fn message(self) -> &'static str {
         match self {
             Self::Copied { .. } => "Copied.",
@@ -98,7 +89,11 @@ impl CopyFeedback {
         now: Instant,
         flash: bool,
     ) {
-        let notice = CopyNotice::from_result(target, result);
+        let notice = match result {
+            CopyResult::Written => CopyNotice::Copied { target },
+            CopyResult::SentToTerminal => CopyNotice::SentToTerminal { target },
+            CopyResult::Failed => CopyNotice::Failed,
+        };
         self.notice = Some(notice);
         self.notice_until = Some(now + notice.duration());
         self.flash_until = (flash && result != CopyResult::Failed).then(|| now + FLASH_DURATION);

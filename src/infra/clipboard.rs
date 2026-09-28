@@ -96,7 +96,7 @@ fn push_base64(output: &mut String, bytes: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::copy::{CopyNotice, CopyTarget};
+    use crate::app::copy::CopyTarget;
 
     use super::*;
 
@@ -119,10 +119,6 @@ mod tests {
             String::from_utf8(clipboard.terminal).expect("sequence should be UTF-8"),
             "\x1b]52;c;dmFsdWUgPSAoc2Vuc2l0aXZlIHZhbHVlKQo=\x07"
         );
-        assert_eq!(
-            CopyNotice::from_result(CopyTarget::Plan, result).message(),
-            "Sent to terminal clipboard."
-        );
     }
 
     #[test]
@@ -142,10 +138,6 @@ mod tests {
 
         assert_eq!(result, CopyResult::Failed);
         assert!(clipboard.terminal.is_empty());
-        assert_eq!(
-            CopyNotice::from_result(CopyTarget::Execution, result).message(),
-            "Copy failed."
-        );
     }
 
     #[test]
