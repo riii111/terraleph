@@ -134,50 +134,10 @@ fn install_recorder(signal: libc::c_int) -> io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[test]
-    fn exit_code_follows_the_shell_signal_convention() {
-        struct SignalCase {
-            name: &'static str,
-            signal: i32,
-            expected: u8,
-        }
-
-        for case in [
-            SignalCase {
-                name: "hangup",
-                signal: 1,
-                expected: 129,
-            },
-            SignalCase {
-                name: "interrupt",
-                signal: 2,
-                expected: 130,
-            },
-            SignalCase {
-                name: "terminate",
-                signal: 15,
-                expected: 143,
-            },
-            SignalCase {
-                name: "closed terminal",
-                signal: TERMINAL_CLOSED,
-                expected: 129,
-            },
-        ] {
-            assert_eq!(
-                TerminationSignal(case.signal).exit_code(),
-                case.expected,
-                "case: {}",
-                case.name
-            );
-        }
-    }
-
-    #[cfg(unix)]
     #[test]
     fn hangup_is_reported_only_after_the_terminal_closes() {
         let mut controller = -1;

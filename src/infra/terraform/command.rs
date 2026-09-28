@@ -445,23 +445,11 @@ pub(crate) fn run_passthrough(
 
 #[cfg(unix)]
 fn run_passthrough_unix(mut command: Command) -> io::Result<ProcessStatus> {
-    const extern "C" fn ignore_interrupt(_: libc::c_int) {}
-
-    // SAFETY: the handler performs no work and is restored after the child exits.
-    let previous = unsafe {
-        libc::signal(
-            libc::SIGINT,
-            ignore_interrupt as *const () as libc::sighandler_t,
-        )
-    };
-    if previous == libc::SIG_ERR {
-        return Err(io::Error::last_os_error());
-    }
+    let previous = catch_uncaught_interrupt()?;
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            // SAFETY: restore the signal disposition captured immediately before spawning.
-            unsafe { libc::signal(libc::SIGINT, previous) };
+            restore_interrupt(previous);
             return Err(error);
         }
     };
@@ -473,9 +461,45 @@ fn run_passthrough_unix(mut command: Command) -> io::Result<ProcessStatus> {
             thread::sleep(PROCESS_POLL_INTERVAL);
         }
     })();
-    // SAFETY: restore the signal disposition captured immediately before spawning the child.
-    unsafe { libc::signal(libc::SIGINT, previous) };
+    restore_interrupt(previous);
     result
+}
+
+// Terraform receives the terminal's SIGINT itself, so Terraleph must survive it without
+// forwarding. A handler the caller already installed does that and keeps the interrupt recorded;
+// only the default or ignored disposition is replaced, the latter so the child still sees SIGINT.
+#[cfg(unix)]
+fn catch_uncaught_interrupt() -> io::Result<Option<libc::sighandler_t>> {
+    const extern "C" fn ignore_interrupt(_: libc::c_int) {}
+
+    // SAFETY: a zeroed sigaction is a valid output buffer for querying the current disposition.
+    let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+    // SAFETY: a null new action only reads the current disposition into `current`.
+    if unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &raw mut current) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if current.sa_sigaction != libc::SIG_DFL && current.sa_sigaction != libc::SIG_IGN {
+        return Ok(None);
+    }
+    // SAFETY: the handler performs no work and is restored after the child exits.
+    let previous = unsafe {
+        libc::signal(
+            libc::SIGINT,
+            ignore_interrupt as *const () as libc::sighandler_t,
+        )
+    };
+    if previous == libc::SIG_ERR {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(Some(previous))
+}
+
+#[cfg(unix)]
+fn restore_interrupt(previous: Option<libc::sighandler_t>) {
+    if let Some(previous) = previous {
+        // SAFETY: restores the disposition captured before the child was spawned.
+        unsafe { libc::signal(libc::SIGINT, previous) };
+    }
 }
 
 fn remove_cli_argument_environment(command: &mut Command) {
