@@ -36,7 +36,7 @@ use crate::ui::{
 
 use super::{
     apply_confirmation::{CONFIRMATION_MAX_WIDTH, confirmation_input_scroll},
-    content::{plan_line_and_matches, visible_lines},
+    content::{display_width, plan_line_and_matches, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
     review_footer::{footer_items, position_status},
@@ -3836,6 +3836,106 @@ mod line_styles {
             assert!(
                 styled.spans.iter().all(|span| span.style == expected),
                 "{line:?}: {styled:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_element_heredoc_lines_color_only_markers_in_the_element_marker_column() {
+        // `          ~ <<-EOT` opens the element, so its marker column is 14.
+        let kind = PlanLineKind::HeredocBody { marker_column: 14 };
+        for (line, expected) in [
+            ("                - dash", theme::body_style()),
+            (
+                "              - item one",
+                theme::plan_marker_style(Some('-')),
+            ),
+            (
+                "              + item two",
+                theme::plan_marker_style(Some('+')),
+            ),
+            ("                plain", theme::body_style()),
+            (
+                "  # terraform_data.lookalike will be created",
+                theme::body_style(),
+            ),
+            (
+                "                a -> (known after apply)",
+                theme::body_style(),
+            ),
+        ] {
+            let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+            assert!(
+                styled.spans.iter().all(|span| span.style == expected),
+                "{line:?}: {styled:?}"
+            );
+        }
+
+        // A column too wide to store saturates and marks no line.
+        let saturated = PlanLineKind::HeredocBody {
+            marker_column: u16::MAX,
+        };
+        let line = format!("{}- text", " ".repeat(usize::from(u16::MAX)));
+        let (styled, _) = plan_line_and_matches(&line, "", 0, None, saturated);
+        assert!(
+            styled
+                .spans
+                .iter()
+                .all(|span| span.style == theme::body_style())
+        );
+    }
+
+    #[test]
+    fn prepared_widths_and_matches_equal_the_styled_rows() {
+        // ASCII rows are measured from their raw text and the widest row is not ASCII, so both
+        // ways of measuring a row must agree with the rows a frame styles.
+        const LINES: [&str; 4] = [
+            "      ~ id    = \"a -> b\" -> (known after apply)",
+            "      ~ description = \"ああ\" ->\u{301} (sensitive value)",
+            "      + tags  = { \"key\" = \"value\" }",
+            "",
+        ];
+        // Every query matches the one resource block, so no notice comes before the rows.
+        for query in ["", "a", "->", "ああ"] {
+            let plan = PlanReview::new(
+                PathBuf::from("/repo"),
+                "default".to_owned(),
+                PlanDocument::with_blocks_and_line_kinds(
+                    LINES.join("\n"),
+                    vec![PlanBlock::new(0..LINES.len(), PlanBlockKind::Resource)],
+                    vec![PlanLineKind::Body; LINES.len()],
+                ),
+                Plan::empty(),
+                PlanMetadata::new(true),
+                Vec::new(),
+            );
+            let content = PlanContent::prepare(&plan, false, query);
+            let styled = LINES
+                .iter()
+                .take(3)
+                .enumerate()
+                .map(|(row, line)| {
+                    plan_line_and_matches(line, query, row, None, PlanLineKind::Body)
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(content.metrics().line_count, 3, "{query:?}");
+            assert_eq!(
+                content.metrics().max_width,
+                styled
+                    .iter()
+                    .map(|(line, _)| display_width(line))
+                    .max()
+                    .unwrap_or(0),
+                "{query:?}"
+            );
+            assert_eq!(
+                content.matches(),
+                styled
+                    .into_iter()
+                    .flat_map(|(_, matches)| matches)
+                    .collect::<Vec<_>>(),
+                "{query:?}"
             );
         }
     }
