@@ -24,7 +24,8 @@ use crate::ui::theme;
 use super::PlanReviewViewState;
 
 pub(crate) use apply_confirmation::{
-    apply_confirmation_layout, render_apply_confirmation, render_apply_confirmation_dialog,
+    apply_confirmation_layout, apply_confirmation_redraw_at, render_apply_confirmation,
+    render_apply_confirmation_dialog,
 };
 pub(super) use content::PlanContentCache;
 pub(crate) use layout::{
@@ -212,7 +213,7 @@ fn render_for_navigation(
     let vertical = vertical.min(max_vertical);
     let horizontal = horizontal.min(max_horizontal);
     let body = layout.body();
-    // Only the rows on screen are styled; they already start at the vertical offset.
+    // Only the rows on screen are styled.
     let lines = content.lines(
         state.review().document(),
         vertical..vertical.saturating_add(usize::from(body.height)),
@@ -225,14 +226,7 @@ fn render_for_navigation(
         lines
     };
     frame.render_widget(
-        Paragraph::new(visible_lines(
-            &lines,
-            0,
-            horizontal,
-            body.height,
-            body.width,
-        ))
-        .style(theme::body_style()),
+        Paragraph::new(visible_lines(&lines, horizontal, body.width)).style(theme::body_style()),
         body,
     );
     let scrollbar_area = Rect::new(

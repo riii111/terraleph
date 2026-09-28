@@ -88,8 +88,6 @@ impl PlanContent {
                     .map(|(_, found)| found),
             );
         }
-        // Trailing rows without text are dropped, reaching the notices only when no plan row is
-        // left; only those plan rows are styled again to check.
         while plan
             .last()
             .is_some_and(|source| plan_line(document, *source, filter_query, 0, None).width() == 0)
@@ -200,7 +198,8 @@ pub(crate) struct PlanContentCache(RefCell<Option<CachedContent>>);
 
 #[derive(Clone)]
 struct CachedContent {
-    diagnostics: Vec<Diagnostic>,
+    // Shared like the body, so a view clone does not copy the diagnostic text.
+    diagnostics: Rc<[Diagnostic]>,
     filtered_view: bool,
     content: Rc<PlanContent>,
 }
@@ -215,7 +214,7 @@ impl PlanContentCache {
         let mut cached = self.0.borrow_mut();
         if let Some(cached) = cached.as_ref().filter(|cached| {
             cached.content.document.is_for(review.document())
-                && cached.diagnostics.as_slice() == review.diagnostics()
+                && *cached.diagnostics == *review.diagnostics()
                 && cached.filtered_view == filtered_view
                 && cached.content.filter_query == filter_query
         }) {
@@ -223,7 +222,7 @@ impl PlanContentCache {
         }
         let content = Rc::new(PlanContent::prepare(review, filtered_view, filter_query));
         *cached = Some(CachedContent {
-            diagnostics: review.diagnostics().to_vec(),
+            diagnostics: Rc::from(review.diagnostics()),
             filtered_view,
             content: Rc::clone(&content),
         });
@@ -450,15 +449,11 @@ pub(super) fn flash_lines(lines: &[Line<'_>]) -> Vec<Line<'static>> {
 // window walks the same graphemes and cell widths as ratatui's line truncation.
 pub(super) fn visible_lines<'a>(
     lines: &'a [Line<'_>],
-    vertical: usize,
     horizontal: usize,
-    height: u16,
     width: u16,
 ) -> Vec<Line<'a>> {
     lines
         .iter()
-        .skip(vertical)
-        .take(usize::from(height))
         .map(|line| visible_columns(line, horizontal, usize::from(width)))
         .collect()
 }

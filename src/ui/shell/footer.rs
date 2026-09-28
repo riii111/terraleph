@@ -63,18 +63,20 @@ pub(crate) fn overview_hint(
     Line::from(spans)
 }
 
-pub(crate) fn quit_confirmation_lines(width: u16, notice: Option<&str>) -> Vec<Line<'static>> {
-    let available = available_width(width, notice);
+// The quit prompt replaces any copy notice, so it keeps the whole footer width. Screens also leave
+// the notice undrawn while they ask, or a long notice would cut the prompt down to nothing.
+pub(crate) fn quit_confirmation_lines(width: u16) -> Vec<Line<'static>> {
+    let available = usize::from(width);
     let full = quit_confirmation_line();
     let compact = compact_quit_confirmation_line();
-    let line = if full.width() <= usize::from(available) {
+    let line = if full.width() <= available {
         full
-    } else if compact.width() <= usize::from(available) {
+    } else if compact.width() <= available {
         compact
     } else {
         minimal_quit_confirmation_line()
     };
-    layout_with_notice(vec![line], width, notice)
+    layout(vec![line], width)
 }
 
 pub(crate) fn pad_lines(mut lines: Vec<Line<'static>>, height: usize) -> Vec<Line<'static>> {
@@ -474,7 +476,6 @@ mod tests {
         struct QuitPromptCase {
             name: &'static str,
             width: u16,
-            notice: Option<&'static str>,
             expected: &'static str,
         }
 
@@ -482,23 +483,20 @@ mod tests {
             QuitPromptCase {
                 name: "full",
                 width: 80,
-                notice: None,
                 expected: "Quit Terraleph?   [Enter] Quit   [Esc] Cancel",
             },
             QuitPromptCase {
                 name: "compact",
                 width: 32,
-                notice: None,
                 expected: "Quit? [Enter] quit [Esc] cancel",
             },
             QuitPromptCase {
-                name: "minimal_with_notice",
-                width: 32,
-                notice: Some("Copied."),
+                name: "minimal",
+                width: 24,
                 expected: "Quit? [Enter]/[Esc]",
             },
         ] {
-            let lines = quit_confirmation_lines(case.width, case.notice);
+            let lines = quit_confirmation_lines(case.width);
             let backend = ratatui::backend::TestBackend::new(case.width, 2);
             let mut terminal = ratatui::Terminal::new(backend).unwrap();
             terminal
