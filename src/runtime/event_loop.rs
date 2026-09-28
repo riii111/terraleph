@@ -51,7 +51,7 @@ pub(crate) fn run_connected(
     loop {
         // The caller maps the signal to the exit status; this error only unwinds the terminal
         // and hands the running workers to the shared join-then-cleanup path.
-        if termination::received().is_some() {
+        if termination::requested().is_some() {
             effects.cancellation.cancel();
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }

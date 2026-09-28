@@ -17,6 +17,9 @@ command = sys.argv[6:]
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
+    if scenario == "signal_hangup_ignored":
+        # Like nohup: an ignored disposition survives exec, so closing the terminal sends nothing.
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
     os.execv(
         "/bin/sh",
         [
@@ -413,7 +416,7 @@ def send_termination_signal(scenario):
 
 def wait_exit_after_hangup(timeout=20):
     # Closing the master is what a terminal emulator or `tmux kill-server` does; the kernel
-    # then delivers SIGHUP to the session, and no further output can be read.
+    # then delivers SIGHUP to the session unless it is ignored, and no further output can be read.
     os.close(fd)
     observed.append("terminal_closed")
     deadline = time.time() + timeout
@@ -809,7 +812,7 @@ try:
         wait_review("plan_text", timeout=30)
         send_termination_signal(scenario)
         exit_code = wait_exit()
-    elif scenario == "signal_hangup":
+    elif scenario in ("signal_hangup", "signal_hangup_ignored"):
         wait_review("plan_text", timeout=30)
         exit_code = wait_exit_after_hangup()
     elif scenario.startswith("signal_apply_"):

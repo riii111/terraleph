@@ -144,8 +144,9 @@ fn run_managed_invocation(
         return ExitCode::from(exit);
     }
     // Terraform shares the terminal's process group and stops on its own for terminal signals;
-    // a signal sent only to Terraleph is honored once the plan finishes, before the review opens.
-    if let Some(signal) = termination::received() {
+    // a signal sent only to Terraleph, or a terminal closed without one, is honored once the plan
+    // finishes, before the review opens.
+    if let Some(signal) = termination::requested() {
         let _ = plan_run.saved_plan.cleanup();
         report_terminated(signal);
         return ExitCode::from(signal.exit_code());

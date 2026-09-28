@@ -658,7 +658,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
             if scenario == "default_ci" {
                 process.env("CI", "1");
             }
-            if scenario.starts_with("env_") {
+            if scenario.starts_with("env_") || scenario.starts_with("signal_hangup") {
                 let plans = self.directory.join("owned-plans");
                 fs::create_dir(&plans).unwrap();
                 process.env("TMPDIR", plans).env_remove("TF_DATA_DIR");
@@ -712,6 +712,22 @@ Plan: 0 to add, 3 to change, 0 to destroy.
                 "saved plan remains: {}",
                 path.trim()
             );
+        }
+
+        fn assert_no_owned_plans(&self) {
+            let remaining: Vec<_> = fs::read_dir(self.directory.join("owned-plans"))
+                .expect("owned plan directory should be readable")
+                .map(|entry| {
+                    entry
+                        .expect("owned plan entry should be readable")
+                        .file_name()
+                })
+                .filter(|name| {
+                    let name = name.to_string_lossy();
+                    name.starts_with("terraleph-") && name.ends_with(".tfplan")
+                })
+                .collect();
+            assert!(remaining.is_empty(), "owned plans remain: {remaining:?}");
         }
 
         fn forwarded_cli_arguments(&self) -> Vec<String> {
@@ -1308,13 +1324,16 @@ Plan: 0 to add, 3 to change, 0 to destroy.
 
     #[test]
     fn pty_closed_terminal_removes_the_saved_plan() {
-        let fixture = Fixture::new();
+        for scenario in ["signal_hangup", "signal_hangup_ignored"] {
+            let fixture = Fixture::new();
 
-        let result = fixture.run("signal_hangup", 100, 24);
+            let result = fixture.run(scenario, 100, 24);
 
-        assert_eq!(result.exit_code, 129);
-        result.observed("terminal_closed");
-        fixture.assert_saved_plan_removed();
+            assert_eq!(result.exit_code, 129, "case: {scenario}");
+            result.observed("terminal_closed");
+            fixture.assert_saved_plan_removed();
+            fixture.assert_no_owned_plans();
+        }
     }
 
     #[test]
