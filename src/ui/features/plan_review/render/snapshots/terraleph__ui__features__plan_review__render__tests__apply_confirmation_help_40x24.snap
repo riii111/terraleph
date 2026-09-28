@@ -23,6 +23,6 @@ Cmain [PROD]  ws:de...s/production/main
  │ ◀︎════════════════════──────────▶︎   ││
  │ ←/→ scroll | ?/Esc close           ││
 ◀︎└────────────────────────────────────┘▶︎
-────────────────────────────────────────
-s overview | / filter | a apply
+─└────────────────────────────────────┘─
+sEnter apply | Esc back | ? help
 ? help | q quit                    L3/43

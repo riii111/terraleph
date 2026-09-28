@@ -2,7 +2,6 @@ use std::path::Path;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
@@ -13,6 +12,7 @@ use crate::app::{
 };
 use crate::ui::theme;
 
+use super::changes;
 use super::context::{display_width, relative_directory, take_from_start, target, truncate_middle};
 
 const REVIEW_HEADER_SEPARATOR: &str = " ";
@@ -152,7 +152,7 @@ fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
 fn plan_review_changes_line(review: &PlanReview) -> Line<'static> {
     let counts = review.summary();
     let mut line = Line::from(Span::styled("Changes", theme::secondary_style()));
-    for change in change_counts(counts) {
+    for change in changes::change_counts(counts) {
         if change.count > 0 {
             line.push_span(Span::styled("  ", theme::secondary_style()));
             line.push_span(Span::styled(change.text, change.style));
@@ -176,39 +176,6 @@ fn plan_review_changes_line(review: &PlanReview) -> Line<'static> {
         ));
     }
     line
-}
-
-pub(crate) struct ChangeCount {
-    pub(crate) count: usize,
-    pub(crate) text: String,
-    pub(crate) style: Style,
-}
-
-/// Labels and colors each change count in one place, so the review header and
-/// the apply confirmation always show a change kind in the same color.
-pub(crate) fn change_counts(counts: PlanSummary) -> [ChangeCount; 4] {
-    [
-        ChangeCount {
-            count: counts.creates,
-            text: format!("+{} add", counts.creates),
-            style: theme::success_style(),
-        },
-        ChangeCount {
-            count: counts.updates,
-            text: format!("~{} update", counts.updates),
-            style: theme::warning_style(),
-        },
-        ChangeCount {
-            count: counts.replaces,
-            text: format!("{} replace", counts.replaces),
-            style: theme::overview_total_replace_style(),
-        },
-        ChangeCount {
-            count: counts.deletes,
-            text: format!("-{} destroy", counts.deletes),
-            style: theme::error_style(),
-        },
-    ]
 }
 
 fn compact_review_header_line(

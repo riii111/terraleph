@@ -277,13 +277,31 @@ impl EnvironmentApply {
     }
 }
 
-fn draw_apply<B: Backend<Error = io::Error>>(
+fn draw_apply_if_needed<B: Backend>(
+    terminal: &mut Terminal<B>,
+    state: &mut EnvironmentSession,
+    view: &mut EnvironmentView,
+    apply: &mut EnvironmentApply,
+    dirty: &mut bool,
+    now: Instant,
+) -> Result<bool, B::Error> {
+    *dirty |= state.clear_expired_copy_feedback(now);
+    *dirty |= apply.scheduled_draw.is_some_and(|at| now >= at);
+    if !*dirty && !apply.running(state) {
+        return Ok(false);
+    }
+    draw_apply(terminal, state, view, apply, now)?;
+    *dirty = false;
+    Ok(true)
+}
+
+fn draw_apply<B: Backend>(
     terminal: &mut Terminal<B>,
     state: &EnvironmentSession,
     view: &mut EnvironmentView,
     apply: &mut EnvironmentApply,
     now: Instant,
-) -> io::Result<()> {
+) -> Result<(), B::Error> {
     apply.scheduled_draw = None;
     let Some(session) = state.plans()[apply.index].session() else {
         return Ok(());
@@ -350,13 +368,7 @@ impl ApplyRuntime {
         if let Some(outcome) = finished {
             return Ok(ApplyStep::Finished(outcome));
         }
-        let now = Instant::now();
-        *dirty |= state.clear_expired_copy_feedback(now);
-        *dirty |= apply.scheduled_draw.is_some_and(|at| now >= at);
-        if *dirty || apply.running(state) {
-            draw_apply(terminal, state, view, apply, now)?;
-            *dirty = false;
-        }
+        draw_apply_if_needed(terminal, state, view, apply, dirty, Instant::now())?;
         let Some(input_event) = input.next(Duration::from_millis(50))? else {
             return Ok(ApplyStep::Continue);
         };
@@ -671,11 +683,14 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use super::*;
-    use crate::app::{
-        copy::{CopyResult, CopyTarget},
-        environments::{EnvironmentAvailability, EnvironmentIdentity},
-        plan::Plan,
-        review::{PlanMetadata, PlanReview, test_support::plan_document},
+    use crate::{
+        app::{
+            copy::{CopyResult, CopyTarget},
+            environments::{EnvironmentAvailability, EnvironmentIdentity},
+            plan::Plan,
+            review::{PlanMetadata, PlanReview, test_support::plan_document},
+        },
+        runtime::event_loop::test_support::terminal_text,
     };
 
     fn available(name: &str) -> Environment {
@@ -727,6 +742,64 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn open_confirmation_redraws_once_when_the_plan_age_changes() {
+        use crate::app::plan::{ResourceChangeKind, test_support::resource_change};
+
+        let planned_at = Instant::now();
+        let mut state = EnvironmentSession::new(vec![available("a")], false);
+        let index = state.start_next().expect("environment should start");
+        let review = PlanReview::new(
+            PathBuf::from("/test"),
+            "default".to_owned(),
+            plan_document("Plan: 1 to add, 0 to change, 0 to destroy.\n".to_owned()),
+            Plan {
+                resource_changes: vec![resource_change(
+                    "terraform_data.api",
+                    ResourceChangeKind::Create,
+                )],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+        .with_planned_at(planned_at);
+        assert!(state.complete(
+            index,
+            PlanResult::Ready {
+                review: Box::new(review),
+                changed: true,
+            },
+            Vec::new(),
+        ));
+        state.update_review(index, Action::OpenApplyConfirmation, planned_at);
+        let mut apply = EnvironmentApply::new(index);
+        let mut view = EnvironmentView::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("test terminal");
+        let mut dirty = true;
+        let mut draw = |state: &mut EnvironmentSession, dirty: &mut bool, elapsed| {
+            draw_apply_if_needed(
+                &mut terminal,
+                state,
+                &mut view,
+                &mut apply,
+                dirty,
+                planned_at + Duration::from_secs(elapsed),
+            )
+            .expect("confirmation should render")
+        };
+
+        assert!(draw(&mut state, &mut dirty, 30));
+        assert!(!draw(&mut state, &mut dirty, 59));
+        assert!(draw(&mut state, &mut dirty, 60));
+        assert!(!draw(&mut state, &mut dirty, 61));
+        assert_eq!(
+            apply.scheduled_draw,
+            Some(planned_at + Duration::from_secs(120))
+        );
+        assert!(terminal_text(&terminal).contains("Planned: 1m ago"));
     }
 
     #[test]

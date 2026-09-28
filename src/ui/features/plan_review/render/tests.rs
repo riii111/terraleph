@@ -688,15 +688,18 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         }
         snapshot(&format!("apply_confirmation_help_{width}x{height}"), &help);
 
+        let renderable =
+            apply_confirmation_layout(Rect::new(0, 0, width, height), &state, confirmation_now())
+                .renderable();
         if (width, height) == (40, 16) {
             assert!(
-                !apply_confirmation_layout(
-                    Rect::new(0, 0, width, height),
-                    &state,
-                    confirmation_now()
-                )
-                .renderable(),
+                !renderable,
                 "{width}x{height} should exercise Help over an unrenderable confirmation"
+            );
+        } else {
+            assert!(
+                renderable,
+                "{width}x{height} should exercise Help over a rendered confirmation"
             );
         }
 
@@ -1066,6 +1069,37 @@ fn apply_confirmation_shows_the_plan_age_in_whole_minutes() {
                     theme::body_style(),
                 ),
             ],
+        );
+    }
+}
+
+#[test]
+fn apply_confirmation_drops_the_plan_age_before_the_dialog_stops_fitting() {
+    let state = confirmation_state(review());
+    for (width, height, age_shown) in [
+        (40, 24, false),
+        (48, 24, false),
+        (40, 29, true),
+        (48, 29, true),
+        (80, 24, true),
+    ] {
+        let layout =
+            apply_confirmation_layout(Rect::new(0, 0, width, height), &state, confirmation_now());
+        let text = buffer_text(&render_to_buffer((width, height), |frame| {
+            render_apply_confirmation(
+                frame,
+                &state,
+                &ApplyConfirmationViewState::default(),
+                confirmation_now(),
+            );
+        }));
+
+        assert!(layout.renderable(), "{width}x{height}\n{text}");
+        assert!(text.contains("> |"), "{width}x{height}\n{text}");
+        assert_eq!(
+            text.contains("Planned: 12m ago"),
+            age_shown,
+            "{width}x{height}\n{text}"
         );
     }
 }

@@ -20,7 +20,7 @@ use crate::ui::features::plan_review::{
 use crate::ui::primitives::molecules::{
     context_dialog, dialog_scroll::DialogScroll, help_dialog, terminal_notice,
 };
-use crate::ui::shell::{context, footer, header, layout as shell_layout};
+use crate::ui::shell::{changes, context, footer, header, layout as shell_layout};
 use crate::ui::theme;
 
 use super::render_with_quit_confirmation;
@@ -214,15 +214,25 @@ pub(crate) fn render_apply_confirmation_dialog(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the confirmation layout keeps content and safety constraints together"
-)]
+/// The plan age is the only line a short terminal can spare, so the dialog drops it before
+/// it would stop fitting.
 pub(crate) fn apply_confirmation_layout(
     area: Rect,
     state: &ReviewSessionState,
     now: Instant,
 ) -> ApplyConfirmationLayout {
+    let layout = layout_sections(area, confirmation_sections(state, Some(now)));
+    if layout.renderable() || state.review().planned_at().is_none() {
+        return layout;
+    }
+    layout_sections(area, confirmation_sections(state, None))
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the confirmation layout keeps content and safety constraints together"
+)]
+fn layout_sections(area: Rect, sections: ConfirmationSections) -> ApplyConfirmationLayout {
     let panel = shell_layout::max_centered_area(area);
     let header_height = panel.height.min(CONFIRMATION_HEADER_HEIGHT);
     let header = Rect::new(panel.x, panel.y, panel.width, header_height);
@@ -246,7 +256,7 @@ pub(crate) fn apply_confirmation_layout(
         prefix: prefix_lines,
         scroll: scroll_lines,
         suffix: suffix_lines,
-    } = confirmation_sections(state, now);
+    } = sections;
     let body = Paragraph::new(
         [
             prefix_lines.as_slice(),
@@ -370,7 +380,11 @@ fn confirmation_footer_items(input_matches: bool) -> Vec<Line<'static>> {
     ]
 }
 
-fn confirmation_sections(state: &ReviewSessionState, now: Instant) -> ConfirmationSections {
+// `age_at` is the time the plan age is measured at; None leaves the age line out.
+fn confirmation_sections(
+    state: &ReviewSessionState,
+    age_at: Option<Instant>,
+) -> ConfirmationSections {
     let review = state.review();
     let counts = review.summary();
     let context = review.context();
@@ -409,7 +423,7 @@ fn confirmation_sections(state: &ReviewSessionState, now: Instant) -> Confirmati
             Span::styled(tool_version(context), theme::body_style()),
         ]),
     ]);
-    if let Some(planned_at) = review.planned_at() {
+    if let (Some(planned_at), Some(now)) = (review.planned_at(), age_at) {
         prefix.push(Line::from(vec![
             Span::styled("Planned: ", theme::secondary_style()),
             Span::styled(
@@ -464,7 +478,7 @@ fn planned_age(elapsed: Duration) -> String {
 // and colors only the kinds this apply changes.
 fn change_counts_line(counts: PlanSummary) -> Line<'static> {
     let mut line = Line::from(Span::styled("Plan: ", theme::secondary_style()));
-    for (index, change) in header::change_counts(counts).into_iter().enumerate() {
+    for (index, change) in changes::change_counts(counts).into_iter().enumerate() {
         if index > 0 {
             line.push_span(Span::styled("  ", theme::secondary_style()));
         }
