@@ -135,31 +135,75 @@ fn install_recorder(signal: libc::c_int) -> io::Result<()> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::{
+        ffi::{CStr, CString},
+        os::fd::{FromRawFd, OwnedFd},
+    };
+
     use super::*;
 
     #[test]
     fn hangup_is_reported_only_after_the_terminal_closes() {
-        let mut controller = -1;
-        let mut device = -1;
-        // SAFETY: both outputs are valid, and the optional name, termios, and size are null.
-        let opened = unsafe {
-            libc::openpty(
-                &raw mut controller,
-                &raw mut device,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
+        let (controller, device) = open_terminal().expect("open a pseudo-terminal");
+        assert!(!hung_up(device.as_raw_fd()));
+
+        drop(controller);
+        wait_for_event(&device);
+
+        assert!(hung_up(device.as_raw_fd()));
+    }
+
+    // Other tests in this process spawn children concurrently, and a child forked before it
+    // executes still holds the controller, so the hangup can reach the device just after the
+    // close. Waiting for the event keeps the assertion on `hung_up` without depending on that
+    // timing; the timeout only bounds a failing run.
+    fn wait_for_event(device: &OwnedFd) {
+        let mut entry = libc::pollfd {
+            fd: device.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
         };
-        assert_eq!(opened, 0, "{}", io::Error::last_os_error());
-        assert!(!hung_up(device));
+        loop {
+            // SAFETY: `entry` is one valid pollfd.
+            if unsafe { libc::poll(&raw mut entry, 1, 10_000) } >= 0 {
+                return;
+            }
+            let error = io::Error::last_os_error();
+            assert_eq!(error.kind(), io::ErrorKind::Interrupted, "{error}");
+        }
+    }
 
-        // SAFETY: the controller was opened above and is closed exactly once.
-        unsafe { libc::close(controller) };
-        let closed = hung_up(device);
-        // SAFETY: the device was opened above and is closed exactly once.
-        unsafe { libc::close(device) };
+    // Both ends are opened close-on-exec in the same call, so a child spawned concurrently
+    // cannot keep the terminal open for its whole lifetime.
+    fn open_terminal() -> io::Result<(OwnedFd, OwnedFd)> {
+        let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
+        let controller = open(c"/dev/ptmx", flags)?;
+        // SAFETY: `controller` is an open pseudo-terminal controller.
+        if unsafe { libc::grantpt(controller.as_raw_fd()) } != 0
+            || unsafe { libc::unlockpt(controller.as_raw_fd()) } != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `controller` is unlocked; the name is copied before any other call can
+        // overwrite the static buffer, and no other code in this process calls `ptsname`.
+        let name = unsafe {
+            let name = libc::ptsname(controller.as_raw_fd());
+            if name.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            CString::from(CStr::from_ptr(name))
+        };
+        let device = open(&name, flags)?;
+        Ok((controller, device))
+    }
 
-        assert!(closed);
+    fn open(path: &CStr, flags: libc::c_int) -> io::Result<OwnedFd> {
+        // SAFETY: `path` is a valid NUL-terminated string and the flags need no mode.
+        let descriptor = unsafe { libc::open(path.as_ptr(), flags) };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `descriptor` was just opened and is owned by nothing else.
+        Ok(unsafe { OwnedFd::from_raw_fd(descriptor) })
     }
 }
