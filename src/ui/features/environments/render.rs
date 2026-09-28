@@ -140,7 +140,12 @@ impl EnvironmentView {
             &mut self.reviews[index],
             Instant::now(),
         );
-        plan_review::render_apply_confirmation_dialog(frame, confirmation, confirmation_view);
+        plan_review::render_apply_confirmation_dialog(
+            frame,
+            confirmation,
+            confirmation_view,
+            Some(layout.header),
+        );
     }
 
     fn render_overview(
