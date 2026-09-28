@@ -75,8 +75,6 @@ pub(crate) fn received() -> Option<TerminationSignal> {
     }
 }
 
-// Event loops call this at every tick. crossterm reads a hung-up terminal as endless EOF without
-// reporting it, so without SIGHUP the loop would otherwise never learn that the terminal is gone.
 #[must_use]
 pub(crate) fn requested() -> Option<TerminationSignal> {
     #[cfg(unix)]
@@ -91,10 +89,11 @@ pub(crate) fn requested() -> Option<TerminationSignal> {
 
 #[cfg(unix)]
 fn hung_up(descriptor: RawFd) -> bool {
-    // No requested events: poll always reports hangup and errors, and pending input is ignored.
+    // macOS reports a hung-up pty only when an event is requested. Pending input alone sets
+    // POLLIN, which is not a hangup.
     let mut entry = libc::pollfd {
         fd: descriptor,
-        events: 0,
+        events: libc::POLLIN,
         revents: 0,
     };
     // SAFETY: `entry` is one valid pollfd and a zero timeout never blocks.
@@ -148,8 +147,8 @@ mod tests {
                 &raw mut controller,
                 &raw mut device,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(opened, 0, "{}", io::Error::last_os_error());
