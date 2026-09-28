@@ -512,7 +512,6 @@ fn footer_items(view: &OverviewViewState, content: &OverviewContent) -> Vec<(u8,
         }
         items.extend([
             (70, footer::overview_hint(&["v"], "full plan")),
-            (60, footer::overview_hint(&["2", "3"], "focus")),
             if view.maximized().is_some() {
                 (50, footer::overview_hint(&["f", "Esc"], "restore"))
             } else {
@@ -537,7 +536,6 @@ fn required_footer_items(view: &OverviewViewState) -> Vec<(u8, Line<'static>)> {
     } else {
         vec![
             (100, footer::overview_hint(&["Enter"], "open raw")),
-            (60, footer::overview_hint(&["2", "3"], "focus")),
             if view.maximized().is_some() {
                 (50, footer::overview_hint(&["f", "Esc"], "restore"))
             } else {

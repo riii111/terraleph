@@ -895,7 +895,7 @@ fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
     if focus == environments::EnvironmentPane::Environments {
         items.push((100, overview_footer_hint(&["Enter"], "open plan")));
         if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "include/exclude")));
+            items.push((90, overview_footer_hint(&["Space"], "toggle")));
         }
         items.push((55, overview_footer_hint(&["o"], "only")));
         items.push((55, overview_footer_hint(&["a"], "all")));
@@ -946,14 +946,6 @@ fn overview_common_footer_items(
     if sidebar_available && !maximized {
         items.push((45, overview_footer_hint(&["b"], "toggle envs")));
     }
-    items.push((
-        60,
-        if sidebar_available {
-            overview_footer_hint(&["1", "2", "3"], "focus")
-        } else {
-            overview_footer_hint(&["2", "3"], "focus")
-        },
-    ));
     if focus != environments::EnvironmentPane::Environments {
         items.push((
             50,
@@ -985,7 +977,7 @@ fn compact_overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'stat
     if focus == environments::EnvironmentPane::Environments {
         items.push((100, overview_footer_hint(&["Enter"], "open plan")));
         if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "include/exclude")));
+            items.push((90, overview_footer_hint(&["Space"], "toggle")));
         }
     } else if focus == environments::EnvironmentPane::Matrix {
         if let Some(action) = enter_action {

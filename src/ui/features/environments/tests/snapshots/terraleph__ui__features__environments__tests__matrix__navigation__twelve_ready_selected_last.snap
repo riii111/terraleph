@@ -24,5 +24,5 @@ env-11 ✓ Ready ~1
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-v full plan | / filter | Space expand selected | [/] env | 2/3 focus
-f maximize | ? help | q quit
+v full plan | / filter | Space expand selected | [/] env | f maximize | ? help
+q quit

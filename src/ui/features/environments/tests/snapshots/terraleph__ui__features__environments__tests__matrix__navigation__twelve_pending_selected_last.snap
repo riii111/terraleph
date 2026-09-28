@@ -1,6 +1,6 @@
 ---
 source: src/ui/features/environments/tests/matrix.rs
-expression: "text(&mut view, &state, (80, 24))"
+expression: "render_text(&mut view, &state, (80, 24))"
 ---
 terraleph ▸ env-11                                                     terraform
 env-11   Pending
@@ -24,4 +24,4 @@ env-11   Pending
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-v full plan | / filter | [/] env | 2/3 focus | f maximize | ? help | q quit
+v full plan | / filter | [/] env | f maximize | ? help | q quit
