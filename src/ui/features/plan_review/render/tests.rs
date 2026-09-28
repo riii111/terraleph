@@ -6,7 +6,7 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    buffer::Buffer,
+    buffer::{Buffer, CellWidth},
     style::{Color, Modifier},
     text::Line,
     widgets::Widget,
@@ -1028,6 +1028,43 @@ fn review_with_content(line_count: u16, line_width: u16) -> PlanReview {
         PlanMetadata::new(true),
         Vec::new(),
     )
+}
+
+fn press(
+    view: &mut PlanReviewViewState,
+    state: &ReviewSessionState,
+    layout: &PlanReviewLayout,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) {
+    let query = state.review().search_query();
+    let input = key_to_input(KeyEvent::new(code, modifiers), false, !query.is_empty())
+        .expect("navigation key should map to an input");
+    view.apply_with_matches(
+        input,
+        layout.body(),
+        layout.max_vertical(),
+        layout.max_horizontal(),
+        query,
+        layout.matches(),
+    );
+}
+
+// Reads each body row as text, skipping the cell that a full-width grapheme covers.
+fn body_rows(buffer: &Buffer, layout: &PlanReviewLayout) -> Vec<String> {
+    let body = layout.body();
+    (body.y..body.bottom())
+        .map(|y| {
+            let mut row = String::new();
+            let mut x = body.x;
+            while x < body.right() {
+                let symbol = buffer.cell((x, y)).expect("body cell").symbol();
+                row.push_str(symbol);
+                x += symbol.cell_width().max(1);
+            }
+            row
+        })
+        .collect()
 }
 
 mod layout {
@@ -3417,7 +3454,7 @@ mod overlay {
 }
 
 mod large_plan {
-    use ratatui::{buffer::CellWidth, text::Span};
+    use ratatui::text::Span;
     use rstest::rstest;
 
     use super::filter::search_match_style_counts;
@@ -3455,47 +3492,10 @@ mod large_plan {
         review_state(plan)
     }
 
-    fn press(
-        view: &mut PlanReviewViewState,
-        state: &ReviewSessionState,
-        layout: &PlanReviewLayout,
-        code: KeyCode,
-        modifiers: KeyModifiers,
-    ) {
-        let query = state.review().search_query();
-        let input = key_to_input(KeyEvent::new(code, modifiers), false, !query.is_empty())
-            .expect("navigation key should map to an input");
-        view.apply_with_matches(
-            input,
-            layout.body(),
-            layout.max_vertical(),
-            layout.max_horizontal(),
-            query,
-            layout.matches(),
-        );
-    }
-
     fn render_view(state: &ReviewSessionState, view: &PlanReviewViewState) -> Buffer {
         render_to_buffer((AREA.width, AREA.height), |frame| {
             render(frame, state, view, Instant::now());
         })
-    }
-
-    // Reads each body row as text, skipping the cell that a full-width grapheme covers.
-    fn body_rows(buffer: &Buffer, layout: &PlanReviewLayout) -> Vec<String> {
-        let body = layout.body();
-        (body.y..body.bottom())
-            .map(|y| {
-                let mut row = String::new();
-                let mut x = body.x;
-                while x < body.right() {
-                    let symbol = buffer.cell((x, y)).expect("body cell").symbol();
-                    row.push_str(symbol);
-                    x += symbol.cell_width().max(1);
-                }
-                row
-            })
-            .collect()
     }
 
     #[rstest]
@@ -3903,6 +3903,9 @@ mod content_cache {
 mod line_styles {
     use std::ops::Range;
 
+    use ratatui::style::Style;
+    use rstest::rstest;
+
     use super::*;
 
     const AREA: (u16, u16) = (120, 60);
@@ -3962,7 +3965,6 @@ mod line_styles {
         "Plan: 2 to add, 1 to change, 3 to destroy.",
     ];
 
-    // The blocks and kinds the text parser gives these lines.
     fn styled_review(query: &str) -> ReviewSessionState {
         let line_kinds = (0..STYLED_PLAN.len())
             .map(|line| match line {
@@ -4124,7 +4126,6 @@ mod line_styles {
         assert_segment(&buffer, "EOT -> null", 4..6, (BODY, Modifier::BOLD));
         assert_segment(&buffer, "EOT -> null", 6..11, (BODY, Modifier::empty()));
 
-        // Quoted text, escaped quotes included, and heredoc text are values.
         assert_line(
             &buffer,
             "+ note   = \"(known after apply) -> \\\"(sensitive value)\\\"\"",
@@ -4178,7 +4179,6 @@ mod line_styles {
 
     #[test]
     fn list_element_heredoc_lines_color_only_markers_in_the_element_marker_column() {
-        // `          ~ <<-EOT` opens the element, so its marker column is 14.
         let kind = PlanLineKind::HeredocBody { marker_column: 14 };
         for (line, expected) in [
             ("                - dash", theme::body_style()),
@@ -4207,7 +4207,6 @@ mod line_styles {
             );
         }
 
-        // A column too wide to store saturates and marks no line.
         let saturated = PlanLineKind::HeredocBody {
             marker_column: u16::MAX,
         };
@@ -4223,16 +4222,18 @@ mod line_styles {
 
     #[test]
     fn prepared_widths_and_matches_equal_the_styled_rows() {
-        // ASCII rows are measured from their raw text and the widest row is not ASCII, so both
-        // ways of measuring a row must agree with the rows a frame styles.
-        const LINES: [&str; 4] = [
+        // Printable ASCII rows are measured from their raw text and the other rows are styled, so
+        // both ways of measuring a row must agree with the rows a frame styles. Tabs and carriage
+        // returns are ASCII but take the cells of their shown spelling, so the widest row has them.
+        const LINES: [&str; 5] = [
             "      ~ id    = \"a -> b\" -> (known after apply)",
             "      ~ description = \"ああ\" ->\u{301} (sensitive value)",
             "      + tags  = { \"key\" = \"value\" }",
+            "      + script = \"\tcd a\t&& make\"\t\t\t\t# build\r",
             "",
         ];
         // Every query matches the one resource block, so no notice comes before the rows.
-        for query in ["", "a", "->", "ああ"] {
+        for query in ["", "a", "->", "ああ", "make", "build\r"] {
             let plan = PlanReview::new(
                 PathBuf::from("/repo"),
                 "default".to_owned(),
@@ -4248,14 +4249,16 @@ mod line_styles {
             let content = PlanContent::prepare(&plan, false, query);
             let styled = LINES
                 .iter()
-                .take(3)
+                .take(4)
                 .enumerate()
                 .map(|(row, line)| {
                     plan_line_and_matches(line, query, row, None, PlanLineKind::Body)
                 })
                 .collect::<Vec<_>>();
 
-            assert_eq!(content.metrics().line_count, 3, "{query:?}");
+            assert_eq!(content.metrics().line_count, 4, "{query:?}");
+            // `\tcd a\t&& make"` ends at column 40, four tabs reach 72, and `# build^M` adds 9.
+            assert_eq!(content.metrics().max_width, 81, "{query:?}");
             assert_eq!(
                 content.metrics().max_width,
                 styled
@@ -4276,57 +4279,89 @@ mod line_styles {
         }
     }
 
-    #[test]
-    fn heredoc_lines_after_a_terminator_lookalike_keep_the_heredoc_style() {
-        // Heredoc bodies from Terraform 1.16.1 plans whose text reads like terminators, with the
-        // kinds the text parser gives them. Only `EOT`, or an element's `EOT,`, in the column of
-        // the opening name closes a heredoc, so the lines after each lookalike keep its style.
-        let lines = [
-            ("  # terraform_data.attr will be updated in-place", None),
-            ("  ~ resource \"terraform_data\" \"attr\" {", None),
-            ("      ~ input  = <<-EOT", None),
-            ("            EOT,", Some(10)),
-            ("            - dash", Some(10)),
-            ("              EOT,", Some(10)),
-            ("          EOT -> null", Some(10)),
-            ("        EOT,", Some(10)),
-            ("            last", Some(10)),
-            ("          + changed", Some(10)),
-            ("        EOT", None),
-            ("    }", None),
-            ("", None),
-            ("  # terraform_data.list will be updated in-place", None),
-            ("  ~ resource \"terraform_data\" \"list\" {", None),
-            ("      ~ input  = [", None),
-            ("          ~ <<-EOT", None),
-            ("                EOT,", Some(14)),
-            ("              - - dash", Some(14)),
-            ("              - EOT", Some(14)),
-            ("              + two", Some(14)),
-            ("            EOT,", None),
-            ("          - \"plain\",", None),
-            ("        ]", None),
-            ("    }", None),
-        ];
-        let line_kinds = lines
-            .iter()
-            .enumerate()
-            .map(|(line, (_, marker_column))| match (line, marker_column) {
-                (0 | 13, _) => PlanLineKind::ResourceHeader,
-                (_, Some(marker_column)) => PlanLineKind::HeredocBody {
-                    marker_column: *marker_column,
-                },
-                (_, None) => PlanLineKind::Body,
+    #[rstest]
+    #[case::marker_before_a_tab(
+        "          + \tindented\r",
+        "          +     indented^M",
+        theme::plan_marker_style(Some('+'))
+    )]
+    #[case::tab_right_after_the_marker("          -\t", "          -     ", theme::body_style())]
+    #[case::tab_before_the_marker_column_is_heredoc_text(
+        "\t  ~ text",
+        "          ~ text",
+        theme::body_style()
+    )]
+    fn heredoc_markers_are_found_in_the_plan_text_before_tabs_are_expanded(
+        #[case] line: &str,
+        #[case] shown: &str,
+        #[case] expected: Style,
+    ) {
+        let kind = PlanLineKind::HeredocBody { marker_column: 10 };
+        let (styled, _) = plan_line_and_matches(line, "", 0, None, kind);
+        assert_eq!(styled.to_string(), shown);
+        assert!(
+            styled.spans.iter().all(|span| span.style == expected),
+            "{styled:?}"
+        );
+    }
+}
+
+mod control_characters {
+    use std::ops::Range;
+
+    use rstest::rstest;
+
+    use super::*;
+    use crate::app::copy::plan_effect;
+
+    const AREA: Rect = Rect::new(0, 0, 80, 24);
+    const MATCH_BACKGROUNDS: [Color; 2] =
+        [Color::Rgb(0xf4, 0x9e, 0x4c), Color::Rgb(0xff, 0xd0, 0x8a)];
+    const PLAN: [&str; 11] = [
+        "  # terraform_data.script will be created",
+        "  + resource \"terraform_data\" \"script\" {",
+        "      + input = <<-EOT",
+        "            build:",
+        "            \tgo build ./...\t# compile the service",
+        "            crlf line\r",
+        "            \u{1b}[1mbold\u{1b}[0m",
+        "        EOT",
+        "    }",
+        "",
+        "Plan: 1 to add, 0 to change, 0 to destroy.",
+    ];
+    const SHOWN: [&str; 11] = [
+        "  # terraform_data.script will be created",
+        "  + resource \"terraform_data\" \"script\" {",
+        "      + input = <<-EOT",
+        "            build:",
+        "                go build ./...  # compile the service",
+        "            crlf line^M",
+        "            ^[[1mbold^[[0m",
+        "        EOT",
+        "    }",
+        "",
+        "Plan: 1 to add, 0 to change, 0 to destroy.",
+    ];
+    const WIDEST: usize = 53;
+
+    fn script_review(query: &str) -> ReviewSessionState {
+        let line_kinds = (0..PLAN.len())
+            .map(|line| match line {
+                0 => PlanLineKind::ResourceHeader,
+                3..=6 => PlanLineKind::HeredocBody { marker_column: 10 },
+                10 => PlanLineKind::Summary,
+                _ => PlanLineKind::Body,
             })
             .collect();
-        let plan = PlanReview::new(
+        let mut plan = PlanReview::new(
             PathBuf::from("/repo"),
             "default".to_owned(),
             PlanDocument::with_blocks_and_line_kinds(
-                lines.map(|(text, _)| text).join("\n"),
+                PLAN.join("\n"),
                 vec![
-                    PlanBlock::new(0..13, PlanBlockKind::Resource),
-                    PlanBlock::new(13..lines.len(), PlanBlockKind::Resource),
+                    PlanBlock::new(0..10, PlanBlockKind::Resource),
+                    PlanBlock::new(10..11, PlanBlockKind::Common),
                 ],
                 line_kinds,
             ),
@@ -4334,54 +4369,130 @@ mod line_styles {
             PlanMetadata::new(true),
             Vec::new(),
         );
-        let state = review_state(plan);
-        let buffer = render_to_buffer(AREA, |frame| {
-            render(
-                frame,
-                &state,
-                &PlanReviewViewState::default(),
-                Instant::now(),
-            );
-        });
+        plan.set_search_query(query.to_owned());
+        review_state(plan)
+    }
 
-        // Each expected row is searched for below the previous one, since the lookalikes repeat.
-        let mut first_row = buffer.area().y;
-        for (text, color) in [
-            ("~ input  = <<-EOT", UPDATE),
-            ("EOT,", BODY),
-            ("- dash", BODY),
-            ("EOT,", BODY),
-            ("EOT -> null", BODY),
-            ("EOT,", BODY),
-            ("last", BODY),
-            ("+ changed", ADD),
-            ("EOT", BODY),
-            ("~ <<-EOT", UPDATE),
-            ("EOT,", BODY),
-            ("- - dash", DESTROY),
-            ("- EOT", DESTROY),
-            ("+ two", ADD),
-            ("EOT,", BODY),
-            ("- \"plain\",", DESTROY),
-        ] {
-            let row = (first_row..buffer.area().bottom())
-                .find(|&y| {
-                    (buffer.area().x..buffer.area().right())
-                        .map(|x| buffer.cell((x, y)).expect("plan cell").symbol())
-                        .collect::<String>()
-                        .trim_end()
-                        .ends_with(&format!(" {text}"))
-                })
-                .unwrap_or_else(|| panic!("{text:?} should be drawn:\n{}", buffer_text(&buffer)));
-            assert_text_segment_uses_style_from(
-                &buffer,
-                row,
-                text,
-                0,
-                text.chars().count(),
-                (color, Color::Reset, Modifier::empty()),
-            );
-            first_row = row + 1;
-        }
+    fn draw(state: &ReviewSessionState, view: &PlanReviewViewState, area: Rect) -> Buffer {
+        render_to_buffer((area.width, area.height), |frame| {
+            render(frame, state, view, Instant::now());
+        })
+    }
+
+    fn highlighted_columns(buffer: &Buffer, layout: &PlanReviewLayout, row: usize) -> Vec<usize> {
+        let body = layout.body();
+        let y = body.y + u16::try_from(row).expect("body row");
+        (body.x..body.right())
+            .filter(|x| MATCH_BACKGROUNDS.contains(&buffer[(*x, y)].bg))
+            .map(|x| usize::from(x - body.x))
+            .collect()
+    }
+
+    #[test]
+    fn tabs_and_control_characters_take_the_cells_a_terminal_shows() {
+        let state = script_review("");
+        let view = PlanReviewViewState::default();
+        let layout = layout(AREA, &view, &state);
+        let rows = body_rows(&draw(&state, &view, AREA), &layout);
+
+        assert_eq!(
+            rows.iter()
+                .take(SHOWN.len())
+                .map(|row| row.trim_end())
+                .collect::<Vec<_>>(),
+            SHOWN
+        );
+        assert_eq!(layout.content().metrics().max_width, WIDEST);
+        assert_eq!(
+            SHOWN.iter().map(|line| Line::from(*line).width()).max(),
+            Some(WIDEST)
+        );
+    }
+
+    #[test]
+    fn horizontal_scrolling_reaches_the_end_of_a_line_widened_by_tabs() {
+        let area = Rect::new(0, 0, 40, 16);
+        let state = script_review("");
+        let layout = layout(area, &PlanReviewViewState::default(), &state);
+        let width = usize::from(layout.body().width);
+        assert_eq!(layout.max_horizontal(), WIDEST - width);
+
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('e'),
+            KeyModifiers::CONTROL,
+        );
+        assert_eq!(view.scroll(), (0, WIDEST - width));
+        let rows = body_rows(&draw(&state, &view, area), &layout);
+        assert_eq!(rows[4], SHOWN[4][WIDEST - width..]);
+
+        // A window starting inside a tab keeps the rest of its spaces.
+        let content = layout.content();
+        let lines = content.lines(state.review().document(), 0..SHOWN.len(), None);
+        let window = visible_lines(&lines[4..5], 14, 12);
+        assert_eq!(window[0].to_string(), "  go build .");
+    }
+
+    #[rstest]
+    #[case::after_tabs("compile", 4, 34..41)]
+    #[case::after_escapes("bold", 6, 17..21)]
+    fn matches_highlight_the_shown_columns(
+        #[case] query: &str,
+        #[case] row: usize,
+        #[case] columns: Range<usize>,
+    ) {
+        let state = script_review(query);
+        let layout = layout(AREA, &PlanReviewViewState::default(), &state);
+        let [matched] = layout.matches() else {
+            panic!("expected one match: {:?}", layout.matches());
+        };
+        assert_eq!(
+            (matched.line(), matched.start(), matched.end()),
+            (row, columns.start, columns.end)
+        );
+        assert_eq!(&SHOWN[row][columns.clone()], query);
+
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &layout,
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        );
+        assert_eq!(view.selected(), Some(0));
+        let buffer = draw(&state, &view, AREA);
+        assert_eq!(
+            highlighted_columns(&buffer, &layout, row),
+            columns.collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn filtering_and_copying_keep_the_plan_text() {
+        // The shown spelling of a carriage return is not in the plan text.
+        let state = script_review("^M");
+        let spelled = layout(AREA, &PlanReviewViewState::default(), &state);
+        assert!(spelled.matches().is_empty());
+        assert!(
+            buffer_text(&draw(&state, &PlanReviewViewState::default(), AREA))
+                .contains("No matching changes.")
+        );
+
+        let state = script_review("line\r");
+        let raw = layout(AREA, &PlanReviewViewState::default(), &state);
+        let [matched] = raw.matches() else {
+            panic!("expected one match: {:?}", raw.matches());
+        };
+        assert_eq!(
+            (matched.line(), matched.start(), matched.end()),
+            (5, 17, 23)
+        );
+
+        let copied = plan_effect(state.review());
+        assert_eq!(copied.text(), PLAN.join("\n"));
     }
 }

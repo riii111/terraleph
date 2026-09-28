@@ -1,3 +1,4 @@
+mod display_text;
 pub(crate) mod features;
 mod input;
 mod primitives;
