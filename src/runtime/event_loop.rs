@@ -2267,7 +2267,7 @@ mod tests {
             .expect("overview confirmation should render");
             let text = terminal_text(&terminal);
             assert!(text.contains("Quit Terraleph?"), "{text}");
-            assert!(text.contains("Copied."), "{text}");
+            assert!(!text.contains("Copied."), "{text}");
             assert!(!text.contains("q quit"), "{text}");
 
             quit_confirmation = false;

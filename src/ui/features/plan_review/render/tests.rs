@@ -2853,6 +2853,36 @@ mod overlay {
     }
 
     #[test]
+    fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
+        let now = Instant::now();
+        let mut session = SessionState::new(ExecutionState::with_context(
+            now,
+            ExecutionContext::loading("/repo"),
+        ));
+        session::update(
+            &mut session,
+            Action::ReviewCompleted(review_with_applyable(false)),
+            now,
+        );
+        session::update(
+            &mut session,
+            Action::CopyCompleted {
+                target: CopyTarget::Plan,
+                result: CopyResult::SentToTerminal,
+            },
+            now,
+        );
+        let state = session.review().expect("review should be visible");
+
+        let text = buffer_text(&render_to_buffer((40, 12), |frame| {
+            render_with_quit_confirmation(frame, state, &PlanReviewViewState::default(), now, true);
+        }));
+
+        assert!(text.contains("Quit? [Enter] quit [Esc] cancel"), "{text}");
+        assert!(!text.contains("Sent to terminal clipboard."), "{text}");
+    }
+
+    #[test]
     fn copy_flash_styles_plan_cells_without_overwriting_the_review_shell() {
         let (before, flash, flash_at_100ms, after, layout) = copy_flash_buffers();
 
