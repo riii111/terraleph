@@ -1,10 +1,7 @@
-use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
-use ratatui::buffer::CellWidth;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
@@ -16,7 +13,7 @@ use crate::app::{
     },
     plan::PlanAction,
 };
-use crate::ui::display_text::{shown_line, shown_width};
+use crate::ui::display_text::{shown_width, visible_cells};
 use crate::ui::primitives::atoms::{scrollbar, separator};
 use crate::ui::primitives::molecules::terminal_notice;
 use crate::ui::shell::{
@@ -863,51 +860,7 @@ fn log_line(stream: EventStream, text: &str, horizontal: usize, width: usize) ->
     } else {
         theme::body_style()
     };
-    let visible = match shown_line(text) {
-        Cow::Borrowed(text) => visible_cells(text, horizontal, width),
-        Cow::Owned(text) => Cow::Owned(visible_cells(&text, horizontal, width).into_owned()),
-    };
-    Line::from(Span::styled(visible, style))
-}
-
-// The part of `text` drawn in a row `width` cells wide, starting `offset` cells into the line. A
-// wide character cut by the left edge leaves its remaining cells blank, so every line moves by
-// exactly `offset` and the end of the widest line can reach the right edge. `Paragraph::scroll`
-// would draw such a character whole instead. Past the left edge this keeps only what `Paragraph`
-// draws within `width`, so a long line costs the cells up to the right edge rather than its
-// length, and the row is drawn exactly as the whole remainder would be.
-fn visible_cells(text: &str, offset: usize, width: usize) -> Cow<'_, str> {
-    if width == 0 {
-        return Cow::Borrowed("");
-    }
-    if offset == 0 {
-        // `Paragraph` stops at the right edge on its own.
-        return Cow::Borrowed(text);
-    }
-    let mut skipped = 0;
-    let mut kept_width = 0;
-    let mut kept = String::new();
-    for grapheme in Line::from(text).styled_graphemes(Style::default()) {
-        let cells = usize::from(grapheme.symbol.cell_width());
-        if skipped < offset {
-            skipped += cells;
-            let blank = skipped.saturating_sub(offset);
-            kept.extend(std::iter::repeat_n(' ', blank));
-            kept_width += blank;
-            continue;
-        }
-        // `Paragraph` leaves out a grapheme wider than the row and stops at the first one that
-        // does not fit, so a wide character straddling the right edge is not drawn.
-        if cells > width {
-            continue;
-        }
-        if kept_width + cells > width {
-            break;
-        }
-        kept_width += cells;
-        kept.push_str(grapheme.symbol);
-    }
-    Cow::Owned(kept)
+    Line::from(Span::styled(visible_cells(text, horizontal, width), style))
 }
 
 fn target_line(
@@ -1298,9 +1251,11 @@ fn format_elapsed(elapsed: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use ratatui::{
-        buffer::Buffer,
-        style::{Color, Modifier},
+        buffer::{Buffer, CellWidth},
+        style::{Color, Modifier, Style},
     };
 
     use super::*;
@@ -2644,7 +2599,10 @@ mod tests {
     }
 
     mod appended_log {
+        use rstest::rstest;
+
         use super::*;
+        use crate::ui::display_text::DisplayColumns;
         use crate::ui::features::execution::ExecutionTargetMove;
 
         fn record_log(state: &mut ExecutionState, now: Instant, text: &str) {
@@ -2767,12 +2725,13 @@ mod tests {
             assert_eq!(Some(blank.fg), theme::warning_style().fg);
         }
 
-        // The row the cutter produced before it stopped at the right edge: the whole line from
-        // `offset` cells in, with a wide character cut by the left edge left blank.
+        // The row the cutter produced before it stopped at the right edge: the whole shown line
+        // from `offset` cells in, with a wide character cut by the left edge left blank.
         fn whole_remainder(text: &str, offset: usize) -> String {
+            let shown = DisplayColumns::default().show(text);
             let mut skipped = 0;
             let mut kept = String::new();
-            for grapheme in Line::from(text).styled_graphemes(Style::default()) {
+            for grapheme in Line::from(shown.as_ref()).styled_graphemes(Style::default()) {
                 if skipped < offset {
                     skipped += usize::from(grapheme.symbol.cell_width());
                     kept.extend(std::iter::repeat_n(' ', skipped.saturating_sub(offset)));
@@ -2799,10 +2758,12 @@ mod tests {
                 "x".repeat(100_000),
                 "aｶﾞ全角b\t😀".repeat(5_000),
                 format!("{}END", "全".repeat(50_000)),
+                "\u{1b}[1m全\u{1b}[0m\r\u{301}\u{600}\t🇯🇵\t\u{7f}ｶﾞ\t".repeat(5_000),
+                format!("{}\t{}", "x".repeat(79), "\ty".repeat(50_000)),
             ];
             for text in &lines {
                 for width in [1_u16, 2, 3, 7, 80] {
-                    for offset in [1, 2, 3, 5, 40_001] {
+                    for offset in [0, 1, 2, 3, 5, 40_001] {
                         let visible = visible_cells(text, offset, usize::from(width));
                         let case = format!("width {width}, offset {offset}");
 
@@ -2811,41 +2772,44 @@ mod tests {
                             draw_row(&whole_remainder(text, offset), width),
                             "{case}"
                         );
-                        assert!(display_width(&visible) <= usize::from(width), "{case}");
+                        // `Paragraph` clips a line it draws from the left edge as it is.
+                        if matches!(visible, Cow::Owned(_)) {
+                            assert!(display_width(&visible) <= usize::from(width), "{case}");
+                        }
                     }
                 }
             }
         }
 
-        #[test]
-        fn measured_widths_match_the_drawn_cells() {
-            for (text, drawn) in [("ｶﾞｷﾞ", 4), ("لا", 2), ("a\tb", 9), ("abc\x1b[0m", 8)]
-            {
-                // The marker lands on the first cell after the drawn text.
-                let buffer = render_to_buffer((20, 1), |frame| {
-                    frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::raw(shown_line(text)),
-                            Span::raw("|"),
-                        ])),
-                        frame.area(),
-                    );
-                });
-                let marker = (0..20)
-                    .position(|x| buffer[(x, 0)].symbol() == "|")
-                    .expect("marker should be drawn");
-                let log = [ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: text.to_owned(),
-                }];
-
-                assert_eq!(marker, drawn, "{text:?}");
-                assert_eq!(
-                    measure_log_width(LogWidth::default(), &log, None).width,
-                    drawn,
-                    "{text:?}"
+        #[rstest]
+        #[case::voiced_halfwidth_kana("ｶﾞｷﾞ", 4)]
+        #[case::arabic_ligature("لا", 2)]
+        #[case::tab("a\tb", 9)]
+        #[case::escape("abc\x1b[0m", 8)]
+        fn measured_widths_match_the_drawn_cells(#[case] text: &str, #[case] drawn: usize) {
+            // The marker lands on the first cell after the drawn text.
+            let buffer = render_to_buffer((20, 1), |frame| {
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::raw(visible_cells(text, 0, 20)),
+                        Span::raw("|"),
+                    ])),
+                    frame.area(),
                 );
-            }
+            });
+            let marker = (0..20)
+                .position(|x| buffer[(x, 0)].symbol() == "|")
+                .expect("marker should be drawn");
+            let log = [ExecutionLogLine {
+                stream: EventStream::Stdout,
+                text: text.to_owned(),
+            }];
+
+            assert_eq!(marker, drawn);
+            assert_eq!(
+                measure_log_width(LogWidth::default(), &log, None).width,
+                drawn
+            );
         }
 
         #[test]
