@@ -54,8 +54,8 @@ impl PlanContent {
             )));
             rendered.push(Line::default());
         }
-        // Widths are kept only to trim the trailing blank rows and to find the widest row.
-        let mut widths = rendered.iter().map(Line::width).collect::<Vec<_>>();
+        // Widths are kept only to find the widest row that remains after trimming.
+        let mut widths = rendered.iter().map(display_width).collect::<Vec<_>>();
         let mut rows = rendered
             .into_iter()
             .map(ContentRow::Rendered)
@@ -75,11 +75,15 @@ impl PlanContent {
             // The styled spans give the same width and match columns that a frame draws.
             let (rendered, line_matches) =
                 plan_line_and_matches(line, filter_query, rows.len(), None, kind);
-            widths.push(rendered.width());
+            widths.push(display_width(&rendered));
             rows.push(ContentRow::Plan(PlanSource { kind, line_number }));
             matches.extend(line_matches);
         }
-        while widths.last() == Some(&0) {
+        // Trailing rows without text are dropped; only those rows are styled again to check.
+        while rows
+            .last()
+            .is_some_and(|row| row_line(row, review.document(), filter_query, 0, None).width() == 0)
+        {
             widths.pop();
             rows.pop();
         }
@@ -127,20 +131,38 @@ impl PlanContent {
         self.rows[start..end]
             .iter()
             .zip(start..)
-            .map(|(row, row_index)| match row {
-                ContentRow::Rendered(line) => line.clone(),
-                ContentRow::Plan(source) => {
-                    plan_line_and_matches(
-                        document.line(source.line_number),
-                        &self.filter_query,
-                        row_index,
-                        selected.filter(|selected| selected.line() == row_index),
-                        source.kind,
-                    )
-                    .0
-                }
+            .map(|(row, row_index)| {
+                row_line(
+                    row,
+                    document,
+                    &self.filter_query,
+                    row_index,
+                    selected.filter(|selected| selected.line() == row_index),
+                )
             })
             .collect()
+    }
+}
+
+fn row_line<'a>(
+    row: &'a ContentRow,
+    document: &'a PlanDocument,
+    query: &str,
+    row_index: usize,
+    selected: Option<&PlanReviewMatch>,
+) -> Line<'a> {
+    match row {
+        ContentRow::Rendered(line) => line.clone(),
+        ContentRow::Plan(source) => {
+            plan_line_and_matches(
+                document.line(source.line_number),
+                query,
+                row_index,
+                selected,
+                source.kind,
+            )
+            .0
+        }
     }
 }
 
@@ -246,10 +268,10 @@ pub(super) fn plan_line_and_matches<'a>(
         if !before.is_empty() {
             result.push_span(Span::styled(before, plan_line_style(line, kind)));
         }
-        rendered_column += Line::from(before).width();
+        rendered_column += display_width(&Line::from(before));
         let (match_text, after) = matched_and_after.split_at(query.len());
         let start_column = rendered_column;
-        rendered_column += Line::from(match_text).width();
+        rendered_column += display_width(&Line::from(match_text));
         let end_column = rendered_column;
         let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
         let style = selected
@@ -306,7 +328,7 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
     let mut visible = Line::default();
     let mut column = 0;
     for grapheme in line.styled_graphemes(Style::default()) {
-        let next = column + usize::from(grapheme.symbol.cell_width());
+        let next = column + grapheme_width(grapheme.symbol);
         if next > end {
             break;
         }
@@ -322,6 +344,19 @@ fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<
         column = next;
     }
     visible
+}
+
+// Line::width measures the whole string, which differs from the drawn cells for halfwidth sound
+// marks, some joined scripts, and control characters. Scroll limits, match columns, and the visible
+// window all measure the graphemes ratatui draws instead.
+pub(super) fn display_width(line: &Line<'_>) -> usize {
+    line.styled_graphemes(Style::default())
+        .map(|grapheme| grapheme_width(grapheme.symbol))
+        .sum()
+}
+
+fn grapheme_width(symbol: &str) -> usize {
+    usize::from(symbol.cell_width())
 }
 
 const fn severity_label(severity: DiagnosticSeverity) -> &'static str {

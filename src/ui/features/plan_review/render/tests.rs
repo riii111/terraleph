@@ -3261,6 +3261,59 @@ mod large_plan {
     }
 
     #[test]
+    fn halfwidth_sound_marks_count_as_drawn_cells_for_the_right_edge_and_matches() {
+        const PREFIX: &str = "      + kana = \"";
+        // Each pair draws in two cells although unicode-width counts the sound mark as zero.
+        let kana = "ｶﾞｷﾟ".repeat(40);
+        let line = format!("{PREFIX}{kana}{NEEDLE}\"");
+        let drawn_width = PREFIX.len() + 4 * 40 + NEEDLE.len() + 1;
+        assert!(Line::from(line.as_str()).width() < drawn_width);
+
+        let state = large_review(std::slice::from_ref(&line), "");
+        let raw = layout(AREA, &PlanReviewViewState::default(), &state);
+        assert_eq!(
+            raw.max_horizontal(),
+            drawn_width - usize::from(raw.body().width)
+        );
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &raw,
+            KeyCode::Char('e'),
+            KeyModifiers::CONTROL,
+        );
+        let buffer = render_view(&state, &view);
+        let rows = body_rows(&buffer, &raw);
+        assert!(rows[0].ends_with(&format!("ｷﾟ{NEEDLE}\"")), "{}", rows[0]);
+
+        let state = large_review(&[line], NEEDLE);
+        let filtered = layout(AREA, &PlanReviewViewState::default(), &state);
+        let [matched] = filtered.matches() else {
+            panic!("expected one match: {:?}", filtered.matches());
+        };
+        assert_eq!(
+            (matched.start(), matched.end()),
+            (drawn_width - NEEDLE.len() - 1, drawn_width - 1)
+        );
+        let mut view = PlanReviewViewState::default();
+        press(
+            &mut view,
+            &state,
+            &filtered,
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        );
+        let buffer = render_view(&state, &view);
+        assert_eq!(search_match_style_counts(&buffer, NEEDLE), (0, 1));
+        assert!(
+            body_rows(&buffer, &filtered)
+                .iter()
+                .any(|row| row.ends_with(&format!("ｷﾟ{NEEDLE}"))),
+        );
+    }
+
+    #[test]
     fn visible_lines_cut_wide_and_combining_graphemes_at_cell_boundaries() {
         let style = theme::warning_style();
         let lines = [
