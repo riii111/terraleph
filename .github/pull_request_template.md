@@ -1,7 +1,1 @@
-## 概要
-
-<!-- 解決する問題と、利用者にとっての変更を簡潔に記載する。 -->
-
-## 検証
-
-<!-- 実行した検証と結果を記載する。 -->
+<!-- In 1–3 sentences, state why this PR exists and what changes for users. Omit implementation details and validation commands. -->
