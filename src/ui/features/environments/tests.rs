@@ -6,7 +6,10 @@ use crate::{
         plan::Plan,
         review::{PlanMetadata, PlanReview, test_support::plan_document},
     },
-    ui::test_support::{assert_dialog_scrolled_up, buffer_text, render_to_buffer},
+    ui::{
+        test_support::{assert_dialog_scrolled_up, buffer_text, render_to_buffer},
+        theme,
+    },
 };
 use ratatui::style::{Color, Modifier};
 use std::path::PathBuf;
@@ -1881,6 +1884,22 @@ mod apply {
         assert!(!text.contains("ws:default"), "{text}");
         assert_eq!(lines.last(), raw_lines.last(), "{text}");
         assert!(text.contains("Apply this reviewed plan?"), "{text}");
+        let counts = "Plan: +1 add  ~0 update  0 replace  -0 destroy";
+        let (counts_x, counts_y) =
+            text_position(&buffer, counts).expect("the change counts should be visible");
+        for (segment, style) in [
+            ("+1 add", theme::success_style()),
+            ("~0 update", theme::secondary_style()),
+            ("-0 destroy", theme::secondary_style()),
+        ] {
+            let offset =
+                u16::try_from(counts.find(segment).expect("count segment")).expect("count offset");
+            let cell = buffer
+                .cell((counts_x + offset, counts_y))
+                .expect("count cell");
+            assert_eq!(cell.fg, style.fg.expect("count color"), "{segment}");
+            assert_eq!(cell.modifier, style.add_modifier, "{segment}");
+        }
         let (dialog_left, _) =
             text_position(&buffer, "┌").expect("the confirmation frame should be drawn");
         let outside_dialog = |lines: &[&str]| -> Vec<String> {

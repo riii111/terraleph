@@ -2,6 +2,7 @@ use std::path::Path;
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
@@ -151,27 +152,11 @@ fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
 fn plan_review_changes_line(review: &PlanReview) -> Line<'static> {
     let counts = review.summary();
     let mut line = Line::from(Span::styled("Changes", theme::secondary_style()));
-    let mut append = |text: String, style| {
-        line.push_span(Span::styled("  ", theme::secondary_style()));
-        line.push_span(Span::styled(text, style));
-    };
-    if counts.creates > 0 {
-        append(format!("+{} add", counts.creates), theme::success_style());
-    }
-    if counts.updates > 0 {
-        append(
-            format!("~{} update", counts.updates),
-            theme::warning_style(),
-        );
-    }
-    if counts.replaces > 0 {
-        append(
-            format!("{} replace", counts.replaces),
-            theme::overview_total_replace_style(),
-        );
-    }
-    if counts.deletes > 0 {
-        append(format!("-{} destroy", counts.deletes), theme::error_style());
+    for change in change_counts(counts) {
+        if change.count > 0 {
+            line.push_span(Span::styled("  ", theme::secondary_style()));
+            line.push_span(Span::styled(change.text, change.style));
+        }
     }
     if counts == PlanSummary::default() {
         let text = if review.nonstandard_changes() > 0 {
@@ -191,6 +176,39 @@ fn plan_review_changes_line(review: &PlanReview) -> Line<'static> {
         ));
     }
     line
+}
+
+pub(crate) struct ChangeCount {
+    pub(crate) count: usize,
+    pub(crate) text: String,
+    pub(crate) style: Style,
+}
+
+/// Labels and colors each change count in one place, so the review header and
+/// the apply confirmation always show a change kind in the same color.
+pub(crate) fn change_counts(counts: PlanSummary) -> [ChangeCount; 4] {
+    [
+        ChangeCount {
+            count: counts.creates,
+            text: format!("+{} add", counts.creates),
+            style: theme::success_style(),
+        },
+        ChangeCount {
+            count: counts.updates,
+            text: format!("~{} update", counts.updates),
+            style: theme::warning_style(),
+        },
+        ChangeCount {
+            count: counts.replaces,
+            text: format!("{} replace", counts.replaces),
+            style: theme::overview_total_replace_style(),
+        },
+        ChangeCount {
+            count: counts.deletes,
+            text: format!("-{} destroy", counts.deletes),
+            style: theme::error_style(),
+        },
+    ]
 }
 
 fn compact_review_header_line(
@@ -609,6 +627,43 @@ mod tests {
 
             assert_eq!(line, case.expected, "case: {}", case.name);
         }
+    }
+
+    #[test]
+    fn changes_line_colors_only_the_nonzero_counts() {
+        let review = PlanReview::new(
+            "/dev".into(),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(String::new(), Vec::new(), Vec::new()),
+            Plan {
+                resource_changes: vec![
+                    resource_change("terraform_data.new", ResourceChangeKind::Create),
+                    resource_change("terraform_data.api", ResourceChangeKind::Update),
+                    resource_change("terraform_data.worker", ResourceChangeKind::Replace),
+                ],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        );
+
+        let line = plan_review_changes_line(&review);
+
+        assert_eq!(
+            line.spans
+                .iter()
+                .map(|span| (span.content.as_ref(), span.style))
+                .collect::<Vec<_>>(),
+            [
+                ("Changes", theme::secondary_style()),
+                ("  ", theme::secondary_style()),
+                ("+1 add", theme::success_style()),
+                ("  ", theme::secondary_style()),
+                ("~1 update", theme::warning_style()),
+                ("  ", theme::secondary_style()),
+                ("1 replace", theme::overview_total_replace_style()),
+            ]
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ use ratatui::{
 
 use crate::app::{
     execution::{ExecutionContext, ExecutionContextValue},
+    plan::PlanSummary,
     review::PlanReview,
     session::ReviewSessionState,
 };
@@ -410,10 +411,7 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
             Span::styled("Tool: ", theme::secondary_style()),
             Span::styled(tool_version(context), theme::body_style()),
         ]),
-        Line::from(format!(
-            "Plan: +{} add  ~{} update  {} replace  -{} destroy",
-            counts.creates, counts.updates, counts.replaces, counts.deletes,
-        )),
+        change_counts_line(counts),
     ]);
     let mut scroll = Vec::new();
     append_variable_sources(&mut scroll, context);
@@ -433,6 +431,24 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
         scroll,
         suffix,
     }
+}
+
+// Keeps zero counts visible so "0 destroy" still reads as a checked absence,
+// and colors only the kinds this apply changes.
+fn change_counts_line(counts: PlanSummary) -> Line<'static> {
+    let mut line = Line::from(Span::styled("Plan: ", theme::secondary_style()));
+    for (index, change) in header::change_counts(counts).into_iter().enumerate() {
+        if index > 0 {
+            line.push_span(Span::styled("  ", theme::secondary_style()));
+        }
+        let style = if change.count > 0 {
+            change.style
+        } else {
+            theme::secondary_style()
+        };
+        line.push_span(Span::styled(change.text, style));
+    }
+    line
 }
 
 // States why the confirmation text is the target name instead of "yes", so
@@ -513,7 +529,7 @@ fn append_destructive_resources(lines: &mut Vec<Line<'static>>, review: &PlanRev
     lines.push(Line::default());
     for (label, addresses, style) in [
         ("Destroy", destroy, theme::error_style()),
-        ("Replace", replace, theme::warning_style()),
+        ("Replace", replace, theme::overview_total_replace_style()),
     ] {
         if addresses.is_empty() {
             continue;

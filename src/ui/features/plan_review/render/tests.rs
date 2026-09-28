@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     buffer::Buffer,
-    style::{Color, Modifier},
+    style::{Color, Modifier, Style},
     text::Line,
     widgets::Widget,
 };
@@ -908,6 +908,91 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
             Modifier::empty(),
         );
     }
+}
+
+fn assert_line_segments_use_styles(buffer: &Buffer, line: &str, segments: &[(&str, Style)]) {
+    for &(segment, style) in segments {
+        let start = line
+            .find(segment)
+            .expect("segment should be part of the line");
+        assert_text_segment_uses_style(
+            buffer,
+            line,
+            line[..start].chars().count(),
+            segment.chars().count(),
+            style.fg.unwrap_or(Color::Reset),
+            style.bg.unwrap_or(Color::Reset),
+            style.add_modifier,
+        );
+    }
+}
+
+#[test]
+fn apply_confirmation_colors_each_planned_change_count_by_kind() {
+    let state = confirmation_state(review());
+    let buffer = render_to_buffer((120, 40), |frame| {
+        render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+    });
+
+    assert_line_segments_use_styles(
+        &buffer,
+        "Plan: +1 add  ~1 update  1 replace  -1 destroy",
+        &[
+            ("Plan: ", theme::secondary_style()),
+            ("+1 add", theme::success_style()),
+            ("  ", theme::secondary_style()),
+            ("~1 update", theme::warning_style()),
+            ("1 replace", theme::overview_total_replace_style()),
+            ("-1 destroy", theme::error_style()),
+        ],
+    );
+    for (label, address, style) in [
+        ("Destroy:", "  terraform_data.old", theme::error_style()),
+        (
+            "Replace:",
+            "  terraform_data.worker",
+            theme::overview_total_replace_style(),
+        ),
+    ] {
+        assert_line_segments_use_styles(&buffer, label, &[(label, style)]);
+        assert_line_segments_use_styles(&buffer, address, &[(address, style)]);
+    }
+}
+
+#[test]
+fn apply_confirmation_keeps_zero_change_counts_in_the_secondary_color() {
+    let plan = PlanReview::new(
+        PathBuf::from("/repo"),
+        "default".to_owned(),
+        plan_document_with_blocks(
+            "+ resource \"terraform_data\" \"new\" {}".to_owned(),
+            vec![PlanBlock::new(0..1, PlanBlockKind::Resource)],
+        ),
+        Plan {
+            resource_changes: vec![resource_change(
+                "terraform_data.new",
+                ResourceChangeKind::Create,
+            )],
+            ..Plan::empty()
+        },
+        PlanMetadata::new(true),
+        Vec::new(),
+    );
+    let state = confirmation_state(plan);
+    let buffer = render_to_buffer((80, 24), |frame| {
+        render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+    });
+
+    assert_line_segments_use_styles(
+        &buffer,
+        "Plan: +1 add  ~0 update  0 replace  -0 destroy",
+        &[
+            ("+1 add", theme::success_style()),
+            ("~0 update", theme::secondary_style()),
+            ("0 replace", theme::secondary_style()),
+            ("-0 destroy", theme::secondary_style()),
+        ],
+    );
 }
 
 fn review_with_content(line_count: u16, line_width: u16) -> PlanReview {
