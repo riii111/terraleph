@@ -22,9 +22,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "Run a Terraform command; plan and apply open the review")]
+    #[command(
+        about = "Run a Terraform command, reviewing supported interactive plan and apply runs"
+    )]
     Terraform,
-    #[command(about = "Run an OpenTofu command; plan and apply open the review")]
+    #[command(
+        about = "Run an OpenTofu command, reviewing supported interactive plan and apply runs"
+    )]
     Tofu,
     #[command(about = "Review a Terraform plan (same as `terraleph terraform plan`)")]
     Plan,
