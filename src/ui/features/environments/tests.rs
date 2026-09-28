@@ -1275,7 +1275,7 @@ mod raw_review {
         handle_key_code(&mut view, KeyCode::Enter, small, &state);
 
         let filtered = render_text(&mut view, &state, (80, 24));
-        let first_visible_line = usize::from(view.reviews[0].scroll().0) + 1;
+        let first_visible_line = view.reviews[0].scroll().0 + 1;
         assert!(filtered.contains("PLAN LINE 20"), "{filtered}");
         assert!(
             filtered.contains(&format!("Line {first_visible_line}/45")),
@@ -1283,7 +1283,7 @@ mod raw_review {
         );
 
         let medium = render_text(&mut view, &state, (120, 40));
-        let first_visible_line = usize::from(view.reviews[0].scroll().0) + 1;
+        let first_visible_line = view.reviews[0].scroll().0 + 1;
         assert!(
             medium.contains(&format!("Line {first_visible_line}/45")),
             "{medium}"

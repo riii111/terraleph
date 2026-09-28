@@ -792,7 +792,7 @@ impl EnvironmentView {
     fn open_at(&mut self, index: usize, line: usize, notice: Option<String>) -> EnvironmentInput {
         self.notice = notice;
         self.selection.raw = Some(index);
-        self.reviews[index].jump_to_line(line, u16::MAX);
+        self.reviews[index].jump_to_line(line, usize::MAX);
         EnvironmentInput::Review(index, Box::new(Action::ReviewSearchChanged(String::new())))
     }
 

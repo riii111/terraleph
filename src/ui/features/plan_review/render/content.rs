@@ -1,4 +1,5 @@
 use ratatui::{
+    buffer::CellWidth,
     style::Style,
     text::{Line, Span},
 };
@@ -162,16 +163,12 @@ pub(super) fn plan_line_and_matches<'a>(
         if !before.is_empty() {
             result.push_span(Span::styled(before, plan_line_style(line, kind)));
         }
-        rendered_column += Line::from(before).width();
+        rendered_column += display_width(&Line::from(before));
         let (match_text, after) = matched_and_after.split_at(query.len());
         let start_column = rendered_column;
-        rendered_column += Line::from(match_text).width();
+        rendered_column += display_width(&Line::from(match_text));
         let end_column = rendered_column;
-        let rendered_match = PlanReviewMatch::new(
-            line_index,
-            u16::try_from(start_column).unwrap_or(u16::MAX),
-            u16::try_from(end_column).unwrap_or(u16::MAX),
-        );
+        let rendered_match = PlanReviewMatch::new(line_index, start_column, end_column);
         let style = selected
             .filter(|selected| {
                 selected.start() == rendered_match.start() && selected.end() == rendered_match.end()
@@ -239,8 +236,74 @@ pub(super) fn content_lines_with_selection<'a>(
         .collect()
 }
 
+// Paragraph::scroll takes u16 offsets, so the body receives only the visible window instead. The
+// window walks the same graphemes and cell widths as ratatui's line truncation.
+pub(super) fn visible_lines<'a>(
+    lines: &'a [Line<'_>],
+    vertical: usize,
+    horizontal: usize,
+    height: u16,
+    width: u16,
+) -> Vec<Line<'a>> {
+    lines
+        .iter()
+        .skip(vertical)
+        .take(usize::from(height))
+        .map(|line| visible_columns(line, horizontal, usize::from(width)))
+        .collect()
+}
+
+fn visible_columns<'a>(line: &'a Line<'_>, offset: usize, width: usize) -> Line<'a> {
+    let end = offset.saturating_add(width);
+    let mut visible = Line::default();
+    let mut column = 0;
+    for grapheme in line.styled_graphemes(Style::default()) {
+        let next = column + grapheme_width(grapheme.symbol);
+        if next > end {
+            break;
+        }
+        if next > offset {
+            if column < offset {
+                // A wide grapheme cut by the left edge leaves its visible cells blank, keeping the
+                // columns aligned with the other lines.
+                visible.push_span(Span::styled(" ".repeat(next - offset), grapheme.style));
+            } else {
+                visible.push_span(Span::styled(grapheme.symbol, grapheme.style));
+            }
+        }
+        column = next;
+    }
+    visible
+}
+
 fn max_line_width(lines: &[Line<'_>]) -> usize {
-    lines.iter().map(Line::width).max().unwrap_or(0)
+    lines.iter().map(display_width).max().unwrap_or(0)
+}
+
+// Line::width measures the whole string, which differs from the drawn cells for halfwidth sound
+// marks, some joined scripts, and control characters. Scroll limits, match columns, and the visible
+// window all measure the graphemes ratatui draws instead.
+fn display_width(line: &Line<'_>) -> usize {
+    line.spans.iter().map(span_width).sum()
+}
+
+// Most plan text is printable ASCII, where every byte is one drawn cell, so only other spans pay
+// for grapheme segmentation.
+fn span_width(span: &Span<'_>) -> usize {
+    let content = span.content.as_ref();
+    if content
+        .bytes()
+        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+    {
+        return content.len();
+    }
+    span.styled_graphemes(Style::default())
+        .map(|grapheme| grapheme_width(grapheme.symbol))
+        .sum()
+}
+
+fn grapheme_width(symbol: &str) -> usize {
+    usize::from(symbol.cell_width())
 }
 
 const fn severity_label(severity: DiagnosticSeverity) -> &'static str {
