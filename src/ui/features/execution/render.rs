@@ -9,7 +9,7 @@ use crate::app::{
     copy::CopyNotice,
     execution::{
         EventStream, ExecutionLogLine, ExecutionResult, ExecutionStage, ExecutionState,
-        ExecutionTargetStatus,
+        ExecutionTargetState, ExecutionTargetStatus,
     },
     plan::PlanAction,
 };
@@ -24,7 +24,13 @@ const MIN_HEIGHT: u16 = 9;
 const MIN_WIDTH: u16 = 32;
 const STATUS_HEIGHT: u16 = 3;
 const APPLY_STATUS_HEIGHT: u16 = 2;
-const TARGET_ADDRESS_WIDTH: usize = 24;
+// Narrow panels keep this much of the address and clip the trailing columns instead.
+const TARGET_ADDRESS_MIN_WIDTH: usize = 24;
+const TARGET_STATUS_WIDTH: usize = "Incomplete".len();
+// A replacement shows both actions, which is the longest label Terraform produces.
+const TARGET_ACTION_WIDTH: usize = "delete/create".len();
+const TARGET_ELAPSED_WIDTH: usize = "Elapsed".len();
+const TARGET_PREVIOUS_WIDTH: usize = "Previous".len();
 struct PreparedContent<'a> {
     lines: Vec<Line<'a>>,
     max_width: usize,
@@ -160,7 +166,11 @@ fn render_target_panel(
     } else {
         theme::secondary_style()
     };
-    let show_previous = state.progress().has_previous();
+    let columns = TargetColumns::new(
+        state.progress().targets(),
+        usize::from(body.width),
+        state.progress().has_previous(),
+    );
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             if view.selected_target().is_none() {
@@ -174,26 +184,11 @@ fn render_target_panel(
         Rect::new(body.x, body.y.saturating_sub(2), body.width, 1),
     );
     frame.render_widget(
-        Paragraph::new(if show_previous {
-            format!(
-                "  {:<width$}  {:<10} {:<10} {:>7}  {:>7}",
-                "Resource",
-                "Status",
-                "Action",
-                "Elapsed",
-                "Previous",
-                width = TARGET_ADDRESS_WIDTH,
-            )
-        } else {
-            format!(
-                "  {:<width$}  {:<10} {:<10} {:>7}",
-                "Resource",
-                "Status",
-                "Action",
-                "Elapsed",
-                width = TARGET_ADDRESS_WIDTH,
-            )
-        })
+        Paragraph::new(columns.row(
+            "  ",
+            "Resource",
+            ["Status", "Action", "Elapsed", "Previous"],
+        ))
         .style(theme::secondary_style()),
         Rect::new(body.x, body.y.saturating_sub(1), body.width, 1),
     );
@@ -203,7 +198,7 @@ fn render_target_panel(
     let offset = view.target_vertical_offset(0, layout_target_max(indices.len(), body.height));
     let lines = indices
         .iter()
-        .map(|index| target_line(state, *index, view.selected_target(), now, show_previous))
+        .map(|index| target_line(state, *index, view.selected_target(), now, &columns))
         .collect::<Vec<_>>();
     frame.render_widget(
         Paragraph::new(lines)
@@ -747,29 +742,26 @@ fn target_line(
     index: usize,
     selected: Option<usize>,
     now: Instant,
-    show_previous: bool,
+    columns: &TargetColumns,
 ) -> Line<'static> {
     let target = &state.progress().targets()[index];
     let marker = if selected == Some(index) { "> " } else { "  " };
-    let status = target_status_label(target.status());
-    let action = target
-        .actions()
-        .iter()
-        .map(plan_action_label)
-        .collect::<Vec<_>>()
-        .join("/");
     let elapsed = target
         .elapsed_at(now)
         .map_or_else(|| "--".to_owned(), format_elapsed);
-    let address = padded_target_address(target.address());
-    let text = if show_previous {
-        let previous = target
-            .previous()
-            .map_or_else(|| "--".to_owned(), format_elapsed);
-        format!("{marker}{address}  {status:<10} {action:<10} {elapsed:>7}  {previous:>7}")
-    } else {
-        format!("{marker}{address}  {status:<10} {action:<10} {elapsed:>7}")
-    };
+    let previous = target
+        .previous()
+        .map_or_else(|| "--".to_owned(), format_elapsed);
+    let text = columns.row(
+        marker,
+        target.address(),
+        [
+            target_status_label(target.status()),
+            &target_action_label(target),
+            &elapsed,
+            &previous,
+        ],
+    );
     let style = if selected == Some(index) {
         theme::accent_style().add_modifier(ratatui::style::Modifier::BOLD)
     } else {
@@ -785,10 +777,74 @@ fn target_line(
     Line::from(Span::styled(text, style))
 }
 
-fn padded_target_address(address: &str) -> String {
-    let address = truncate_middle(address, TARGET_ADDRESS_WIDTH);
-    let padding = TARGET_ADDRESS_WIDTH.saturating_sub(Line::from(address.as_str()).width());
-    format!("{address}{}", " ".repeat(padding))
+// Status, action and the durations keep fixed widths so every row lines up; the address gets
+// the rest of the panel, but no more than its longest value needs.
+struct TargetColumns {
+    address: usize,
+    action: usize,
+    show_previous: bool,
+}
+
+impl TargetColumns {
+    // Marker, the gaps between columns, and the fixed-width columns.
+    const fn fixed_width(action: usize, show_previous: bool) -> usize {
+        let width = 2 + 2 + TARGET_STATUS_WIDTH + 1 + action + 1 + TARGET_ELAPSED_WIDTH;
+        if show_previous {
+            width + 2 + TARGET_PREVIOUS_WIDTH
+        } else {
+            width
+        }
+    }
+
+    fn new(targets: &[ExecutionTargetState], width: usize, show_previous: bool) -> Self {
+        let action = targets
+            .iter()
+            .map(|target| target_action_label(target).len())
+            .fold(TARGET_ACTION_WIDTH, usize::max);
+        let longest_address = targets
+            .iter()
+            .map(|target| Line::from(target.address()).width())
+            .fold("Resource".len(), usize::max);
+        let available = width
+            .saturating_sub(Self::fixed_width(action, show_previous))
+            .max(TARGET_ADDRESS_MIN_WIDTH);
+        Self {
+            address: longest_address.min(available),
+            action,
+            show_previous,
+        }
+    }
+
+    fn row(
+        &self,
+        marker: &str,
+        address: &str,
+        [status, action, elapsed, previous]: [&str; 4],
+    ) -> String {
+        let address = truncate_middle(address, self.address);
+        let padding = self
+            .address
+            .saturating_sub(Line::from(address.as_str()).width());
+        let address = format!("{address}{}", " ".repeat(padding));
+        let action_width = self.action;
+        let row = format!(
+            "{marker}{address}  {status:<TARGET_STATUS_WIDTH$} {action:<action_width$} {elapsed:>TARGET_ELAPSED_WIDTH$}"
+        );
+        if self.show_previous {
+            format!("{row}  {previous:>TARGET_PREVIOUS_WIDTH$}")
+        } else {
+            row
+        }
+    }
+}
+
+fn target_action_label(target: &ExecutionTargetState) -> String {
+    target
+        .actions()
+        .iter()
+        .map(plan_action_label)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 const fn target_status_label(status: ExecutionTargetStatus) -> &'static str {
@@ -1462,6 +1518,179 @@ mod tests {
             });
         }
         (state, started_at + Duration::from_secs(2))
+    }
+
+    mod targets {
+        use super::*;
+
+        const LONG_ADDRESS: &str = "module.synthetic_platform.module.regional_workers[\"region-a\"].terraform_data.worker_pool_configuration";
+
+        fn long_address_state() -> (ExecutionState, Instant) {
+            let started_at = Instant::now();
+            let mut state = ExecutionState::applying_with_previous(
+                started_at,
+                ExecutionContext::loading("/repo/environments/production/main")
+                    .with_workspace("default"),
+                vec![
+                    ExecutionTargetSpec {
+                        address: "terraform_data.api".to_owned(),
+                        actions: vec![PlanAction::Update],
+                    },
+                    ExecutionTargetSpec {
+                        address: LONG_ADDRESS.to_owned(),
+                        actions: vec![PlanAction::Delete, PlanAction::Create],
+                    },
+                    ExecutionTargetSpec {
+                        address: "terraform_data.new".to_owned(),
+                        actions: vec![PlanAction::Create],
+                    },
+                ],
+                Vec::new(),
+                &[Some(Duration::from_secs(11)), None, None],
+            );
+            for (address, action) in [
+                ("terraform_data.api", ResourceAction::Update),
+                (LONG_ADDRESS, ResourceAction::Delete),
+            ] {
+                state.record(ExecutionEvent {
+                    received_at: started_at,
+                    kind: ExecutionEventKind::Resource(ResourceEvent {
+                        address: address.to_owned(),
+                        kind: ResourceEventKind::ApplyStart,
+                        action: Some(action),
+                        message: None,
+                    }),
+                });
+            }
+            state.record(ExecutionEvent {
+                received_at: started_at + Duration::from_secs(1),
+                kind: ExecutionEventKind::Resource(ResourceEvent {
+                    address: "terraform_data.api".to_owned(),
+                    kind: ResourceEventKind::ApplyComplete,
+                    action: Some(ResourceAction::Update),
+                    message: None,
+                }),
+            });
+            (state, started_at + Duration::from_secs(2))
+        }
+
+        // Rows of the target table, from its header to the last target, as characters.
+        fn table_rows(buffer: &Buffer, target_count: usize) -> Vec<Vec<char>> {
+            let text = buffer_text(buffer);
+            let lines = text.lines().collect::<Vec<_>>();
+            let header = lines
+                .iter()
+                .position(|line| line.contains("  Resource "))
+                .expect("target header should be visible");
+            lines[header..=header + target_count]
+                .iter()
+                .map(|line| line.chars().collect())
+                .collect()
+        }
+
+        fn column(row: &[char], name: &str) -> usize {
+            let row = row.iter().collect::<String>();
+            let byte = row.find(name).expect("column header should be visible");
+            row[..byte].chars().count()
+        }
+
+        #[test]
+        fn renders_long_addresses_at_all_supported_sizes() {
+            for &(width, height) in &SIZES {
+                let (state, now) = long_address_state();
+                let buffer = render_to_buffer((width, height), |frame| {
+                    render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
+                });
+
+                snapshot(
+                    &format!("preview_{width}x{height}_apply-long-address"),
+                    &buffer,
+                );
+            }
+        }
+
+        #[test]
+        fn target_columns_line_up_and_addresses_shrink_only_when_the_panel_is_narrow() {
+            for (fixture, target_count) in [
+                (apply_state(ApplyStatus::Succeeded), 4),
+                (long_address_state(), 3),
+            ] {
+                let (state, now) = fixture;
+                for &(width, height) in &SIZES {
+                    let buffer = render_to_buffer((width, height), |frame| {
+                        render_execution_with_view(
+                            frame,
+                            &state,
+                            ExecutionViewState::default(),
+                            now,
+                        );
+                    });
+                    let rows = table_rows(&buffer, target_count);
+                    let header = &rows[0];
+                    let status = column(header, "Status");
+                    let action = column(header, "Action");
+                    let elapsed_end = column(header, "Elapsed") + "Elapsed".len();
+                    let previous_end = column(header, "Previous") + "Previous".len();
+
+                    for row in &rows[1..] {
+                        let row_text = row.iter().collect::<String>();
+                        assert_eq!(row[status - 1], ' ', "{width}: {row_text}");
+                        assert_ne!(row[status], ' ', "{width}: {row_text}");
+                        assert_eq!(row[action - 1], ' ', "{width}: {row_text}");
+                        assert_ne!(row[action], ' ', "{width}: {row_text}");
+                        for end in [elapsed_end, previous_end] {
+                            assert_ne!(row[end - 1], ' ', "{width}: {row_text}");
+                            assert!(matches!(row[end], ' ' | '│'), "{width}: {row_text}");
+                        }
+                    }
+                }
+            }
+
+            let (state, now) = long_address_state();
+            let texts = SIZES.map(|(width, height)| {
+                buffer_text(&render_to_buffer((width, height), |frame| {
+                    render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
+                }))
+            });
+            // Only the widest panel has room for the whole address.
+            for text in &texts[..2] {
+                assert!(!text.contains(LONG_ADDRESS), "{text}");
+                let row = text
+                    .lines()
+                    .find(|line| line.contains("module.synthe"))
+                    .expect("long address row should be visible");
+                assert!(row.contains("...") && row.contains("onfiguration"), "{row}");
+            }
+            assert!(texts[2].contains(LONG_ADDRESS), "{}", texts[2]);
+            assert!(texts[2].contains("terraform_data.api"));
+        }
+
+        #[test]
+        fn fixed_target_columns_fit_every_label() {
+            for status in [
+                ExecutionTargetStatus::Pending,
+                ExecutionTargetStatus::Running,
+                ExecutionTargetStatus::Completed,
+                ExecutionTargetStatus::Failed,
+                ExecutionTargetStatus::Skipped,
+                ExecutionTargetStatus::Incomplete,
+            ] {
+                assert!(target_status_label(status).len() <= TARGET_STATUS_WIDTH);
+            }
+            for actions in [
+                vec![PlanAction::Delete, PlanAction::Create],
+                vec![PlanAction::Create, PlanAction::Delete],
+                vec![PlanAction::NoOp],
+                vec![PlanAction::Unknown("forget".to_owned())],
+            ] {
+                let label = actions
+                    .iter()
+                    .map(plan_action_label)
+                    .collect::<Vec<_>>()
+                    .join("/");
+                assert!(label.len() <= TARGET_ACTION_WIDTH, "{label}");
+            }
+        }
     }
 
     mod layout {

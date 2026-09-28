@@ -8,16 +8,16 @@ expression: buffer_text(buffer)
 
  Terraleph | main
 
- ┌Apply result────────────────────────────────────────────────────────────────────────────────────────────────────────┐
- │Apply complete    Completed: 4/4    Elapsed: 4.0s                                                                   │
+ ┌Applying────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │Applying...    Completed: 1/3    Elapsed: 2.0s                                                                      │
  │Failed: 0    Incomplete: 0    Skipped: 0    Previous: local success                                                 │
  │┌Targets *─────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
  ││> All logs                                                                                                        ││
- ││  Resource               Status     Action        Elapsed  Previous                                               ││
- ││  terraform_data.api     Completed  update           1.0s     11.0s                                               ││
- ││  terraform_data.worker  Completed  delete/create    1.0s        --                                               ││
- ││  terraform_data.old     Completed  delete           1.0s        --                                               ││
- ││  terraform_data.new     Completed  create           1.0s      4.0s                                               ││
+ ││  Resource                                                              Status     Action        Elapsed  Previous││
+ ││  terraform_data.api                                                    Completed  update           1.0s     11.0s││
+ ││  module.synthetic_platform.module....m_data.worker_pool_configuration  Running    delete/create    2.0s        --││
+ ││  terraform_data.new                                                    Pending    create             --        --││
+ ││                                                                                                                  ││
  ││                                                                                                                  ││
  ││                                                                                                                  ││
  ││                                                                                                                  ││
@@ -25,16 +25,16 @@ expression: buffer_text(buffer)
  ││                                                                                                                  ││
  │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
  │┌Logs: All logs────────────────────────────────────────────────────────────────────────────────────────────────────┐│
- ││terraform_data.worker: Create started                                                                            ▲││
- ││terraform_data.worker: apply complete                                                                            │││
- ││terraform_data.old: Delete started                                                                               │││
- ││terraform_data.old: apply complete                                                                               │││
- ││terraform_data.new: Create started                                                                               │││
- ││terraform_data.new: apply complete                                                                               │││
- ││Warning: synthetic provider emitted a non-blocking diagnostic                                                    ┃││
- ││Apply finished successfully.                                                                                     ┃││
- ││Outputs: endpoint = synthetic                                                                                    ┃││
- ││Apply log remains in receive order.                                                                              ▼││
+ ││Waiting for Terraform output...                                                                                   ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
+ ││                                                                                                                  ││
  │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
  └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
- q/Ctrl-C quit | Tab focus | y yank result
+ Ctrl-C cancel | Tab focus | End follow latest

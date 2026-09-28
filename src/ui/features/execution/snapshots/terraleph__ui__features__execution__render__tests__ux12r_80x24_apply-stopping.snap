@@ -11,7 +11,7 @@ expression: buffer_text(buffer)
  │Changes may already be applied.                                             │
  │┌Targets *─────────────────────────────────────────────────────────────────┐│
  ││> All logs                                                                ││
- ││  Resource                  Status     Action     Elapsed                 ││
+ ││  Resource  Status     Action        Elapsed                              ││
  ││                                                                          ││
  ││                                                                          ││
  ││                                                                          ││
