@@ -23,7 +23,7 @@ Review familiar plan output and apply the exact plan you reviewed. The UI appear
 
 ```sh
 # Homebrew
-brew install riii111/tap/terraleph
+brew install riii111/terraleph/terraleph
 
 # mise
 mise use -g github:riii111/terraleph
