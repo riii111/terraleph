@@ -84,6 +84,11 @@ case "$1" in
     done
     printf '%s\n' "$plan_path" > "$TERRALEPH_FAKE_PLAN_PATH"
     : > "$plan_path"
+    case "${TERRALEPH_FAKE_MODE:-success}" in
+      plan_signal_*|hangup_before_review)
+        exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRALEPH_FAKE_SIGNAL_LOG"], "a").write("SIGINT\n"), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); exec("while not os.path.isfile(\"release-plan\"):\n time.sleep(0.1)"); sys.exit(2)'
+        ;;
+    esac
     if [ "${TERRALEPH_FAKE_MODE:-success}" = interrupt ]; then
       exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (open(os.environ["TERRALEPH_FAKE_SIGNAL_LOG"], "a").write("SIGINT\n"), time.sleep(1), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); time.sleep(30)'
     fi
@@ -110,7 +115,7 @@ case "$1" in
     done
     test -n "$plan_path"
     test -f "$plan_path"
-    if [ "${TERRALEPH_FAKE_MODE:-success}" = apply_interrupt ]; then
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = apply_interrupt ] || [ "${TERRALEPH_FAKE_MODE:-success}" = signal_apply_term ]; then
       exec python3 -c 'import os,signal,sys,time; signal.signal(signal.SIGINT, lambda *_: (print("Stopping apply", flush=True), time.sleep(1), sys.exit(130))); open(os.environ["TERRALEPH_FAKE_PID_PATH"], "w").write(f"{os.getpid()}\n"); print("{\"type\":\"apply_start\",\"@message\":\"Applying saved plan...\",\"hook\":{\"resource\":{\"addr\":\"terraform_data.api\"},\"action\":\"update\"}}", flush=True); time.sleep(30)'
     fi
     printf '%s\n' "$$" > "$TERRALEPH_FAKE_PID_PATH"

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
@@ -21,6 +21,7 @@ use crate::{
     infra::{
         CancellationToken, ClipboardExecutor,
         history::HistoryStore,
+        termination,
         terraform::{
             self,
             configuration::{self, ExecutionLocation},
@@ -36,7 +37,11 @@ use crate::{
     },
 };
 
-use super::{WorkerGuard, event_loop, invocation::Invocation};
+use super::{
+    WorkerGuard, event_loop,
+    invocation::Invocation,
+    terminal::{self, TerminalInput},
+};
 
 struct Completion {
     index: usize,
@@ -49,6 +54,7 @@ struct Completion {
     reason = "the environment loop owns plan acquisition, review input, and the apply hand-off"
 )]
 pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io::Result<ExitCode> {
+    super::prepare_saved_plan_lifecycle();
     let mut state = EnvironmentSession::new(environments, invocation.detailed_exitcode())
         .with_exploration_root(invocation.directory().to_owned());
     let cancellation = CancellationToken::new();
@@ -65,11 +71,18 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
     let mut apply: Option<EnvironmentApply> = None;
     let mut outcome = None;
     let mut dirty = true;
-    let result = ratatui::run(|terminal| -> io::Result<()> {
+    let mut stopped_by = None;
+    let result = terminal::run(|terminal| -> io::Result<()> {
+        let input = TerminalInput::spawn()?;
         loop {
+            stopped_by = termination::received();
+            if stopped_by.is_some() {
+                break;
+            }
             if let Some(active) = apply.as_mut() {
                 match apply_runtime.step(
                     terminal,
+                    &input,
                     &mut state,
                     &mut view,
                     active,
@@ -120,10 +133,9 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
             }
             dirty |= state.clear_expired_copy_feedback(std::time::Instant::now());
             draw_if_needed(&state, &mut view, terminal, &mut dirty)?;
-            if !event::poll(Duration::from_millis(50))? {
+            let Some(input_event) = input.next(Duration::from_millis(50))? else {
                 continue;
-            }
-            let input_event = event::read()?;
+            };
             if !event_requires_draw(&input_event) {
                 continue;
             }
@@ -169,13 +181,22 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
         }
         Ok(())
     });
+    // A closed terminal fails the loop before the next signal check, so an error also defers to a
+    // signal that has already arrived.
+    let stopped_by =
+        stopped_by.or_else(|| result.as_ref().err().and_then(|_| termination::received()));
     cancellation.cancel();
-    if result.is_err() {
+    if result.is_err() || stopped_by.is_some() {
         apply_runtime.cancellation.cancel();
     }
     let joined = worker.join();
     let apply_joined = apply_runtime.worker.join();
     let cleanup = cleanup_plans(plans);
+    if let Some(signal) = stopped_by {
+        cleanup?;
+        super::report_terminated(signal);
+        return Ok(ExitCode::from(signal.exit_code()));
+    }
     result?;
     joined.map_err(|_| io::Error::other("environment worker panicked"))?;
     apply_joined.map_err(|_| super::worker_panic_error(super::WorkerKind::Apply))?;
@@ -305,11 +326,12 @@ enum ApplyStep {
 impl ApplyRuntime {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the apply step draws the environment view and routes its effects"
+        reason = "the apply step reads input, draws the environment view, and routes its effects"
     )]
     fn step<B: Backend<Error = io::Error>>(
         &mut self,
         terminal: &mut Terminal<B>,
+        input: &TerminalInput,
         state: &mut EnvironmentSession,
         view: &mut EnvironmentView,
         apply: &mut EnvironmentApply,
@@ -327,10 +349,9 @@ impl ApplyRuntime {
             draw_apply(terminal, state, view, apply)?;
             *dirty = false;
         }
-        if !event::poll(Duration::from_millis(50))? {
+        let Some(input_event) = input.next(Duration::from_millis(50))? else {
             return Ok(ApplyStep::Continue);
-        }
-        let input_event = event::read()?;
+        };
         if !event_requires_draw(&input_event) {
             return Ok(ApplyStep::Continue);
         }
@@ -635,7 +656,7 @@ fn cleanup_plans(plans: Vec<Option<terraform::SavedPlan>>) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use crossterm::event::{KeyCode, KeyModifiers};
     use ratatui::backend::TestBackend;
@@ -697,6 +718,26 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn cleanup_removes_owned_plans_and_keeps_user_output() {
+        let directory = tempfile::tempdir().expect("user output directory should be created");
+        let user_output = directory.path().join("review.tfplan");
+        fs::write(&user_output, "").expect("user output should be written");
+        let (owned, _) = terraform::saved_plan_for_plan(directory.path(), &[])
+            .expect("owned plan should be created");
+        let owned_path = owned.path().to_owned();
+        let (user, _) = terraform::saved_plan_for_plan(
+            directory.path(),
+            &[OsString::from("-out=review.tfplan")],
+        )
+        .expect("user output should be accepted");
+
+        cleanup_plans(vec![Some(owned), None, Some(user)]).expect("cleanup should succeed");
+
+        assert!(!owned_path.exists());
+        assert!(user_output.exists());
     }
 
     #[test]

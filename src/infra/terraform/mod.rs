@@ -21,8 +21,8 @@ pub(crate) use command::{
     ProcessStatus, SystemProcessRunner, TerraformExecutionError, delegate, resolve_executable,
 };
 pub(crate) use plan::{
-    PlanRun, SavedPlan, read_saved_plan_review, run_environment_plan, run_passthrough_plan,
-    saved_plan_for_plan,
+    PlanRun, SavedPlan, read_saved_plan_review, remove_orphaned_plans, run_environment_plan,
+    run_passthrough_plan, saved_plan_for_plan,
 };
 pub(crate) use providers::schema::read_provider_schema_with_arguments;
 pub(crate) use workspace::read_workspace_with_arguments;

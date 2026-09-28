@@ -13,6 +13,7 @@ mod environments;
 mod event_loop;
 pub(crate) mod invocation;
 mod synthetic;
+mod terminal;
 
 use crate::{
     app::{
@@ -24,7 +25,12 @@ use crate::{
         review::{PlanReview, PlanReviewMessage},
         session::{ReviewedChanges, SessionOutcome},
     },
-    infra::{CancellationToken, ClipboardExecutor, history::HistoryStore, terraform},
+    infra::{
+        CancellationToken, ClipboardExecutor,
+        history::HistoryStore,
+        termination::{self, TerminationSignal},
+        terraform,
+    },
 };
 
 #[cfg(feature = "test-support")]
@@ -98,6 +104,7 @@ fn run_managed_invocation(
     initial_overview: bool,
     variable_sources: VariableSources,
 ) -> ExitCode {
+    prepare_saved_plan_lifecycle();
     let (saved_plan, plan_arguments) =
         match terraform::saved_plan_for_plan(display_root, plan_arguments) {
             Ok(result) => result,
@@ -125,6 +132,14 @@ fn run_managed_invocation(
             return ExitCode::from(EXECUTION_FAILURE);
         }
     };
+    // Terraform shares the terminal's process group, so terminal signals stop it on its own. A
+    // recorded signal decides the exit before the plan result, whether the plan failed from that
+    // same signal or finished despite a signal sent only to Terraleph.
+    if let Some(signal) = termination::received() {
+        let _ = plan_run.saved_plan.cleanup();
+        report_terminated(signal);
+        return ExitCode::from(signal.exit_code());
+    }
     if !status.is_plan_success() {
         let exit = if status == terraform::ProcessStatus::Signaled
             || status.code() == Some(i32::from(INTERRUPTED))
@@ -150,10 +165,6 @@ fn run_managed_invocation(
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the review lifecycle owns worker joins, outcome mapping, and cleanup"
-)]
 #[expect(
     clippy::too_many_arguments,
     reason = "the runtime passes each execution boundary to the review worker"
@@ -240,7 +251,41 @@ fn run_saved_plan_review(
         &mut worker,
         saved_plan,
     );
-    let primary_exit = match ui_result {
+    let primary_exit = review_exit(ui_result, apply_entry, detailed_exitcode, changed);
+    if let Err(error) = cleanup_result {
+        report_error(&format!(
+            "failed to remove the temporary {} plan: {error}",
+            tool.display_name()
+        ));
+        ExitCode::from(EXECUTION_FAILURE)
+    } else {
+        primary_exit
+    }
+}
+
+// Every entry that creates a Terraleph-owned plan runs this first. Delegated commands never
+// reach it, so they keep the default signal dispositions.
+fn prepare_saved_plan_lifecycle() {
+    terraform::remove_orphaned_plans();
+    if let Err(error) = termination::install() {
+        report_error(&format!("failed to handle termination signals: {error}"));
+    }
+}
+
+fn review_exit(
+    ui_result: io::Result<SessionOutcome>,
+    apply_entry: bool,
+    detailed_exitcode: bool,
+    changed: bool,
+) -> ExitCode {
+    // A signal that arrives after the session has an outcome does not replace that outcome.
+    if ui_result.is_err()
+        && let Some(signal) = termination::received()
+    {
+        report_terminated(signal);
+        return ExitCode::from(signal.exit_code());
+    }
+    match ui_result {
         Ok(SessionOutcome::Reviewed { changes }) => {
             report_reviewed(changes);
             if !apply_entry && detailed_exitcode && changed {
@@ -273,15 +318,6 @@ fn run_saved_plan_review(
             report_error(&format!("TUI failed: {error}"));
             ExitCode::from(EXECUTION_FAILURE)
         }
-    };
-    if let Err(error) = cleanup_result {
-        report_error(&format!(
-            "failed to remove the temporary {} plan: {error}",
-            tool.display_name()
-        ));
-        ExitCode::from(EXECUTION_FAILURE)
-    } else {
-        primary_exit
     }
 }
 
@@ -300,7 +336,7 @@ fn run_interactive(
     effects: event_loop::RuntimeEffects<'_, ClipboardExecutor>,
     initial_overview: bool,
 ) -> io::Result<SessionOutcome> {
-    ratatui::run(|terminal| {
+    terminal::run(|terminal| {
         #[cfg(feature = "test-support")]
         if test_support::panic_after_draw_requested() {
             terminal.draw(|_| {})?;
@@ -378,6 +414,10 @@ fn report_apply_failure(interrupted: bool) {
         "Apply failed. Changes may already be applied."
     };
     let _ = writeln!(io::stdout(), "{result}");
+}
+
+fn report_terminated(signal: TerminationSignal) {
+    let _ = writeln!(io::stderr(), "Stopped by {}.", signal.name());
 }
 
 fn report_interrupted(phase: ExecutionStage) {

@@ -16,6 +16,10 @@ rows = int(rows_arg)
 command = sys.argv[6:]
 pid, fd = pty.fork()
 if pid == 0:
+    if scenario == "hangup_before_review":
+        # Like nohup: Terraleph keeps an ignored SIGHUP ignored and must notice the closed
+        # terminal on its own.
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
     os.environ["TERM"] = "xterm-256color"
     os.execv(
         "/bin/sh",
@@ -403,6 +407,34 @@ def resize(columns, rows):
     screen.resize(columns, rows)
 
 
+TERMINATION_SIGNALS = {"hup": signal.SIGHUP, "int": signal.SIGINT, "term": signal.SIGTERM}
+
+
+def send_termination_signal(scenario):
+    os.kill(pid, TERMINATION_SIGNALS[scenario.rsplit("_", 1)[1]])
+    observed.append("signal_sent")
+
+
+def release_plan():
+    open(os.path.join(root, "release-plan"), "w").close()
+
+
+def wait_exit_after_hangup(timeout=20, after_close=None):
+    # Closing the master is what a terminal emulator or `tmux kill-server` does; the kernel
+    # then delivers SIGHUP to the session, and no further output can be read.
+    os.close(fd)
+    observed.append("terminal_closed")
+    if after_close:
+        after_close()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = child_status()
+        if status is not None:
+            return status
+        time.sleep(0.05)
+    raise RuntimeError("child did not exit after hangup")
+
+
 def kill_child():
     try:
         os.killpg(pid, signal.SIGKILL)
@@ -424,6 +456,12 @@ try:
         exit_code = quit_with_enter()
     elif scenario.startswith("env_"):
         if scenario == "env_child_interrupt":
+            exit_code = wait_exit()
+        elif scenario.startswith("env_signal_"):
+            wait_environment("a-ready", "Ready")
+            wait_environment("z-slow", "Running")
+            wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "active_process")
+            send_termination_signal(scenario)
             exit_code = wait_exit()
         elif scenario in ("env_partial", "env_cancel"):
             wait_environment("a-ready", "Ready")
@@ -776,6 +814,38 @@ try:
         exit_code = quit_with_enter()
     elif scenario == "no_changes":
         observed.append("no_changes")
+        exit_code = wait_exit()
+    elif scenario.startswith("signal_review_"):
+        wait_review("plan_text", timeout=30)
+        send_termination_signal(scenario)
+        exit_code = wait_exit()
+    elif scenario.startswith("plan_signal_group_"):
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        os.killpg(pid, TERMINATION_SIGNALS[scenario.rsplit("_", 1)[1]])
+        observed.append("signal_sent")
+        exit_code = wait_exit()
+    elif scenario.startswith("plan_signal_parent_"):
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        send_termination_signal(scenario)
+        time.sleep(0.3)
+        release_plan()
+        exit_code = wait_exit()
+    elif scenario == "hangup_before_review":
+        wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "terraform_started")
+        exit_code = wait_exit_after_hangup(after_close=release_plan)
+    elif scenario == "signal_hangup":
+        wait_review("plan_text", timeout=30)
+        exit_code = wait_exit_after_hangup()
+    elif scenario.startswith("signal_apply_"):
+        wait_review("plan_text", timeout=30)
+        send_key(b"a")
+        wait_new("Apply this reviewed plan?", "apply_confirmation")
+        send_text("yes")
+        send_key(b"\r")
+        wait_new("Applying...", "apply_started")
+        send_key(b"v")
+        wait_new("Applying saved plan...", "apply_logs_open")
+        send_termination_signal(scenario)
         exit_code = wait_exit()
     elif scenario in (
         "apply_success",

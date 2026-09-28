@@ -1,14 +1,12 @@
+mod temporary;
+
 use std::{
-    env,
     ffi::OsString,
-    fs::{self, OpenOptions},
-    io,
+    fs, io,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
+pub(crate) use temporary::remove_orphaned_plans;
 
 use crate::app::execution::{
     Diagnostic, ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionPhase, Tool,
@@ -41,7 +39,7 @@ enum SavedPlanOwnership {
 
 impl SavedPlan {
     fn create() -> io::Result<Self> {
-        create_plan_path().map(|path| Self {
+        temporary::create_plan_path().map(|path| Self {
             path: Some(path),
             ownership: SavedPlanOwnership::Terraleph,
         })
@@ -349,33 +347,6 @@ impl Drop for SavedPlan {
     }
 }
 
-fn create_plan_path() -> io::Result<PathBuf> {
-    let directory = env::temp_dir();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let process_id = std::process::id();
-    for attempt in 0..100 {
-        let path = directory.join(format!(
-            "terraleph-{process_id}-{timestamp}-{attempt}.tfplan"
-        ));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        match options.open(&path) {
-            Ok(_) => return Ok(path),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not allocate a unique Terraform plan path",
-    ))
-}
-
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::fmt::{Display, Formatter};
@@ -552,7 +523,12 @@ mod tests {
         DiagnosticSource, EventStream, ProcessExitStatus, ProcessTermination,
     };
     use crate::app::plan::Plan;
-    use std::process::Command;
+    use std::{
+        env,
+        fs::OpenOptions,
+        process::Command,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     fn execute_plan_without_events(
         root: &Path,
