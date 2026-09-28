@@ -221,6 +221,15 @@ impl PlanReviewViewState {
         &self.content
     }
 
+    /// Returns a fresh view, unscrolled and without a search or selection, that starts from the
+    /// body this view has prepared.
+    pub(super) fn fresh_with_content(&self) -> Self {
+        Self {
+            content: self.content.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) const fn overview(&self) -> &OverviewViewState {
         &self.overview
     }
