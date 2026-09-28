@@ -16,16 +16,16 @@ use crate::ui::theme;
 /// The plan body for one document, its diagnostics, a filter query, and the filter visibility.
 /// Plan rows keep only their source line, so each frame styles just the rows it shows.
 pub(super) struct PlanContent {
+    // Also keeps the plan text alive, so text replaced by a new plan is freed only once the view
+    // prepares the next body.
+    document: PlanDocumentKey,
     filter_query: String,
-    rows: Vec<ContentRow>,
+    // Diagnostics and the no-match notice are few and always come first, so they keep their
+    // rendered lines; the plan rows follow them.
+    notices: Vec<Line<'static>>,
+    plan: Vec<PlanSource>,
     metrics: ContentMetrics,
     matches: Vec<PlanReviewMatch>,
-}
-
-enum ContentRow {
-    // Diagnostics and the no-match notice are few, so they keep their rendered line.
-    Rendered(Line<'static>),
-    Plan(PlanSource),
 }
 
 #[derive(Clone, Copy)]
@@ -42,27 +42,26 @@ pub(super) struct ContentMetrics {
 
 impl PlanContent {
     pub(super) fn prepare(review: &PlanReview, filtered_view: bool, filter_query: &str) -> Self {
-        let filtered = review.document().filter(filter_query);
-        let mut rendered = diagnostic_lines(review);
+        let document = review.document();
+        let filtered = document.filter(filter_query);
+        let mut notices = diagnostic_lines(review);
         if filtered.matching_resources() == 0
             && filtered.matching_outputs() == 0
             && !filter_query.is_empty()
         {
-            rendered.push(Line::from(Span::styled(
+            notices.push(Line::from(Span::styled(
                 "No matching changes.",
                 theme::warning_style(),
             )));
-            rendered.push(Line::default());
+            notices.push(Line::default());
         }
         // Widths are kept only to find the widest row that remains after trimming.
-        let mut widths = rendered.iter().map(display_width).collect::<Vec<_>>();
-        let mut rows = rendered
-            .into_iter()
-            .map(ContentRow::Rendered)
-            .collect::<Vec<_>>();
+        let mut notice_widths = notices.iter().map(display_width).collect::<Vec<_>>();
+        let mut plan = Vec::new();
+        let mut plan_widths = Vec::new();
         let mut matches = Vec::new();
         for (line_number, line) in filtered.lines_with_indices() {
-            let kind = review.document().line_kind(line_number);
+            let kind = document.line_kind(line_number);
             if kind == PlanLineKind::Intro {
                 continue;
             }
@@ -74,26 +73,39 @@ impl PlanContent {
             }
             // The styled spans give the same width and match columns that a frame draws.
             let (rendered, line_matches) =
-                plan_line_and_matches(line, filter_query, rows.len(), None, kind);
-            widths.push(display_width(&rendered));
-            rows.push(ContentRow::Plan(PlanSource { kind, line_number }));
+                plan_line_and_matches(line, filter_query, notices.len() + plan.len(), None, kind);
+            plan_widths.push(display_width(&rendered));
+            plan.push(PlanSource { kind, line_number });
             matches.extend(line_matches);
         }
-        // Trailing rows without text are dropped; only those rows are styled again to check.
-        while rows
+        // Trailing rows without text are dropped, reaching the notices only when no plan row is
+        // left; only those plan rows are styled again to check.
+        while plan
             .last()
-            .is_some_and(|row| row_line(row, review.document(), filter_query, 0, None).width() == 0)
+            .is_some_and(|source| plan_line(document, *source, filter_query, 0, None).width() == 0)
         {
-            widths.pop();
-            rows.pop();
+            plan_widths.pop();
+            plan.pop();
+        }
+        if plan.is_empty() {
+            while notices.last().is_some_and(|line| line.width() == 0) {
+                notice_widths.pop();
+                notices.pop();
+            }
         }
         Self {
+            document: document.key(),
             filter_query: filter_query.to_owned(),
             metrics: ContentMetrics {
-                line_count: rows.len(),
-                max_width: widths.into_iter().max().unwrap_or(0),
+                line_count: notices.len() + plan.len(),
+                max_width: notice_widths
+                    .into_iter()
+                    .chain(plan_widths)
+                    .max()
+                    .unwrap_or(0),
             },
-            rows,
+            notices,
+            plan,
             matches,
         }
     }
@@ -112,10 +124,8 @@ impl PlanContent {
 
     /// Returns the plan line shown at `row`, or `None` for diagnostics and notices.
     pub(super) fn source_line(&self, row: usize) -> Option<usize> {
-        match self.rows.get(row)? {
-            ContentRow::Rendered(_) => None,
-            ContentRow::Plan(source) => Some(source.line_number),
-        }
+        let plan_row = row.checked_sub(self.notices.len())?;
+        self.plan.get(plan_row).map(|source| source.line_number)
     }
 
     /// Styles `rows` from the document they were prepared for. The selected match is highlighted
@@ -126,44 +136,51 @@ impl PlanContent {
         rows: Range<usize>,
         selected: Option<&PlanReviewMatch>,
     ) -> Vec<Line<'a>> {
-        let end = rows.end.min(self.rows.len());
+        debug_assert!(
+            self.document.is_for(document),
+            "the body is styled from the document it was prepared for"
+        );
+        let end = rows.end.min(self.metrics.line_count);
         let start = rows.start.min(end);
-        self.rows[start..end]
+        let notices = &self.notices[start.min(self.notices.len())..end.min(self.notices.len())];
+        let plan_start = start.saturating_sub(self.notices.len());
+        let plan_rows = &self.plan[plan_start..end.saturating_sub(self.notices.len())];
+        notices
             .iter()
-            .zip(start..)
-            .map(|(row, row_index)| {
-                row_line(
-                    row,
-                    document,
-                    &self.filter_query,
-                    row_index,
-                    selected.filter(|selected| selected.line() == row_index),
-                )
-            })
+            .cloned()
+            .chain(
+                plan_rows
+                    .iter()
+                    .zip(self.notices.len() + plan_start..)
+                    .map(|(source, row)| {
+                        plan_line(
+                            document,
+                            *source,
+                            &self.filter_query,
+                            row,
+                            selected.filter(|selected| selected.line() == row),
+                        )
+                    }),
+            )
             .collect()
     }
 }
 
-fn row_line<'a>(
-    row: &'a ContentRow,
+fn plan_line<'a>(
     document: &'a PlanDocument,
+    source: PlanSource,
     query: &str,
-    row_index: usize,
+    row: usize,
     selected: Option<&PlanReviewMatch>,
 ) -> Line<'a> {
-    match row {
-        ContentRow::Rendered(line) => line.clone(),
-        ContentRow::Plan(source) => {
-            plan_line_and_matches(
-                document.line(source.line_number),
-                query,
-                row_index,
-                selected,
-                source.kind,
-            )
-            .0
-        }
-    }
+    plan_line_and_matches(
+        document.line(source.line_number),
+        query,
+        row,
+        selected,
+        source.kind,
+    )
+    .0
 }
 
 /// Keeps the prepared plan body between frames and key presses. The body is prepared again only
@@ -173,7 +190,6 @@ pub(crate) struct PlanContentCache(RefCell<Option<CachedContent>>);
 
 #[derive(Clone)]
 struct CachedContent {
-    document: PlanDocumentKey,
     diagnostics: Vec<Diagnostic>,
     filtered_view: bool,
     content: Rc<PlanContent>,
@@ -188,7 +204,7 @@ impl PlanContentCache {
     ) -> Rc<PlanContent> {
         let mut cached = self.0.borrow_mut();
         if let Some(cached) = cached.as_ref().filter(|cached| {
-            cached.document.is_for(review.document())
+            cached.content.document.is_for(review.document())
                 && cached.diagnostics.as_slice() == review.diagnostics()
                 && cached.filtered_view == filtered_view
                 && cached.content.filter_query == filter_query
@@ -197,7 +213,6 @@ impl PlanContentCache {
         }
         let content = Rc::new(PlanContent::prepare(review, filtered_view, filter_query));
         *cached = Some(CachedContent {
-            document: review.document().key(),
             diagnostics: review.diagnostics().to_vec(),
             filtered_view,
             content: Rc::clone(&content),

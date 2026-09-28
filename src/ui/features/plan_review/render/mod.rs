@@ -300,6 +300,19 @@ fn view_content(state: &ReviewSessionState, view: &PlanReviewViewState) -> Rc<Pl
     )
 }
 
+// Returns a fresh view that shares the body kept on `view`. The body is prepared on `view` first,
+// so a fresh view made for every frame does not prepare it again.
+fn fresh_view(state: &ReviewSessionState, view: &PlanReviewViewState) -> PlanReviewViewState {
+    let fresh = PlanReviewViewState::default();
+    let review = state.review();
+    view.content_cache().get(
+        review,
+        filter_active(fresh.searching(), state),
+        review.search_query(),
+    );
+    view.fresh_with_content()
+}
+
 fn terminal_notice_message(
     searching: bool,
     filtered: bool,

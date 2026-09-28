@@ -607,10 +607,15 @@ fn confirmation_opened_from_the_overview_detail_draws_the_same_background() {
         let view = ApplyConfirmationViewState::default();
         assert_eq!(
             render_to_buffer(size, |frame| {
-                render_apply_confirmation(frame, from_overview, &view);
+                render_apply_confirmation(
+                    frame,
+                    from_overview,
+                    &PlanReviewViewState::default(),
+                    &view,
+                );
             }),
             render_to_buffer(size, |frame| {
-                render_apply_confirmation(frame, &direct, &view);
+                render_apply_confirmation(frame, &direct, &PlanReviewViewState::default(), &view);
             }),
             "{size:?}"
         );
@@ -668,7 +673,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
             None
         );
         let help = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &view);
+            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
         });
         let help_text = buffer_text(&help);
         assert!(
@@ -702,7 +707,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         if width == 40 {
             view.overlay_bottom();
             let bottom = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &view);
+                render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
             });
             let bottom_text = buffer_text(&bottom);
             assert!(
@@ -727,7 +732,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         None
     );
     let context = render_to_buffer((120, 40), |frame| {
-        render_apply_confirmation(frame, &state, &view);
+        render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
     });
     assert!(buffer_text(&context).contains("Execution directory"));
     assert!(buffer_text(&context).contains("/repo/environments/production/main"));
@@ -839,7 +844,7 @@ fn renders_apply_confirmation_at_all_supported_sizes() {
         let state = confirmation_state(review());
         let view = ApplyConfirmationViewState::default();
         let buffer = render_to_buffer((width, height), |frame| {
-            render_apply_confirmation(frame, &state, &view);
+            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
         });
 
         snapshot(
@@ -877,7 +882,7 @@ fn renders_rejected_apply_confirmation_vrt() {
             }
             view.apply(ApplyConfirmationInput::Confirm, "main", 0);
             let buffer = render_to_buffer((width, height), |frame| {
-                render_apply_confirmation(frame, &state, &view);
+                render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
             });
 
             assert!(
@@ -901,7 +906,7 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
     let mut view = ApplyConfirmationViewState::default();
     let render = |view: &ApplyConfirmationViewState| {
         render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, view);
+            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), view);
         })
     };
 
@@ -2225,7 +2230,7 @@ mod confirmation {
             view.apply(ApplyConfirmationInput::Character(character), "yes", 0);
         }
         let buffer = render_to_buffer((120, 40), |frame| {
-            render_apply_confirmation(frame, &state, &view);
+            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
         });
 
         assert_text_prefix_uses_style(
@@ -2284,12 +2289,22 @@ mod confirmation {
         let too_short = Rect::new(0, 0, area.width, 12);
         assert!(!apply_confirmation_layout(too_short, &state).renderable());
         let too_short_buffer = render_to_buffer((too_short.width, too_short.height), |frame| {
-            render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+            );
         });
         assert!(buffer_text(&too_short_buffer).contains("Terminal too small"));
 
         let buffer = render_to_buffer((area.width, area.height), |frame| {
-            render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+            );
         });
         let text = buffer_text(&buffer);
         let flat = text.replace('\n', "");
@@ -2318,7 +2333,12 @@ mod confirmation {
         let layout = apply_confirmation_layout(area, &state);
         assert!(!layout.renderable());
         let buffer = render_to_buffer((area.width, area.height), |frame| {
-            render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+            );
         });
         let text = buffer_text(&buffer);
         let lines = text.lines().collect::<Vec<_>>();
@@ -2331,7 +2351,12 @@ mod confirmation {
     fn production_confirmation_uses_role_styles_for_labels_values_scope_and_warning() {
         let state = confirmation_state(review());
         let buffer = render_to_buffer((120, 40), |frame| {
-            render_apply_confirmation(frame, &state, &ApplyConfirmationViewState::default());
+            render_apply_confirmation(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                &ApplyConfirmationViewState::default(),
+            );
         });
         let dialog_y = (buffer.area().y..buffer.area().bottom())
             .find(|&y| {
@@ -2393,7 +2418,7 @@ mod confirmation {
         assert!(confirmation_input_scroll(&view, layout.input().width) > 0);
 
         let buffer = render_to_buffer((80, 24), |frame| {
-            render_apply_confirmation(frame, &state, &view);
+            render_apply_confirmation(frame, &state, &PlanReviewViewState::default(), &view);
         });
         assert!(buffer_text(&buffer).contains("input|"));
     }
@@ -2463,7 +2488,12 @@ mod overlay {
                 let rows = |view: &ApplyConfirmationViewState| {
                     dialog_body_rows(
                         &render_to_buffer((40, 16), |frame| {
-                            render_apply_confirmation(frame, &state, view);
+                            render_apply_confirmation(
+                                frame,
+                                &state,
+                                &PlanReviewViewState::default(),
+                                view,
+                            );
                         }),
                         title,
                     )
@@ -3407,6 +3437,51 @@ mod content_cache {
 
         assert_eq!(view.selected(), Some(0));
         assert_ne!(view.scroll(), (0, 0));
+        assert!(Rc::ptr_eq(
+            &body,
+            &cached(&view).expect("the body should stay cached")
+        ));
+    }
+
+    #[test]
+    fn the_apply_confirmation_draws_the_review_body_unscrolled_without_preparing_it_again() {
+        let state = with_query(&review_state(review()), SEARCH_TERM);
+        let confirmation = confirmation_state(state.review().clone());
+        let draw_confirmation = |review_view: &PlanReviewViewState| {
+            render_to_buffer((80, 24), |frame| {
+                render_apply_confirmation(
+                    frame,
+                    &confirmation,
+                    review_view,
+                    &ApplyConfirmationViewState::default(),
+                );
+            })
+        };
+        let unscrolled = draw_confirmation(&PlanReviewViewState::default());
+
+        let mut view = PlanReviewViewState::default();
+        draw_confirmation(&view);
+        let body = cached(&view).expect("the confirmation should keep its body on the review view");
+        let fresh = fresh_view(&confirmation, &view);
+        assert!(Rc::ptr_eq(
+            &body,
+            &cached(&fresh).expect("the fresh view should share the body")
+        ));
+        assert!(Rc::ptr_eq(&body, &view_content(&confirmation, &fresh)));
+
+        draw(&state, &view, (80, 24));
+        for input in [
+            PlanReviewInput::Down,
+            PlanReviewInput::Right,
+            PlanReviewInput::SearchNext,
+        ] {
+            press(&mut view, &state, input);
+        }
+        assert_ne!(view.scroll(), (0, 0));
+        assert!(view.selected().is_some());
+        for _ in 0..3 {
+            assert_eq!(draw_confirmation(&view), unscrolled);
+        }
         assert!(Rc::ptr_eq(
             &body,
             &cached(&view).expect("the body should stay cached")

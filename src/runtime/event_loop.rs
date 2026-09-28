@@ -686,7 +686,12 @@ fn draw_with_quit_confirmation<B: Backend>(
             }
             ReviewScreen::ApplyConfirmation { .. } => {
                 terminal.draw(|frame| {
-                    plan_review::render_apply_confirmation(frame, review, confirmation_view);
+                    plan_review::render_apply_confirmation(
+                        frame,
+                        review,
+                        review_view,
+                        confirmation_view,
+                    );
                 })?;
             }
         },

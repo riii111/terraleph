@@ -22,7 +22,7 @@ use crate::ui::primitives::molecules::{
 use crate::ui::shell::{context, footer, header, layout as shell_layout};
 use crate::ui::theme;
 
-use super::render_with_quit_confirmation;
+use super::{fresh_view, render_with_quit_confirmation};
 
 pub(super) const CONFIRMATION_MAX_WIDTH: u16 = 80;
 const CONFIRMATION_HEADER_HEIGHT: u16 = 2;
@@ -108,15 +108,18 @@ impl ApplyConfirmationLayout {
     }
 }
 
+/// Draws the plan unscrolled and without a selection behind the dialog. The body is kept on
+/// `review_view`, so keys in the dialog do not prepare the whole plan again.
 pub(crate) fn render_apply_confirmation(
     frame: &mut Frame<'_>,
     state: &ReviewSessionState,
+    review_view: &PlanReviewViewState,
     view: &ApplyConfirmationViewState,
 ) {
     render_with_quit_confirmation(
         frame,
         state,
-        &PlanReviewViewState::default(),
+        &fresh_view(state, review_view),
         Instant::now(),
         false,
     );
