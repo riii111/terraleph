@@ -216,6 +216,7 @@ struct EnvironmentApply {
     review_view: plan_review::PlanReviewViewState,
     confirmation_view: plan_review::ApplyConfirmationViewState,
     quit_confirmation: bool,
+    scheduled_draw: Option<Instant>,
 }
 
 impl EnvironmentApply {
@@ -226,6 +227,7 @@ impl EnvironmentApply {
             review_view: plan_review::PlanReviewViewState::default(),
             confirmation_view: plan_review::ApplyConfirmationViewState::default(),
             quit_confirmation: false,
+            scheduled_draw: None,
         }
     }
 
@@ -279,8 +281,10 @@ fn draw_apply<B: Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     state: &EnvironmentSession,
     view: &mut EnvironmentView,
-    apply: &EnvironmentApply,
+    apply: &mut EnvironmentApply,
+    now: Instant,
 ) -> io::Result<()> {
+    apply.scheduled_draw = None;
     let Some(session) = state.plans()[apply.index].session() else {
         return Ok(());
     };
@@ -292,15 +296,17 @@ fn draw_apply<B: Backend<Error = io::Error>>(
                 apply.index,
                 confirmation,
                 &apply.confirmation_view,
+                now,
             );
         })?;
+        apply.scheduled_draw = plan_review::apply_confirmation_redraw_at(confirmation, now);
     } else if let Some(execution) = session.apply() {
         terminal.draw(|frame| {
             execution::render_execution_with_quit_confirmation(
                 frame,
                 execution,
                 apply.execution_view,
-                Instant::now(),
+                now,
                 apply.quit_confirmation,
             );
         })?;
@@ -344,9 +350,11 @@ impl ApplyRuntime {
         if let Some(outcome) = finished {
             return Ok(ApplyStep::Finished(outcome));
         }
-        *dirty |= state.clear_expired_copy_feedback(Instant::now());
+        let now = Instant::now();
+        *dirty |= state.clear_expired_copy_feedback(now);
+        *dirty |= apply.scheduled_draw.is_some_and(|at| now >= at);
         if *dirty || apply.running(state) {
-            draw_apply(terminal, state, view, apply)?;
+            draw_apply(terminal, state, view, apply, now)?;
             *dirty = false;
         }
         let Some(input_event) = input.next(Duration::from_millis(50))? else {
@@ -607,6 +615,7 @@ fn acquire(
         diagnostics,
     )
     .map_err(|error| environment_failure(&error, cancellation))?;
+    let planned_at = Instant::now();
     let variables =
         super::invocation::variable_sources(root, arguments).map_err(|error| error.to_string())?;
     let context = ExecutionContext::loading(root)
@@ -629,7 +638,7 @@ fn acquire(
     )
     .map_err(|error| environment_failure(&error, cancellation))?;
     Ok(PlanResult::Ready {
-        review: Box::new(review),
+        review: Box::new(review.with_planned_at(planned_at)),
         changed,
     })
 }

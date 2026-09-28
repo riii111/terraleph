@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ratatui::{
     Frame,
@@ -113,15 +113,10 @@ pub(crate) fn render_apply_confirmation(
     frame: &mut Frame<'_>,
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
+    now: Instant,
 ) {
-    render_with_quit_confirmation(
-        frame,
-        state,
-        &PlanReviewViewState::default(),
-        Instant::now(),
-        false,
-    );
-    render_apply_confirmation_dialog(frame, state, view, None);
+    render_with_quit_confirmation(frame, state, &PlanReviewViewState::default(), now, false);
+    render_apply_confirmation_dialog(frame, state, view, None, now);
 }
 
 /// Dims whatever the caller already drew and places the dialog over it, so each
@@ -133,10 +128,11 @@ pub(crate) fn render_apply_confirmation_dialog(
     state: &ReviewSessionState,
     view: &ApplyConfirmationViewState,
     drawn_header: Option<Rect>,
+    now: Instant,
 ) {
     let area = frame.area();
     dim_background(frame);
-    let layout = apply_confirmation_layout(area, state);
+    let layout = apply_confirmation_layout(area, state, now);
     let header_area = drawn_header.unwrap_or_else(|| layout.header());
     if drawn_header.is_none() && header_area.height > 0 {
         header::render_review(frame, header_area, state.review());
@@ -225,6 +221,7 @@ pub(crate) fn render_apply_confirmation_dialog(
 pub(crate) fn apply_confirmation_layout(
     area: Rect,
     state: &ReviewSessionState,
+    now: Instant,
 ) -> ApplyConfirmationLayout {
     let panel = shell_layout::max_centered_area(area);
     let header_height = panel.height.min(CONFIRMATION_HEADER_HEIGHT);
@@ -249,7 +246,7 @@ pub(crate) fn apply_confirmation_layout(
         prefix: prefix_lines,
         scroll: scroll_lines,
         suffix: suffix_lines,
-    } = confirmation_sections(state);
+    } = confirmation_sections(state, now);
     let body = Paragraph::new(
         [
             prefix_lines.as_slice(),
@@ -373,7 +370,7 @@ fn confirmation_footer_items(input_matches: bool) -> Vec<Line<'static>> {
     ]
 }
 
-fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
+fn confirmation_sections(state: &ReviewSessionState, now: Instant) -> ConfirmationSections {
     let review = state.review();
     let counts = review.summary();
     let context = review.context();
@@ -411,8 +408,17 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
             Span::styled("Tool: ", theme::secondary_style()),
             Span::styled(tool_version(context), theme::body_style()),
         ]),
-        change_counts_line(counts),
     ]);
+    if let Some(planned_at) = review.planned_at() {
+        prefix.push(Line::from(vec![
+            Span::styled("Planned: ", theme::secondary_style()),
+            Span::styled(
+                planned_age(now.saturating_duration_since(planned_at)),
+                theme::body_style(),
+            ),
+        ]));
+    }
+    prefix.push(change_counts_line(counts));
     let mut scroll = Vec::new();
     append_variable_sources(&mut scroll, context);
     append_destructive_resources(&mut scroll, review);
@@ -430,6 +436,27 @@ fn confirmation_sections(state: &ReviewSessionState) -> ConfirmationSections {
         prefix,
         scroll,
         suffix,
+    }
+}
+
+/// Returns when the plan age in the confirmation next changes. Nothing else redraws an idle
+/// dialog, so the runtime schedules a draw for this time.
+pub(crate) fn apply_confirmation_redraw_at(
+    state: &ReviewSessionState,
+    now: Instant,
+) -> Option<Instant> {
+    let planned_at = state.review().planned_at()?;
+    let minutes = now.saturating_duration_since(planned_at).as_secs() / 60;
+    Some(planned_at + Duration::from_mins(minutes + 1))
+}
+
+// Whole minutes only: the age changes at most once a minute, which keeps redraws rare.
+fn planned_age(elapsed: Duration) -> String {
+    let minutes = elapsed.as_secs() / 60;
+    match minutes {
+        0 => "<1m ago".to_owned(),
+        1..60 => format!("{minutes}m ago"),
+        _ => format!("{}h {}m ago", minutes / 60, minutes % 60),
     }
 }
 
