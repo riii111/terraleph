@@ -23,8 +23,8 @@ pub(crate) struct PlanReviewLayout {
     pub(super) footer_status: Option<(String, Style)>,
     vertical_scrollbar: bool,
     horizontal_scrollbar: bool,
-    max_vertical: u16,
-    max_horizontal: u16,
+    max_vertical: usize,
+    max_horizontal: usize,
     matches: Vec<PlanReviewMatch>,
 }
 
@@ -49,11 +49,11 @@ impl PlanReviewLayout {
         self.horizontal_scrollbar
     }
 
-    pub(crate) const fn max_vertical(&self) -> u16 {
+    pub(crate) const fn max_vertical(&self) -> usize {
         self.max_vertical
     }
 
-    pub(crate) const fn max_horizontal(&self) -> u16 {
+    pub(crate) const fn max_horizontal(&self) -> usize {
         self.max_horizontal
     }
 
@@ -231,12 +231,8 @@ pub(super) fn layout_with_content(
     );
     let frame_footer_lines = footer::pad_lines(normal_footer_lines, footer_height);
     let frame_required = footer::pad_lines(normal_required, footer_height);
-    let confirmation_lines = || {
-        footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, copy_notice.map(CopyNotice::message)),
-            footer_height,
-        )
-    };
+    let confirmation_lines =
+        || footer::pad_lines(footer::quit_confirmation_lines(panel_width), footer_height);
     let suppressed_lines = || footer::pad_lines(vec![Line::default()], footer_height);
     let footer_lines = match footer_mode {
         FooterMode::Actions => frame_footer_lines,
@@ -301,12 +297,11 @@ pub(super) fn layout_with_content(
     }
 }
 
-fn limits(line_count: usize, line_width: usize, body: Rect) -> (u16, u16) {
-    let max_vertical =
-        u16::try_from(line_count.saturating_sub(usize::from(body.height))).unwrap_or(u16::MAX);
-    let max_horizontal =
-        u16::try_from(line_width.saturating_sub(usize::from(body.width))).unwrap_or(u16::MAX);
-    (max_vertical, max_horizontal)
+fn limits(line_count: usize, line_width: usize, body: Rect) -> (usize, usize) {
+    (
+        line_count.saturating_sub(usize::from(body.height)),
+        line_width.saturating_sub(usize::from(body.width)),
+    )
 }
 
 fn scrollbar_reservations(line_count: usize, line_width: usize, area: Rect) -> (bool, bool) {

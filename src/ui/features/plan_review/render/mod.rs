@@ -31,7 +31,7 @@ pub(crate) use layout::{
     environment_layout, layout, layout_with_quit_confirmation, overview_detail_layout,
 };
 
-use content::{content_lines_with_selection, flash_lines, prepare_view_content};
+use content::{content_lines_with_selection, flash_lines, prepare_view_content, visible_lines};
 use layout::layout_with_content;
 use overlay::render_overlay;
 use review_footer::review_footer_status;
@@ -220,13 +220,18 @@ fn render_for_navigation(
                 .and_then(|selected| content.matches.get(selected)),
         )
     };
-    frame.render_widget(
-        Paragraph::new(lines)
-            .style(theme::body_style())
-            .scroll((vertical, horizontal)),
-        layout.body(),
-    );
     let body = layout.body();
+    frame.render_widget(
+        Paragraph::new(visible_lines(
+            &lines,
+            vertical,
+            horizontal,
+            body.height,
+            body.width,
+        ))
+        .style(theme::body_style()),
+        body,
+    );
     let scrollbar_area = Rect::new(
         body.x,
         body.y,
@@ -241,7 +246,7 @@ fn render_for_navigation(
             scrollbar_area,
             line_count,
             usize::from(body.height),
-            usize::from(vertical),
+            vertical,
         );
     }
     if layout.horizontal_scrollbar() {
@@ -250,7 +255,7 @@ fn render_for_navigation(
             scrollbar_area,
             max_line_width,
             usize::from(body.width),
-            usize::from(horizontal),
+            horizontal,
         );
     }
     let footer_status =

@@ -79,7 +79,15 @@ pub(crate) fn render_execution_with_quit_confirmation(
     let content_area =
         shell_layout::render_content_block(frame, layout.shell.content(), state.stage().title());
     debug_assert_eq!(content_area, layout.shell.content_inner());
-    render_log_view(frame, &layout, state, view, now, &content, notice);
+    render_log_view(
+        frame,
+        &layout,
+        state,
+        view,
+        now,
+        &content,
+        notice.filter(|_| !quit_confirmation),
+    );
 }
 
 fn render_apply_execution(
@@ -139,7 +147,7 @@ fn render_apply_execution(
         frame,
         layout.shell.footer(),
         layout.shell.footer_lines(),
-        notice,
+        notice.filter(|_| !quit_confirmation),
     );
 }
 
@@ -483,7 +491,7 @@ fn log_view_layout(
     let shell_area = shell_layout::centered_area(area, requested_height);
     let footer_lines = if quit_confirmation {
         footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, notice),
+            footer::quit_confirmation_lines(panel_width),
             normal_footer_lines.len(),
         )
     } else {
@@ -491,7 +499,7 @@ fn log_view_layout(
     };
     let required_footer_lines = if quit_confirmation {
         footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, notice),
+            footer::quit_confirmation_lines(panel_width),
             normal_required_footer_lines.len(),
         )
     } else {
@@ -552,7 +560,7 @@ fn applying_layout(
     let normal_required_footer_lines = apply_required_footer_lines(state, panel_width, notice);
     let footer_lines = if quit_confirmation {
         footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, notice),
+            footer::quit_confirmation_lines(panel_width),
             normal_footer_lines.len(),
         )
     } else {
@@ -560,7 +568,7 @@ fn applying_layout(
     };
     let required_footer_lines = if quit_confirmation {
         footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, notice),
+            footer::quit_confirmation_lines(panel_width),
             normal_required_footer_lines.len(),
         )
     } else {
@@ -2120,6 +2128,41 @@ mod tests {
         }
 
         #[test]
+        fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
+            let (mut state, now) = apply_state(ApplyStatus::Succeeded);
+            state.copy_feedback_mut().record(
+                CopyTarget::Execution,
+                CopyResult::SentToTerminal,
+                now,
+                true,
+            );
+            let render_text = |quit_confirmation| {
+                buffer_text(&render_to_buffer((40, 24), |frame| {
+                    render_execution_with_quit_confirmation(
+                        frame,
+                        &state,
+                        ExecutionViewState::default(),
+                        now,
+                        quit_confirmation,
+                    );
+                }))
+            };
+
+            let copied = render_text(false);
+            let confirmation = render_text(true);
+
+            assert!(copied.contains("Sent to terminal clipboard."), "{copied}");
+            assert!(
+                confirmation.contains("Quit? [Enter] quit [Esc] cancel"),
+                "{confirmation}"
+            );
+            assert!(
+                !confirmation.contains("Sent to terminal clipboard."),
+                "{confirmation}"
+            );
+        }
+
+        #[test]
         fn quit_confirmation_preserves_the_execution_body_and_scroll_limits() {
             let (state, _) = apply_state(ApplyStatus::Succeeded);
             let area = Rect::new(0, 0, 50, 24);
@@ -3592,6 +3635,32 @@ mod tests {
             assert!(!confirmation.contains("q/Ctrl-C quit"));
             assert!(copied.contains("Copied."));
             assert!(copied.contains("q/Ctrl-C quit"));
+        }
+
+        #[test]
+        fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
+            let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &["output"]);
+            state.fail("synthetic plan failure".to_owned(), now);
+            state.copy_feedback_mut().record(
+                CopyTarget::Diagnostic,
+                CopyResult::SentToTerminal,
+                now,
+                false,
+            );
+
+            let copied = render_text((40, 24), &state, ExecutionViewState::default(), now, false);
+            let confirmation =
+                render_text((40, 24), &state, ExecutionViewState::default(), now, true);
+
+            assert!(copied.contains("Sent to terminal clipboard."), "{copied}");
+            assert!(
+                confirmation.contains("Quit? [Enter] quit [Esc] cancel"),
+                "{confirmation}"
+            );
+            assert!(
+                !confirmation.contains("Sent to terminal clipboard."),
+                "{confirmation}"
+            );
         }
     }
 

@@ -522,7 +522,7 @@ fn handle_overview_key_event<B: Backend>(
     Ok(command.map(|command| match command {
         overview::OverviewCommand::Open(address) => Action::OpenReviewFromOverview { address },
         overview::OverviewCommand::ViewPlan | overview::OverviewCommand::Back => {
-            review_view.jump_to_line(0, u16::MAX);
+            review_view.jump_to_line(0, usize::MAX);
             Action::OpenReviewFromOverview { address: None }
         }
         overview::OverviewCommand::Copy => Action::Copy(CopyTarget::Plan),
@@ -2273,7 +2273,7 @@ mod tests {
             .expect("overview confirmation should render");
             let text = terminal_text(&terminal);
             assert!(text.contains("Quit Terraleph?"), "{text}");
-            assert!(text.contains("Copied."), "{text}");
+            assert!(!text.contains("Copied."), "{text}");
             assert!(!text.contains("q quit"), "{text}");
 
             quit_confirmation = false;
