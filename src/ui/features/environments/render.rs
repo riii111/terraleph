@@ -200,7 +200,7 @@ impl EnvironmentView {
             if state.acquiring() {
                 vec![Line::default()]
             } else {
-                footer::quit_confirmation_lines(layout.footer.width, None)
+                footer::quit_confirmation_lines(layout.footer.width)
             }
         } else {
             overview_footer(OverviewFooterContext {

@@ -248,12 +248,8 @@ pub(super) fn layout_with_content(
     );
     let frame_footer_lines = footer::pad_lines(normal_footer_lines, footer_height);
     let frame_required = footer::pad_lines(normal_required, footer_height);
-    let confirmation_lines = || {
-        footer::pad_lines(
-            footer::quit_confirmation_lines(panel_width, copy_notice.map(CopyNotice::message)),
-            footer_height,
-        )
-    };
+    let confirmation_lines =
+        || footer::pad_lines(footer::quit_confirmation_lines(panel_width), footer_height);
     let suppressed_lines = || footer::pad_lines(vec![Line::default()], footer_height);
     let footer_lines = match footer_mode {
         FooterMode::Actions => frame_footer_lines,

@@ -1312,6 +1312,7 @@ mod raw_review {
             assert!(text.contains("1/2"), "{size:?}: {text}");
             for (result, notice) in [
                 (CopyResult::Written, "Copied."),
+                (CopyResult::SentToTerminal, "Sent to terminal clipboard."),
                 (CopyResult::Failed, "Copy failed."),
             ] {
                 let Some(EnvironmentInput::Review(index, action)) = handle_key_code(
