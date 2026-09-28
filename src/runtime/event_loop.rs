@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent};
 use ratatui::{DefaultTerminal, Terminal, backend::Backend, layout::Rect};
 
 use crate::{
@@ -19,7 +19,7 @@ use crate::{
             self, Action, Effect, ReviewScreen, ReviewSessionState, SessionOutcome, SessionState,
         },
     },
-    infra::{CancellationToken, ClipboardExecutor, terraform},
+    infra::{CancellationToken, ClipboardExecutor, termination, terraform},
     ui::{
         QuitConfirmationInput,
         features::{execution, overview, plan_review},
@@ -39,6 +39,7 @@ pub(crate) fn run_connected(
     mut effects: RuntimeEffects<'_, ClipboardExecutor>,
     initial_overview: bool,
 ) -> io::Result<SessionOutcome> {
+    let input = super::terminal::TerminalInput::spawn()?;
     let mut execution_view = execution::ExecutionViewState::default();
     let mut review_view = plan_review::PlanReviewViewState::default();
     let mut confirmation_view = plan_review::ApplyConfirmationViewState::default();
@@ -48,6 +49,12 @@ pub(crate) fn run_connected(
     let mut dirty = true;
 
     loop {
+        // The caller maps the signal to the exit status; this error only unwinds the terminal
+        // and hands the running workers to the shared join-then-cleanup path.
+        if termination::received().is_some() {
+            effects.cancellation.cancel();
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
         let awaiting_initial_overview = start_in_overview;
         let (outcome, received) = receive_messages_with_initial_overview(
             messages,
@@ -107,8 +114,8 @@ pub(crate) fn run_connected(
             quit_confirmation,
         )?;
 
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
+        if let Some(input_event) = input.next(Duration::from_millis(100))? {
+            match input_event {
                 Event::Resize(width, height) => {
                     dirty = true;
                     reconcile_resize(

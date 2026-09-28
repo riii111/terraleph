@@ -403,6 +403,28 @@ def resize(columns, rows):
     screen.resize(columns, rows)
 
 
+TERMINATION_SIGNALS = {"hup": signal.SIGHUP, "int": signal.SIGINT, "term": signal.SIGTERM}
+
+
+def send_termination_signal(scenario):
+    os.kill(pid, TERMINATION_SIGNALS[scenario.rsplit("_", 1)[1]])
+    observed.append("signal_sent")
+
+
+def wait_exit_after_hangup(timeout=20):
+    # Closing the master is what a terminal emulator or `tmux kill-server` does; the kernel
+    # then delivers SIGHUP to the session, and no further output can be read.
+    os.close(fd)
+    observed.append("terminal_closed")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = child_status()
+        if status is not None:
+            return status
+        time.sleep(0.05)
+    raise RuntimeError("child did not exit after hangup")
+
+
 def kill_child():
     try:
         os.killpg(pid, signal.SIGKILL)
@@ -424,6 +446,12 @@ try:
         exit_code = quit_with_enter()
     elif scenario.startswith("env_"):
         if scenario == "env_child_interrupt":
+            exit_code = wait_exit()
+        elif scenario.startswith("env_signal_"):
+            wait_environment("a-ready", "Ready")
+            wait_environment("z-slow", "Running")
+            wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "active_process")
+            send_termination_signal(scenario)
             exit_code = wait_exit()
         elif scenario in ("env_partial", "env_cancel"):
             wait_environment("a-ready", "Ready")
@@ -776,6 +804,24 @@ try:
         exit_code = quit_with_enter()
     elif scenario == "no_changes":
         observed.append("no_changes")
+        exit_code = wait_exit()
+    elif scenario.startswith("signal_review_"):
+        wait_review("plan_text", timeout=30)
+        send_termination_signal(scenario)
+        exit_code = wait_exit()
+    elif scenario == "signal_hangup":
+        wait_review("plan_text", timeout=30)
+        exit_code = wait_exit_after_hangup()
+    elif scenario.startswith("signal_apply_"):
+        wait_review("plan_text", timeout=30)
+        send_key(b"a")
+        wait_new("Apply this reviewed plan?", "apply_confirmation")
+        send_text("yes")
+        send_key(b"\r")
+        wait_new("Applying...", "apply_started")
+        send_key(b"v")
+        wait_new("Applying saved plan...", "apply_logs_open")
+        send_termination_signal(scenario)
         exit_code = wait_exit()
     elif scenario in (
         "apply_success",

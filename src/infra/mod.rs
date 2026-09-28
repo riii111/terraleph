@@ -6,6 +6,7 @@ pub(crate) mod history;
 pub(crate) mod git;
 #[cfg(test)]
 pub(crate) mod review;
+pub(crate) mod termination;
 pub(crate) mod terraform;
 
 pub(crate) use cancellation::CancellationToken;

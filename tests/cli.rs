@@ -375,6 +375,24 @@ mod pty_tests {
         }
 
         #[test]
+        fn termination_signal_stops_the_running_plan_and_removes_every_owned_plan() {
+            let fixture = fixture(&["a-ready", "z-slow"]);
+            fs::write(fixture.root.join("z-slow/slow-plan"), "").unwrap();
+
+            let result = fixture.run("env_signal_term", 80, 24);
+
+            assert_eq!(result.exit_code, 143);
+            result.observed("signal_sent");
+            assert_clean(&fixture, &result);
+            assert_child_reaped(&fixture.pid_record);
+            assert!(
+                fs::read_to_string(&fixture.signal_log)
+                    .unwrap()
+                    .contains("plan_present=True")
+            );
+        }
+
+        #[test]
         fn failed_environment_retries_without_replanning_ready_environment() {
             let fixture = fixture(&["a-ready", "b-error"]);
             fs::write(fixture.root.join("b-error/fail-plan"), "").unwrap();
@@ -1253,6 +1271,79 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         result.observed("interrupt_requested");
         fixture.assert_saved_plan_removed();
         assert_eq!(fixture.signal_count(), 1);
+        assert_child_reaped(&fixture.pid_record);
+    }
+
+    #[test]
+    fn pty_termination_signal_restores_terminal_and_removes_the_saved_plan() {
+        struct SignalCase {
+            scenario: &'static str,
+            expected: i32,
+        }
+
+        for case in [
+            SignalCase {
+                scenario: "signal_review_hup",
+                expected: 129,
+            },
+            SignalCase {
+                scenario: "signal_review_int",
+                expected: 130,
+            },
+            SignalCase {
+                scenario: "signal_review_term",
+                expected: 143,
+            },
+        ] {
+            let fixture = Fixture::new();
+
+            let result = fixture.run(case.scenario, 100, 24);
+
+            assert_eq!(result.exit_code, case.expected, "case: {}", case.scenario);
+            result.assert_restored();
+            result.observed("signal_sent");
+            fixture.assert_saved_plan_removed();
+        }
+    }
+
+    #[test]
+    fn pty_closed_terminal_removes_the_saved_plan() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run("signal_hangup", 100, 24);
+
+        assert_eq!(result.exit_code, 129);
+        result.observed("terminal_closed");
+        fixture.assert_saved_plan_removed();
+    }
+
+    #[test]
+    fn pty_termination_signal_keeps_the_user_owned_output() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run_with_arguments(
+            "signal_review_term",
+            100,
+            24,
+            "plan",
+            &["-out=review.tfplan"],
+        );
+
+        assert_eq!(result.exit_code, 143);
+        result.assert_restored();
+        assert!(fixture.root.join("review.tfplan").exists());
+    }
+
+    #[test]
+    fn pty_termination_signal_during_apply_waits_for_terraform() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run_with_command("signal_apply_term", 100, 24, "apply");
+
+        assert_eq!(result.exit_code, 143);
+        result.assert_restored();
+        result.observed("apply_started");
+        fixture.assert_saved_plan_removed();
         assert_child_reaped(&fixture.pid_record);
     }
 
