@@ -985,8 +985,7 @@ mod tests {
     use crate::app::{
         execution::{
             ApplyStatus, EventStream, ExecutionAction, ExecutionContext, ExecutionEvent,
-            ExecutionEventKind, ExecutionLogLine, ExecutionTargetSpec, HistoryKey,
-            SuccessfulTarget,
+            ExecutionEventKind, ExecutionTargetSpec, HistoryKey, SuccessfulTarget,
         },
         plan::{
             Plan, PlanAction, ResourceChangeKind,
@@ -2111,6 +2110,100 @@ mod tests {
     mod review {
         use super::*;
 
+        fn applyable_review_state() -> SessionState {
+            SessionState::Review(Box::new(ReviewSessionState::new(PlanReview::new(
+                PathBuf::from("/project"),
+                "default".to_owned(),
+                plan_document("Plan: 1 to add.\n".to_owned()),
+                Plan {
+                    resource_changes: vec![resource_change(
+                        "terraform_data.worker",
+                        ResourceChangeKind::Create,
+                    )],
+                    ..Plan::empty()
+                },
+                PlanMetadata::new(true),
+                Vec::new(),
+            ))))
+        }
+
+        fn press_and_draw(
+            state: &mut SessionState,
+            terminal: &mut Terminal<TestBackend>,
+            views: &mut ScreenViews,
+            code: KeyCode,
+            now: Instant,
+        ) -> String {
+            if let Some(action) = views
+                .handle_key(terminal, state, code, KeyModifiers::NONE)
+                .expect("key should be handled")
+            {
+                update_session(state, action, &mut views.execution, now);
+            }
+            let mut dirty = true;
+            draw_if_needed(
+                state,
+                terminal,
+                views.execution,
+                &views.review,
+                &views.confirmation,
+                &mut dirty,
+                now,
+            )
+            .expect("screen should draw");
+            terminal_text(terminal)
+        }
+
+        #[test]
+        fn help_scrolls_horizontally_on_each_screen() {
+            let now = Instant::now();
+            // Each size is narrow enough for the help rows yet renders the screen underneath.
+            for (name, opening, (width, height)) in [
+                ("review", &[][..], (40, 16)),
+                ("overview", &[KeyCode::Char('s')][..], (40, 16)),
+                ("apply confirmation", &[KeyCode::Char('a')][..], (50, 24)),
+            ] {
+                let mut state = applyable_review_state();
+                let mut terminal =
+                    Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+                let mut views = ScreenViews::default();
+                let mut before = String::new();
+                for &code in opening.iter().chain(&[KeyCode::Char('?')]) {
+                    before = press_and_draw(&mut state, &mut terminal, &mut views, code, now);
+                }
+
+                let scrolled =
+                    press_and_draw(&mut state, &mut terminal, &mut views, KeyCode::Right, now);
+                assert_ne!(scrolled, before, "{name}");
+                let restored =
+                    press_and_draw(&mut state, &mut terminal, &mut views, KeyCode::Left, now);
+                assert_eq!(restored, before, "{name}");
+            }
+        }
+
+        #[test]
+        fn narrow_confirmation_ignores_typed_input() {
+            let now = Instant::now();
+            let mut state = applyable_review_state();
+            let mut wide = Terminal::new(TestBackend::new(100, 30)).expect("test terminal");
+            let mut narrow = Terminal::new(TestBackend::new(20, 5)).expect("test terminal");
+            let mut views = ScreenViews::default();
+            press_and_draw(&mut state, &mut wide, &mut views, KeyCode::Char('a'), now);
+            let expected = state
+                .apply_confirmation()
+                .expect("apply confirmation should be open")
+                .review()
+                .confirmation_input();
+
+            for code in expected.chars().map(KeyCode::Char).chain([KeyCode::Enter]) {
+                press_and_draw(&mut state, &mut narrow, &mut views, code, now);
+            }
+
+            assert!(state.apply_confirmation().is_some());
+            assert!(state.apply().is_none());
+            assert_eq!(views.confirmation.input(), "");
+        }
+
         #[test]
         fn cancelling_confirmation_preserves_review_position() {
             let now = Instant::now();
@@ -2443,6 +2536,7 @@ mod tests {
 
     mod apply_view {
         use super::*;
+        use crate::app::execution::test_support::log_event;
 
         #[rstest]
         #[case::failed_end(ApplyStatus::Failed, KeyCode::End, KeyModifiers::NONE)]
@@ -2507,10 +2601,7 @@ mod tests {
 
             let new_log = ExecutionEvent {
                 received_at: started_at + Duration::from_secs(1),
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: "new tail marker".to_owned(),
-                }),
+                kind: log_event(EventStream::Stdout, "new tail marker".to_owned()),
             };
             let _ = update_session(
                 &mut state,
@@ -2649,14 +2740,14 @@ mod tests {
             for index in 0..entries {
                 wider.record(ExecutionEvent {
                     received_at: started_at,
-                    kind: ExecutionEventKind::Log(ExecutionLogLine {
-                        stream: EventStream::Stdout,
-                        text: if index == 0 {
+                    kind: log_event(
+                        EventStream::Stdout,
+                        if index == 0 {
                             "x".repeat(500)
                         } else {
                             "short".to_owned()
                         },
-                    }),
+                    ),
                 });
             }
             let mut view = execution::ExecutionViewState::default();
@@ -2705,10 +2796,7 @@ mod tests {
                     state,
                     Action::ApplyWorkerEvent(ExecutionEvent {
                         received_at: now,
-                        kind: ExecutionEventKind::Log(ExecutionLogLine {
-                            stream: EventStream::Stdout,
-                            text,
-                        }),
+                        kind: log_event(EventStream::Stdout, text),
                     }),
                     &mut views.execution,
                     now,
@@ -2839,14 +2927,14 @@ mod tests {
             for index in 0..40 {
                 execution.record(ExecutionEvent {
                     received_at: started_at,
-                    kind: ExecutionEventKind::Log(ExecutionLogLine {
-                        stream: EventStream::Stdout,
-                        text: if index == 39 {
+                    kind: log_event(
+                        EventStream::Stdout,
+                        if index == 39 {
                             "tail marker".to_owned()
                         } else {
                             format!("log line {index}")
                         },
-                    }),
+                    ),
                 });
             }
             if let Some(status) = status {

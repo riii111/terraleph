@@ -41,7 +41,6 @@ fn partial_session() -> EnvironmentSession {
         PlanMetadata::new(false),
         Vec::new(),
     )
-    .with_apply_allowed(false)
     .with_apply_entry(false);
     state.complete(
         first,
@@ -126,7 +125,6 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
             PlanMetadata::new(false),
             Vec::new(),
         )
-        .with_apply_allowed(false)
         .with_apply_entry(false);
         state.complete(
             work,

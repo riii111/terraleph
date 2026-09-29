@@ -192,17 +192,6 @@ impl ExecutionProgress {
         let ExecutionEvent { received_at, kind } = event;
         self.last_event_at = Some(received_at);
         match kind {
-            ExecutionEventKind::Log(line) => {
-                if self.first_error_line.is_none()
-                    && line
-                        .text
-                        .lines()
-                        .any(|text| text.trim_start().starts_with("Error:"))
-                {
-                    self.first_error_line = Some(self.log_index.line_count());
-                }
-                self.append_log(line.stream, &line.text, None);
-            }
             ExecutionEventKind::Resource(resource) => {
                 if (resource.kind == ResourceEventKind::ApplyErrored
                     || resource.kind == ResourceEventKind::ProvisionErrored)
@@ -550,6 +539,7 @@ mod tests {
         DiagnosticSeverity, DiagnosticSource, ExecutionSummary, ProcessExitStatus,
     };
     use super::*;
+    use crate::app::execution::test_support::log_event;
 
     fn event(kind: ExecutionEventKind) -> ExecutionEvent {
         ExecutionEvent {
@@ -615,10 +605,10 @@ mod tests {
             }],
             vec![SensitiveValue::Text("secret-value".to_owned())],
         );
-        progress.record(event(ExecutionEventKind::Log(ExecutionLogLine {
-            stream: EventStream::Stdout,
-            text: "unbound output with secret-value".to_owned(),
-        })));
+        progress.record(event(log_event(
+            EventStream::Stdout,
+            "unbound output with secret-value".to_owned(),
+        )));
         progress.record(event(ExecutionEventKind::Diagnostic(Diagnostic {
             severity: DiagnosticSeverity::Warning,
             summary: "Deprecated attribute".to_owned(),

@@ -313,7 +313,6 @@ pub(crate) struct PlanReview {
     provider_schemas: Option<ProviderSchemas>,
     diagnostics: Vec<Diagnostic>,
     search_query: String,
-    apply_allowed: bool,
     apply_entry: bool,
     previous_durations: Vec<Option<Duration>>,
     planned_at: Option<Instant>,
@@ -341,17 +340,10 @@ impl PlanReview {
             provider_schemas: None,
             diagnostics,
             search_query: String::new(),
-            apply_allowed: true,
             apply_entry: false,
             previous_durations: Vec::new(),
             planned_at: None,
         }
-    }
-
-    #[must_use]
-    pub(crate) const fn with_apply_allowed(mut self, allowed: bool) -> Self {
-        self.apply_allowed = allowed;
-        self
     }
 
     #[must_use]
@@ -375,11 +367,6 @@ impl PlanReview {
     pub(crate) const fn with_planned_at(mut self, planned_at: Instant) -> Self {
         self.planned_at = Some(planned_at);
         self
-    }
-
-    #[must_use]
-    pub(crate) const fn apply_allowed(&self) -> bool {
-        self.apply_allowed
     }
 
     #[must_use]

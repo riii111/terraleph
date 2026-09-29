@@ -141,7 +141,6 @@ fn complete_with_plan_document_and_relations_and_schemas(
     .with_relations(relations)
     .with_provider_schemas(provider_schemas)
     .with_context(ExecutionContext::loading(directory).with_workspace("default"))
-    .with_apply_allowed(false)
     .with_apply_entry(false);
     state.complete(
         index,

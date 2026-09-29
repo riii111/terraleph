@@ -24,7 +24,6 @@ pub(crate) use progress::{ExecutionProgress, ExecutionTargetState, ExecutionTarg
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionStage {
     Initializing,
-    Planning,
     Reading,
     Applying,
     ApplySucceeded,
@@ -38,7 +37,6 @@ impl ExecutionStage {
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Initializing => "Initializing",
-            Self::Planning => "Planning",
             Self::Reading => "Reading",
             Self::Applying => "Applying",
             Self::ApplySucceeded => "Apply complete",
@@ -112,16 +110,6 @@ impl ExecutionState {
     }
 
     #[must_use]
-    pub(crate) fn applying_with_targets(
-        started_at: Instant,
-        context: ExecutionContext,
-        targets: Vec<ExecutionTargetSpec>,
-        sensitive_values: Vec<SensitiveValue>,
-    ) -> Self {
-        Self::applying_with_previous(started_at, context, targets, sensitive_values, &[])
-    }
-
-    #[must_use]
     pub(crate) fn applying_with_previous(
         started_at: Instant,
         context: ExecutionContext,
@@ -174,10 +162,6 @@ impl ExecutionState {
             return;
         }
         match &event.kind {
-            ExecutionEventKind::Phase(ExecutionPhase::Planning) => {
-                self.stage = ExecutionStage::Planning;
-                self.active_phase = ExecutionStage::Planning;
-            }
             ExecutionEventKind::Phase(ExecutionPhase::Reading) => {
                 self.stage = ExecutionStage::Reading;
                 self.active_phase = ExecutionStage::Reading;
@@ -376,7 +360,35 @@ impl ExecutionState {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use super::{
+        Diagnostic, DiagnosticSeverity, DiagnosticSource, EventStream, ExecutionEventKind,
+    };
+
+    // Terraform output reaches the log as informational messages on stdout and as diagnostics
+    // on stderr, so tests add log text the same way.
+    pub(crate) fn log_event(stream: EventStream, text: impl Into<String>) -> ExecutionEventKind {
+        let text = text.into();
+        match stream {
+            EventStream::Stdout => ExecutionEventKind::Informational {
+                event_type: "log".to_owned(),
+                message: Some(text),
+            },
+            EventStream::Stderr => ExecutionEventKind::Diagnostic(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                summary: text,
+                detail: None,
+                address: None,
+                position: None,
+                source: DiagnosticSource::Terraform,
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use crate::app::execution::test_support::log_event;
     use crate::app::plan::PlanAction;
 
     use super::*;
@@ -387,7 +399,7 @@ mod tests {
         }
 
         pub(crate) fn applying(started_at: Instant, context: ExecutionContext) -> Self {
-            Self::applying_with_targets(started_at, context, Vec::new(), Vec::new())
+            Self::applying_with_previous(started_at, context, Vec::new(), Vec::new(), &[])
         }
     }
 
@@ -398,11 +410,12 @@ mod tests {
     #[test]
     fn apply_result_summary_is_sanitized_before_rendering() {
         let started_at = Instant::now();
-        let mut state = ExecutionState::applying_with_targets(
+        let mut state = ExecutionState::applying_with_previous(
             started_at,
             ExecutionContext::loading("loading..."),
             Vec::new(),
             vec![SensitiveValue::Text("secret-value".to_owned())],
+            &[],
         );
 
         state.finish_apply(
@@ -421,7 +434,7 @@ mod tests {
     #[test]
     fn successful_process_with_incomplete_targets_is_not_reported_as_success() {
         let started_at = Instant::now();
-        let mut state = ExecutionState::applying_with_targets(
+        let mut state = ExecutionState::applying_with_previous(
             started_at,
             ExecutionContext::loading("loading..."),
             vec![ExecutionTargetSpec {
@@ -429,6 +442,7 @@ mod tests {
                 actions: vec![PlanAction::Update],
             }],
             Vec::new(),
+            &[],
         );
 
         state.finish_apply(
@@ -445,7 +459,7 @@ mod tests {
     #[test]
     fn failed_apply_keeps_completed_targets_available_for_history() {
         let started_at = Instant::now();
-        let mut state = ExecutionState::applying_with_targets(
+        let mut state = ExecutionState::applying_with_previous(
             started_at,
             ExecutionContext::loading("/repo").with_workspace("default"),
             vec![
@@ -459,6 +473,7 @@ mod tests {
                 },
             ],
             Vec::new(),
+            &[],
         );
         state.record(event(
             started_at + Duration::from_secs(1),
@@ -639,7 +654,7 @@ mod tests {
         let mut state = ExecutionState::new(started_at);
         state.record(event(
             started_at,
-            ExecutionEventKind::Phase(ExecutionPhase::Planning),
+            ExecutionEventKind::Phase(ExecutionPhase::Reading),
         ));
         state.record(event(
             started_at,
@@ -673,7 +688,7 @@ mod tests {
         state.fail("Terraform plan failed".to_owned(), started_at);
 
         let result = state.result().expect("failure result should exist");
-        assert_eq!(result.phase(), ExecutionStage::Planning);
+        assert_eq!(result.phase(), ExecutionStage::Reading);
         assert_eq!(result.first_error_line(), Some(2));
         assert_eq!(
             state.progress().log(),
@@ -701,10 +716,7 @@ mod tests {
         let mut state = ExecutionState::new(started_at);
         state.record(event(
             started_at,
-            ExecutionEventKind::Log(ExecutionLogLine {
-                stream: EventStream::Stdout,
-                text: "before failure".to_owned(),
-            }),
+            log_event(EventStream::Stdout, "before failure".to_owned()),
         ));
         state.fail("Terraform failed".to_owned(), finished_at);
 

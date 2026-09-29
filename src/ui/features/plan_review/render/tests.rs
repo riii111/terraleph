@@ -124,14 +124,6 @@ fn review() -> PlanReview {
 }
 
 fn review_with_applyable(applyable: bool) -> PlanReview {
-    review_with_options(applyable, true)
-}
-
-fn review_with_apply_allowed(applyable: bool, apply_allowed: bool) -> PlanReview {
-    review_with_options(applyable, apply_allowed)
-}
-
-fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
     PlanReview::new(
         PathBuf::from("/repo/environments/production/main"),
         "default".to_owned(),
@@ -209,7 +201,6 @@ fn review_with_options(applyable: bool, apply_allowed: bool) -> PlanReview {
         PlanMetadata::new(applyable),
         Vec::new(),
     )
-    .with_apply_allowed(apply_allowed)
     .with_planned_at(*PLANNED_AT)
 }
 
@@ -1902,13 +1893,13 @@ mod filter {
 
     #[test]
     fn confirmed_filter_narrow_footer_keeps_required_actions_before_match_navigation() {
-        for (width, apply_allowed) in [(24, false), (40, true)] {
+        for width in [24, 40] {
             for (query, plan) in [
                 ("not-present", zero_match_review()),
                 ("endpoint", review()),
                 (SEARCH_TERM, review()),
             ] {
-                let mut plan = plan.with_apply_allowed(apply_allowed);
+                let mut plan = plan;
                 plan.set_search_query(query.to_owned());
                 let state = review_state(plan);
                 let buffer = render_to_buffer((width, 24), |frame| {
@@ -3448,7 +3439,7 @@ mod overlay {
 
     #[test]
     fn footer_hides_apply_when_the_review_cannot_apply() {
-        let footer = footer_text(&review_state(review_with_apply_allowed(true, false)));
+        let footer = footer_text(&review_state(review_with_applyable(false)));
         assert!(!footer.contains("a apply"), "{footer}");
     }
 }

@@ -518,12 +518,6 @@ try:
                 open(os.path.join(root, "z-slow/release-plan"), "w").close()
                 wait_environment("z-slow", "Ready")
                 exit_code = quit_with_enter()
-        elif scenario == "env_example":
-            wait_parts(["Ready: 2/3", "Error", "~ 20"], "example_comparison")
-            send_key(b"]")
-            send_key(b"r")
-            wait_parts(["Ready: 3/3", "~ 200"], "example_retry")
-            exit_code = quit_with_enter()
         elif scenario == "env_real":
             wait_environment("dev", "Ready", row_only=True)
             wait_environment("prod", "Running", row_only=True)

@@ -184,7 +184,6 @@ pub(crate) struct ProcessTermination {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ExecutionEventKind {
-    Log(ExecutionLogLine),
     Resource(ResourceEvent),
     Summary(ExecutionSummary),
     Diagnostic(Diagnostic),
@@ -199,7 +198,6 @@ pub(crate) enum ExecutionEventKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionPhase {
-    Planning,
     Reading,
 }
 
@@ -222,7 +220,6 @@ impl Debug for ExecutionLogLine {
 impl Debug for ExecutionEventKind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Log(line) => formatter.debug_tuple("Log").field(line).finish(),
             Self::Resource(event) => formatter.debug_tuple("Resource").field(event).finish(),
             Self::Summary(summary) => formatter.debug_tuple("Summary").field(summary).finish(),
             Self::Diagnostic(diagnostic) => formatter

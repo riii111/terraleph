@@ -1,7 +1,7 @@
 use std::{
     ffi::OsString,
     fmt, fs,
-    io::{self, IsTerminal, Write},
+    io::{self, Write},
     path::Path,
     process::ExitCode,
     sync::mpsc,
@@ -12,7 +12,6 @@ use std::{
 mod environments;
 mod event_loop;
 pub(crate) mod invocation;
-mod synthetic;
 mod terminal;
 
 use crate::{
@@ -38,34 +37,6 @@ use crate::test_support;
 
 const EXECUTION_FAILURE: u8 = 1;
 const INTERRUPTED: u8 = 130;
-
-pub(crate) fn run_plan(root: &Path, compare_ref: Option<&str>) -> ExitCode {
-    if compare_ref.is_some() {
-        report_error("--compare-ref is unavailable while Git comparison is paused");
-        return ExitCode::from(EXECUTION_FAILURE);
-    }
-    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        report_error("terraleph plan requires an interactive terminal");
-        return ExitCode::from(EXECUTION_FAILURE);
-    }
-    let Ok(executable) = terraform::resolve_executable(Tool::Terraform) else {
-        report_error("terraform was not found in PATH");
-        return ExitCode::from(EXECUTION_FAILURE);
-    };
-    run_managed_invocation(
-        &executable,
-        Tool::Terraform,
-        root,
-        root,
-        &[],
-        &[OsString::from("-detailed-exitcode")],
-        &[],
-        false,
-        false,
-        false,
-        invocation::variable_sources(root, &[]).unwrap_or_default(),
-    )
-}
 
 pub(crate) fn run_invocation(
     executable: &Path,
@@ -324,14 +295,6 @@ fn review_exit(
             ExitCode::from(EXECUTION_FAILURE)
         }
     }
-}
-
-pub(crate) fn run_synthetic() -> io::Result<()> {
-    synthetic::run_synthetic()
-}
-
-pub(crate) fn run_synthetic_execution() -> io::Result<()> {
-    synthetic::run_synthetic_execution()
 }
 
 fn run_interactive(
