@@ -1,8 +1,7 @@
 use ratatui::{
     Frame,
-    buffer::CellWidth,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -12,7 +11,10 @@ use crate::{
         environments::{EnvironmentPlan, EnvironmentState},
         plan::PlanSummary,
     },
-    ui::{shell::environments, theme},
+    ui::{
+        shell::{context::take_from_start, environments},
+        theme,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -31,23 +33,16 @@ pub(crate) fn render(
     compared: &[usize],
     focused: bool,
 ) {
-    let focus_style = pane_border_style(focused);
+    let focus_style = theme::relation_frame_style(focused);
     let title = Line::from(vec![
-        Span::styled(
-            if focused { "* " } else { "  " },
-            if focused {
-                Style::default().fg(Color::Cyan).bg(Color::Reset)
-            } else {
-                theme::overview_muted_style()
-            },
-        ),
+        Span::styled(if focused { "* " } else { "  " }, focus_style),
         Span::styled("[1] Envs", theme::overview_pane_title_style()),
     ]);
     let block = Block::new()
         .borders(Borders::ALL)
         .title(title)
         .border_style(focus_style)
-        .style(theme::overview_background_style());
+        .style(theme::overview_text_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.width == 0 || inner.height == 0 || plans.is_empty() {
@@ -156,16 +151,6 @@ fn visual_line_count(line: &Line<'static>, width: u16) -> usize {
         .max(1)
 }
 
-pub(crate) fn pane_border_style(focused: bool) -> Style {
-    Style::default()
-        .fg(if focused {
-            Color::Cyan
-        } else {
-            Color::DarkGray
-        })
-        .bg(Color::Reset)
-}
-
 fn environment_name_line(
     plan: &EnvironmentPlan,
     width: u16,
@@ -179,11 +164,11 @@ fn environment_name_line(
     let reserved =
         Line::from(marker).width() + Line::from(checkbox).width() + 1 + Line::from(suffix).width();
     let name_width = usize::from(width).saturating_sub(reserved);
-    let name = fit_prefix(&environments::name(plan), name_width);
+    let name = take_from_start(&plan.display_name(), name_width);
     let selection_style = if selected {
         theme::overview_header_selected_style()
     } else if !compared {
-        theme::overview_header_muted_style()
+        theme::overview_muted_style()
     } else {
         theme::overview_text_style()
     };
@@ -224,7 +209,7 @@ fn status_line(plan: &EnvironmentPlan, width: u16) -> Line<'static> {
         Span::styled("    ", theme::overview_text_style()),
         environments::status_marker(plan.state()),
         Span::styled(
-            fit_prefix(status, usize::from(width).saturating_sub(6)),
+            take_from_start(status, usize::from(width).saturating_sub(6)),
             environments::status_style(plan.state()),
         ),
     ])
@@ -240,7 +225,7 @@ fn error_reason_line(plan: &EnvironmentPlan, width: u16) -> Line<'static> {
     Line::from(vec![
         Span::styled("    ", theme::overview_text_style()),
         Span::styled(
-            fit_prefix(reason, usize::from(width).saturating_sub(4)),
+            take_from_start(reason, usize::from(width).saturating_sub(4)),
             theme::overview_muted_style(),
         ),
     ])
@@ -250,7 +235,7 @@ fn retry_hint_line() -> Line<'static> {
     Line::from(vec![
         Span::styled("    ", theme::overview_text_style()),
         Span::styled("r", theme::overview_footer_key_style()),
-        Span::styled(" retry", theme::overview_footer_text_style()),
+        Span::styled(" retry", theme::overview_text_style()),
     ])
 }
 
@@ -362,24 +347,11 @@ fn count_span(prefix: &str, count: usize, width: usize, style: Style) -> Span<'s
     Span::styled(format!("{text:<width$}"), style)
 }
 
-fn fit_prefix(value: &str, width: usize) -> String {
-    let mut result = String::new();
-    let mut used = 0_usize;
-    for grapheme in Line::from(value).styled_graphemes(Style::default()) {
-        let character_width = usize::from(grapheme.symbol.cell_width());
-        if used.saturating_add(character_width) > width {
-            break;
-        }
-        used += character_width;
-        result.push_str(grapheme.symbol);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{CountWidths, count_lines, fit_prefix};
+    use super::{CountWidths, count_lines};
     use crate::app::plan::PlanSummary;
+    use crate::ui::shell::context::take_from_start;
 
     #[test]
     fn wrapped_count_lines_fit_the_sidebar_inner_width() {
@@ -406,6 +378,6 @@ mod tests {
     fn name_truncation_keeps_zwj_emoji_together() {
         let name = format!("{}👩‍💻tail", "a".repeat(31));
 
-        assert_eq!(fit_prefix(&name, 33), format!("{}👩‍💻", "a".repeat(31)));
+        assert_eq!(take_from_start(&name, 33), format!("{}👩‍💻", "a".repeat(31)));
     }
 }

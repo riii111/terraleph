@@ -651,8 +651,6 @@ mod layout {
             41,
             true,
             None,
-            false,
-            true,
         );
         assert_eq!(layout.environments.width, 41);
         assert_eq!(layout.matrix.height, 20);

@@ -49,16 +49,13 @@ pub(crate) fn overview_hint(
     let mut spans = Vec::new();
     for (index, key) in alternative_keys.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled(
-                KEY_SEPARATOR,
-                theme::overview_footer_separator_style(),
-            ));
+            spans.push(Span::styled(KEY_SEPARATOR, theme::overview_muted_style()));
         }
         spans.push(Span::styled(*key, theme::overview_footer_key_style()));
     }
     spans.push(Span::styled(
         format!(" {description}"),
-        theme::overview_footer_text_style(),
+        theme::overview_text_style(),
     ));
     Line::from(spans)
 }

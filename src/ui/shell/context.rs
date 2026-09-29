@@ -89,7 +89,7 @@ pub(crate) fn display_width(value: &str) -> usize {
         .sum()
 }
 
-pub(super) fn take_from_start(value: &str, max_width: usize) -> String {
+pub(crate) fn take_from_start(value: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut width = 0;
     for grapheme in Line::from(value).styled_graphemes(Style::default()) {

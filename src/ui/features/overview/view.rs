@@ -522,24 +522,8 @@ impl OverviewViewState {
         &self.overlay_scroll
     }
 
-    pub(crate) fn scroll_overlay(&mut self, delta: i16) {
-        self.overlay_scroll.scroll_by(delta);
-    }
-
-    pub(crate) fn scroll_overlay_left(&mut self) {
-        self.overlay_scroll.scroll_left();
-    }
-
-    pub(crate) fn scroll_overlay_right(&mut self) {
-        self.overlay_scroll.scroll_right();
-    }
-
-    pub(crate) const fn overlay_top(&mut self) {
-        self.overlay_scroll.top();
-    }
-
-    pub(crate) const fn overlay_bottom(&mut self) {
-        self.overlay_scroll.bottom();
+    pub(crate) const fn overlay_scroll_mut(&mut self) -> &mut DialogScroll {
+        &mut self.overlay_scroll
     }
 
     pub(crate) const fn close_overlay(&mut self) {

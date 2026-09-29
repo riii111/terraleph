@@ -1,5 +1,7 @@
 use std::cell::Cell;
 
+use crossterm::event::KeyCode;
+
 const COLUMN_STEP: u16 = 4;
 
 // The limit comes from the last render because only the dialog layout knows its wrapped height.
@@ -15,6 +17,23 @@ pub(crate) struct DialogScroll {
 }
 
 impl DialogScroll {
+    /// Applies the scroll keys every help, context, and message dialog shares. Returns false for
+    /// any other key so the caller can close the dialog or ignore it.
+    pub(crate) fn handle_key(&mut self, code: KeyCode, page: i16) -> bool {
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => self.scroll_by(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.scroll_by(1),
+            KeyCode::PageUp => self.scroll_by(-page),
+            KeyCode::PageDown => self.scroll_by(page),
+            KeyCode::Left | KeyCode::Char('h') => self.scroll_left(),
+            KeyCode::Right | KeyCode::Char('l') => self.scroll_right(),
+            KeyCode::Home => self.top(),
+            KeyCode::End => self.bottom(),
+            _ => return false,
+        }
+        true
+    }
+
     pub(crate) fn scroll_by(&mut self, delta: i16) {
         let current = self.clamped(self.offset);
         let next = if delta.is_negative() {

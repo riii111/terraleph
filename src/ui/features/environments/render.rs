@@ -20,7 +20,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::{Rect, Size},
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
@@ -31,16 +31,7 @@ impl EnvironmentView {
         if self.selection.raw.is_some() {
             return 1;
         }
-        let area = Rect::new(0, 0, size.width, size.height);
-        let sidebar_visible = self.sidebar_visible(size.width);
-        let layout = environments::overview_layout(
-            area,
-            self.sidebar_width,
-            sidebar_visible,
-            self.maximized_for_width(size.width),
-            !sidebar_visible && self.maximized_for_width(size.width).is_none(),
-            true,
-        );
+        let layout = self.overview_layout(Rect::new(0, 0, size.width, size.height));
         let content = self.matrix_content_layout(pane_inner(layout.matrix), state);
         let legend_height = if content.matrix.width < 50 { 2 } else { 1 };
         usize::from(content.matrix.height.saturating_sub(2 + legend_height + 1)).max(1)
@@ -50,25 +41,13 @@ impl EnvironmentView {
         let area = frame.area();
         self.initialize(Size::new(area.width, area.height), state);
         self.sync(state);
-        frame.render_widget(Block::new().style(theme::overview_background_style()), area);
-        let layout = if self.selection.raw.is_some() {
-            environments::overview_layout(area, self.sidebar_width, false, None, false, false)
-        } else {
-            let sidebar_visible = self.sidebar_visible(area.width);
-            environments::overview_layout(
-                area,
-                self.sidebar_width,
-                sidebar_visible,
-                self.maximized_for_width(area.width),
-                !sidebar_visible && self.maximized_for_width(area.width).is_none(),
-                true,
-            )
-        };
-        environments::render_header(frame, layout.header, state, &self.selection);
+        frame.render_widget(Block::new().style(theme::overview_text_style()), area);
         if let Some(index) = self.selection.raw
             && let Some(review) = state.plans()[index].review()
         {
-            let body = review_body(area, layout.header);
+            let header = header_row(area);
+            environments::render_header(frame, header, state, &self.selection);
+            let body = review_body(area, header);
             if self.confirming_quit {
                 plan_review::render_environment_with_quit_confirmation(
                     frame,
@@ -88,6 +67,8 @@ impl EnvironmentView {
                 );
             }
         } else {
+            let layout = self.overview_layout(area);
+            environments::render_header(frame, layout.header, state, &self.selection);
             self.render_overview(frame, &layout, state);
         }
         if self.confirming_quit && state.acquiring() {
@@ -130,13 +111,12 @@ impl EnvironmentView {
         let area = frame.area();
         self.initialize(Size::new(area.width, area.height), state);
         self.sync(state);
-        frame.render_widget(Block::new().style(theme::overview_background_style()), area);
-        let layout =
-            environments::overview_layout(area, self.sidebar_width, false, None, false, false);
-        environments::render_header(frame, layout.header, state, &self.selection);
+        frame.render_widget(Block::new().style(theme::overview_text_style()), area);
+        let header = header_row(area);
+        environments::render_header(frame, header, state, &self.selection);
         plan_review::render_environment(
             frame,
-            review_body(area, layout.header),
+            review_body(area, header),
             confirmation,
             &mut self.reviews[index],
             now,
@@ -145,9 +125,18 @@ impl EnvironmentView {
             frame,
             confirmation,
             confirmation_view,
-            Some(layout.header),
+            Some(header),
             now,
         );
+    }
+
+    pub(super) fn overview_layout(&self, area: Rect) -> environments::EnvironmentLayout {
+        environments::overview_layout(
+            area,
+            self.sidebar_width,
+            self.sidebar_visible(area.width),
+            self.maximized_for_width(area.width),
+        )
     }
 
     fn render_overview(
@@ -185,17 +174,11 @@ impl EnvironmentView {
                 self.active_pane(layout.header.width) == EnvironmentPane::Relations,
             );
         }
-        let matrix_state = if self.matrix.searching() {
-            MatrixFooterState::Searching
-        } else if self.matrix.filter().is_empty() {
-            MatrixFooterState::Unfiltered
-        } else {
-            MatrixFooterState::Filtered
-        };
         let focus = self.active_pane(layout.header.width);
-        let matrix_selection = self.matrix.selected_item(self.selection.column);
-        let enter_action = matches!(matrix_selection, Some(MatrixSelectedItem::Resource { .. }))
-            .then_some(MatrixEnterAction::OpenRow);
+        let row_selected = matches!(
+            self.matrix.selected_item(self.selection.column),
+            Some(MatrixSelectedItem::Resource { .. })
+        );
         let footer_lines = if self.confirming_quit {
             if state.acquiring() {
                 vec![Line::default()]
@@ -206,23 +189,18 @@ impl EnvironmentView {
             overview_footer(OverviewFooterContext {
                 width: layout.footer.width,
                 focus,
-                matrix: matrix_state,
+                searching: self.matrix.searching(),
                 expanded: self
                     .dialog
                     .is_none()
                     .then(|| self.matrix.selected_expanded())
                     .flatten(),
                 comparison_toggle_available: self.dialog.is_none(),
-                enter_action,
+                row_selected,
                 selected: state.plans().get(self.selection.column),
                 maximized: self.maximized.is_some(),
-                environment_navigation: if self.sidebar_enabled {
-                    EnvironmentNavigation::Multiple {
-                        sidebar_available: layout.header.width >= 90,
-                    }
-                } else {
-                    EnvironmentNavigation::Single
-                },
+                multiple: self.sidebar_enabled,
+                sidebar_available: self.sidebar_enabled && layout.header.width >= 90,
                 resize_guidance: layout.body.height < 3
                     || (focus == EnvironmentPane::Matrix
                         && (layout.matrix.width < 3 || layout.matrix.height < 3))
@@ -248,7 +226,7 @@ impl EnvironmentView {
         } else {
             matrix_title(self, state, area.width)
         };
-        let block = pane_block(focused, &title, overview_pane_border_style(focused));
+        let block = pane_block(focused, &title, theme::relation_frame_style(focused));
         let inner = block.inner(area);
         frame.render_widget(block, area);
         if inner.width == 0 || inner.height == 0 {
@@ -303,7 +281,7 @@ impl EnvironmentView {
         let environment = state
             .plans()
             .get(self.selection.column)
-            .map(environments::name);
+            .map(EnvironmentPlan::display_name);
         let scope = if environment.is_none() {
             "environment unavailable".to_owned()
         } else if self
@@ -372,6 +350,15 @@ impl EnvironmentView {
     }
 }
 
+const fn header_row(area: Rect) -> Rect {
+    Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        if area.height > 0 { 1 } else { 0 },
+    )
+}
+
 const fn review_body(area: Rect, header: Rect) -> Rect {
     Rect::new(
         area.x,
@@ -428,7 +415,7 @@ fn render_environment_summary(
 
 fn environment_summary_line(plan: &EnvironmentPlan) -> Line<'static> {
     let mut line = Line::from(vec![
-        Span::styled(environments::name(plan), theme::overview_text_style()),
+        Span::styled(plan.display_name(), theme::overview_text_style()),
         Span::styled(" ", theme::overview_muted_style()),
         environments::status_marker(plan.state()),
         Span::styled(
@@ -487,8 +474,8 @@ fn render_relations_status(
     let block = Block::new()
         .borders(Borders::ALL)
         .title(relations::title_line(title, focused))
-        .border_style(overview_pane_border_style(focused))
-        .style(theme::overview_background_style());
+        .border_style(theme::relation_frame_style(focused))
+        .style(theme::overview_text_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.width > 0 && inner.height > 0 {
@@ -513,41 +500,24 @@ fn pane_block(focused: bool, title: &str, border_style: Style) -> Block<'static>
     let mark = if focused { "* " } else { "  " };
     let (pane_name, context) = title.split_once(" · ").unwrap_or((title, ""));
     let mut title_spans = vec![
-        Span::styled(
-            mark,
-            if focused {
-                Style::default().fg(Color::Cyan).bg(Color::Reset)
-            } else {
-                theme::overview_muted_style()
-            },
-        ),
+        Span::styled(mark, theme::relation_frame_style(focused)),
         Span::styled(pane_name.to_owned(), theme::overview_pane_title_style()),
     ];
     if !context.is_empty() {
         title_spans.push(Span::styled(
             format!(" · {context}"),
-            theme::overview_header_muted_style(),
+            theme::overview_muted_style(),
         ));
     }
     Block::new()
         .borders(Borders::ALL)
         .title(Line::from(title_spans))
         .border_style(border_style)
-        .style(theme::overview_background_style())
+        .style(theme::overview_text_style())
 }
 
 fn pane_inner(area: Rect) -> Rect {
-    pane_block(false, "", overview_pane_border_style(false)).inner(area)
-}
-
-fn overview_pane_border_style(focused: bool) -> Style {
-    Style::default()
-        .fg(if focused {
-            Color::Cyan
-        } else {
-            Color::DarkGray
-        })
-        .bg(Color::Reset)
+    pane_block(false, "", theme::relation_frame_style(false)).inner(area)
 }
 
 fn overview_context(view: &EnvironmentView, state: &EnvironmentSession) -> String {
@@ -604,10 +574,7 @@ fn matrix_title(view: &EnvironmentView, state: &EnvironmentSession, width: u16) 
 fn matrix_pane_name(view: &EnvironmentView, state: &EnvironmentSession) -> String {
     let compared = view.compared_environments(state.plans().len());
     if compared.len() == 1 {
-        format!(
-            "Changes · {}",
-            environments::name(&state.plans()[compared[0]])
-        )
+        format!("Changes · {}", state.plans()[compared[0]].display_name())
     } else {
         "Compare".to_owned()
     }
@@ -832,229 +799,132 @@ fn comparison_help() -> help_dialog::HelpSection {
 }
 
 #[derive(Clone, Copy)]
-enum MatrixFooterState {
-    Searching,
-    Filtered,
-    Unfiltered,
-}
-
-// The Same change summary has no Enter action; Space alone expands it, keeping one key per action.
-#[derive(Clone, Copy)]
-enum MatrixEnterAction {
-    OpenRow,
-}
-
-impl MatrixEnterAction {
-    const fn label(self, compact: bool) -> &'static str {
-        match (self, compact) {
-            (Self::OpenRow, true) => "open row",
-            (Self::OpenRow, false) => "open selected row",
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum EnvironmentNavigation {
-    Single,
-    Multiple { sidebar_available: bool },
-}
-
-impl EnvironmentNavigation {
-    const fn is_multiple(self) -> bool {
-        matches!(self, Self::Multiple { .. })
-    }
-
-    const fn sidebar_available(self) -> bool {
-        matches!(
-            self,
-            Self::Multiple {
-                sidebar_available: true
-            }
-        )
-    }
-}
-
-#[derive(Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent footer condition from the environment view"
+)]
 struct OverviewFooterContext<'a> {
     width: u16,
     focus: environments::EnvironmentPane,
-    matrix: MatrixFooterState,
+    searching: bool,
     expanded: Option<bool>,
     comparison_toggle_available: bool,
-    enter_action: Option<MatrixEnterAction>,
+    // The Same change summary has no Enter action; Space alone expands it.
+    row_selected: bool,
     selected: Option<&'a EnvironmentPlan>,
     maximized: bool,
-    environment_navigation: EnvironmentNavigation,
+    multiple: bool,
+    sidebar_available: bool,
     resize_guidance: bool,
+}
+
+fn resize_guidance_footer(width: u16) -> Vec<Line<'static>> {
+    footer::layout_prioritized(
+        vec![
+            (
+                80,
+                Line::from(Span::styled(
+                    "Resize terminal to view pane content",
+                    theme::overview_text_style(),
+                )),
+            ),
+            (110, footer::overview_hint(&["?"], "help")),
+            (120, footer::overview_hint(&["q"], "quit")),
+        ],
+        width,
+    )
 }
 
 fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
     let OverviewFooterContext {
         width,
         focus,
-        matrix,
+        searching,
         expanded,
         comparison_toggle_available,
-        enter_action,
+        row_selected,
         selected,
         maximized,
-        environment_navigation,
+        multiple,
+        sidebar_available,
         resize_guidance,
     } = context;
     if resize_guidance {
-        return footer::layout_prioritized(
-            vec![
-                (
-                    80,
-                    Line::from(Span::styled(
-                        "Resize terminal to view pane content",
-                        theme::overview_footer_text_style(),
-                    )),
-                ),
-                (110, overview_footer_hint(&["?"], "help")),
-                (120, overview_footer_hint(&["q"], "quit")),
-            ],
-            width,
-        );
+        return resize_guidance_footer(width);
     }
-    if matches!(matrix, MatrixFooterState::Searching) {
+    if searching {
         return footer::layout(
             vec![
-                overview_footer_hint(&["Enter"], "confirm"),
-                overview_footer_hint(&["Esc"], "cancel"),
+                footer::overview_hint(&["Enter"], "confirm"),
+                footer::overview_hint(&["Esc"], "cancel"),
             ],
             width,
         );
     }
-    if width < 45 {
-        return compact_overview_footer(context);
-    }
+    let compact = width < 45;
     let mut items = Vec::new();
-    if focus == environments::EnvironmentPane::Environments {
-        items.push((100, overview_footer_hint(&["Enter"], "open plan")));
-        if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "toggle")));
+    match focus {
+        EnvironmentPane::Environments => {
+            items.push((100, footer::overview_hint(&["Enter"], "open plan")));
+            if comparison_toggle_available {
+                items.push((90, footer::overview_hint(&["Space"], "toggle")));
+            }
+            if !compact {
+                items.push((55, footer::overview_hint(&["o"], "only")));
+                items.push((55, footer::overview_hint(&["a"], "all")));
+            }
         }
-        items.push((55, overview_footer_hint(&["o"], "only")));
-        items.push((55, overview_footer_hint(&["a"], "all")));
-    } else if focus == environments::EnvironmentPane::Matrix {
-        if let Some(action) = enter_action {
-            items.push((100, overview_footer_hint(&["Enter"], action.label(false))));
+        EnvironmentPane::Matrix => {
+            if row_selected {
+                let label = if compact {
+                    "open row"
+                } else {
+                    "open selected row"
+                };
+                items.push((100, footer::overview_hint(&["Enter"], label)));
+            }
+            if !compact {
+                items.push((75, footer::overview_hint(&["v"], "full plan")));
+                items.push((65, footer::overview_hint(&["/"], "filter")));
+            }
+            if let Some(expanded) = expanded {
+                let label = match (expanded, compact) {
+                    (true, true) => "collapse",
+                    (true, false) => "collapse selected",
+                    (false, true) => "expand",
+                    (false, false) => "expand selected",
+                };
+                items.push((90, footer::overview_hint(&["Space"], label)));
+            }
         }
-        items.push((75, overview_footer_hint(&["v"], "full plan")));
-        items.push((65, overview_footer_hint(&["/"], "filter")));
-        if let Some(expanded) = expanded {
-            items.push((
-                90,
-                overview_footer_hint(
-                    &["Space"],
-                    if expanded {
-                        "collapse selected"
-                    } else {
-                        "expand selected"
-                    },
-                ),
-            ));
-        }
-    } else {
         // In [3] Enter and v both open the plan from the top, so only Enter is listed.
-        items.push((100, overview_footer_hint(&["Enter"], "open plan")));
+        EnvironmentPane::Relations => {
+            items.push((100, footer::overview_hint(&["Enter"], "open plan")));
+        }
     }
     if selected.is_some_and(|plan| matches!(plan.state(), EnvironmentState::Error)) {
-        items.push((95, overview_footer_hint(&["r"], "retry")));
+        items.push((95, footer::overview_hint(&["r"], "retry")));
     }
-    items.extend(overview_common_footer_items(
-        focus,
-        maximized,
-        environment_navigation,
-    ));
-    footer::layout_prioritized(items, width)
-}
-
-fn overview_common_footer_items(
-    focus: environments::EnvironmentPane,
-    maximized: bool,
-    environment_navigation: EnvironmentNavigation,
-) -> Vec<(u8, Line<'static>)> {
-    let sidebar_available = environment_navigation.sidebar_available();
-    let mut items = Vec::new();
-    if environment_navigation.is_multiple() {
-        items.push((70, overview_footer_hint(&["[", "]"], "env")));
+    if compact && focus == EnvironmentPane::Matrix {
+        items.push((75, footer::overview_hint(&["v"], "full plan")));
+    }
+    if multiple {
+        items.push((70, footer::overview_hint(&["[", "]"], "env")));
     }
     if sidebar_available && !maximized {
-        items.push((45, overview_footer_hint(&["b"], "toggle envs")));
+        items.push((45, footer::overview_hint(&["b"], "toggle envs")));
     }
-    if focus != environments::EnvironmentPane::Environments {
+    if focus != EnvironmentPane::Environments {
         items.push((
             50,
             if maximized {
-                overview_footer_hint(&["f", "Esc"], "restore")
+                footer::overview_hint(&["f", "Esc"], "restore")
             } else {
-                overview_footer_hint(&["f"], "maximize")
+                footer::overview_hint(&["f"], "maximize")
             },
         ));
     }
-    items.push((110, overview_footer_hint(&["?"], "help")));
-    items.push((120, overview_footer_hint(&["q"], "quit")));
-    items
-}
-
-fn compact_overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
-    let OverviewFooterContext {
-        width,
-        focus,
-        expanded,
-        comparison_toggle_available,
-        enter_action,
-        selected,
-        maximized,
-        environment_navigation,
-        ..
-    } = context;
-    let mut items = Vec::new();
-    if focus == environments::EnvironmentPane::Environments {
-        items.push((100, overview_footer_hint(&["Enter"], "open plan")));
-        if comparison_toggle_available {
-            items.push((90, overview_footer_hint(&["Space"], "toggle")));
-        }
-    } else if focus == environments::EnvironmentPane::Matrix {
-        if let Some(action) = enter_action {
-            items.push((100, overview_footer_hint(&["Enter"], action.label(true))));
-        }
-        if let Some(expanded) = expanded {
-            items.push((
-                90,
-                overview_footer_hint(&["Space"], if expanded { "collapse" } else { "expand" }),
-            ));
-        }
-    } else {
-        items.push((100, overview_footer_hint(&["Enter"], "open plan")));
-    }
-    if selected.is_some_and(|plan| matches!(plan.state(), EnvironmentState::Error)) {
-        items.push((95, overview_footer_hint(&["r"], "retry")));
-    }
-    if focus == environments::EnvironmentPane::Matrix {
-        items.push((75, overview_footer_hint(&["v"], "full plan")));
-    }
-    items.extend(overview_common_footer_items(
-        focus,
-        maximized,
-        environment_navigation,
-    ));
+    items.push((110, footer::overview_hint(&["?"], "help")));
+    items.push((120, footer::overview_hint(&["q"], "quit")));
     footer::layout_prioritized(items, width)
-}
-
-fn overview_footer_hint(keys: &[&'static str], description: &'static str) -> Line<'static> {
-    let mut spans = Vec::new();
-    for (index, key) in keys.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled("/", theme::overview_footer_separator_style()));
-        }
-        spans.push(Span::styled(*key, theme::overview_footer_key_style()));
-    }
-    spans.push(Span::styled(
-        format!(" {description}"),
-        theme::overview_footer_text_style(),
-    ));
-    Line::from(spans)
 }

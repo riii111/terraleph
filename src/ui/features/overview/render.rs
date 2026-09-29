@@ -17,7 +17,7 @@ use crate::ui::{
         atoms::{scrollbar, separator},
         molecules::{context_dialog, help_dialog, terminal_notice},
     },
-    shell::{context, environments, footer, header, layout as shell_layout},
+    shell::{context, footer, header, layout as shell_layout},
     theme,
 };
 
@@ -158,7 +158,7 @@ pub(crate) fn render_with_quit_confirmation(
     }
     header::render_overview_review(frame, layout.shell.header(), state.review());
     frame.render_widget(
-        Block::new().style(theme::overview_background_style()),
+        Block::new().style(theme::overview_text_style()),
         layout.shell.content(),
     );
     frame.render_widget(
@@ -245,7 +245,7 @@ fn render_terminal_size_notice(frame: &mut Frame<'_>, area: Rect, quit_confirmat
 fn status_line(state: &ReviewSessionState, view: &OverviewViewState) -> Line<'static> {
     let counts = state.review().summary();
     let mut spans = vec![
-        environments::ready_status_marker(),
+        Span::styled("✓ ", theme::overview_total_add_style()),
         Span::styled("Ready", theme::overview_text_style()),
     ];
     append_count(
@@ -348,10 +348,7 @@ fn render_changes_panel(
             theme::relation_frame_style(focused),
         ),
         Span::styled(pane_name.to_owned(), theme::overview_pane_title_style()),
-        Span::styled(
-            format!(" · {environment}"),
-            theme::overview_header_muted_style(),
-        ),
+        Span::styled(format!(" · {environment}"), theme::overview_muted_style()),
     ]);
     let block = Block::bordered()
         .title(title)
@@ -1464,7 +1461,7 @@ mod tests {
             insta::assert_snapshot!(format!("overview_help_{width}x{height}"), text);
         }
 
-        view.overlay_bottom();
+        view.overlay_scroll_mut().bottom();
         let bottom = render_to_buffer((40, 16), |frame| {
             render(frame, &state, &view, Instant::now());
         });
@@ -1527,20 +1524,20 @@ mod tests {
         assert!(top.contains("Execution directory"), "{top}");
         assert!(!top.contains("TF_VAR_31"), "{top}");
 
-        view.overlay_bottom();
+        view.overlay_scroll_mut().bottom();
         for size in [(80, 24), (40, 16)] {
             let (line, text) = last_context_body_line(&long, &view, size);
             assert!(line.contains("TF_VAR_31"), "{size:?}\n{text}");
         }
 
-        view.overlay_top();
+        view.overlay_scroll_mut().top();
         for _ in 0..10 {
-            view.scroll_overlay(8);
+            view.overlay_scroll_mut().scroll_by(8);
         }
         let (line, text) = last_context_body_line(&long, &view, (80, 24));
         assert!(line.contains("TF_VAR_31"), "{text}");
 
-        view.overlay_bottom();
+        view.overlay_scroll_mut().bottom();
         let (line, text) = last_context_body_line(&short, &view, (80, 24));
         assert!(line.contains("none detected"), "{text}");
         assert!(text.contains("Execution directory"), "{text}");
@@ -1551,10 +1548,10 @@ mod tests {
         for (name, delta, expected) in [("up", -1, "TF_VAR_30"), ("page_up", -8, "TF_VAR_23")] {
             let state = long_context_state();
             let mut view = context_view(&state);
-            view.overlay_bottom();
+            view.overlay_scroll_mut().bottom();
             last_context_body_line(&state, &view, (80, 24));
 
-            view.scroll_overlay(delta);
+            view.overlay_scroll_mut().scroll_by(delta);
             let (line, text) = last_context_body_line(&state, &view, (80, 24));
 
             assert!(line.contains(expected), "case: {name}\n{text}");
@@ -1582,10 +1579,10 @@ mod tests {
                 0,
                 &content,
             );
-            view.overlay_bottom();
+            view.overlay_scroll_mut().bottom();
             let end = help_rows(&view);
 
-            view.scroll_overlay(delta);
+            view.overlay_scroll_mut().scroll_by(delta);
             let scrolled = help_rows(&view);
 
             assert!(

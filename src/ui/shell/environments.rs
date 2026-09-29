@@ -22,25 +22,15 @@ pub(crate) enum EnvironmentPane {
     Relations,
 }
 
+// Every marker keeps two columns so the status words line up.
 pub(crate) fn status_marker(state: &EnvironmentState) -> Span<'static> {
-    let (symbol, style) = match state {
-        EnvironmentState::Ready { .. } => ("✓", theme::overview_total_add_style()),
-        EnvironmentState::Error => ("✗", theme::overview_total_destroy_style()),
+    match state {
+        EnvironmentState::Ready { .. } => Span::styled("✓ ", theme::overview_total_add_style()),
+        EnvironmentState::Error => Span::styled("✗ ", theme::overview_total_destroy_style()),
         EnvironmentState::Pending | EnvironmentState::Running | EnvironmentState::ExcludedHcp => {
-            ("", theme::overview_muted_style())
+            Span::styled("  ", theme::overview_muted_style())
         }
-    };
-    fixed_status_marker(symbol, style)
-}
-
-pub(crate) fn ready_status_marker() -> Span<'static> {
-    fixed_status_marker("✓", theme::overview_total_add_style())
-}
-
-fn fixed_status_marker(symbol: &str, style: ratatui::style::Style) -> Span<'static> {
-    const WIDTH: usize = 2;
-    let padding = WIDTH.saturating_sub(Line::from(symbol).width());
-    Span::styled(format!("{symbol}{}", " ".repeat(padding)), style)
+    }
 }
 
 pub(crate) fn status_style(state: &EnvironmentState) -> ratatui::style::Style {
@@ -79,9 +69,8 @@ pub(crate) fn overview_layout(
     sidebar_width: u16,
     sidebar_visible: bool,
     maximized: Option<EnvironmentPane>,
-    show_summary: bool,
-    show_relations: bool,
 ) -> EnvironmentLayout {
+    let show_summary = !sidebar_visible && maximized.is_none();
     let header = Rect::new(area.x, area.y, area.width, area.height.min(1));
     let footer_height = if area.height < 6 {
         1
@@ -124,18 +113,14 @@ pub(crate) fn overview_layout(
             } else {
                 body
             };
-            if show_relations {
-                let matrix_height = right.height.saturating_mul(4) / 10;
-                matrix = Rect::new(right.x, right.y, right.width, matrix_height);
-                relations = Rect::new(
-                    right.x,
-                    right.y.saturating_add(matrix_height),
-                    right.width,
-                    right.height.saturating_sub(matrix_height),
-                );
-            } else {
-                matrix = right;
-            }
+            let matrix_height = right.height.saturating_mul(4) / 10;
+            matrix = Rect::new(right.x, right.y, right.width, matrix_height);
+            relations = Rect::new(
+                right.x,
+                right.y.saturating_add(matrix_height),
+                right.width,
+                right.height.saturating_sub(matrix_height),
+            );
         }
     }
 
@@ -154,7 +139,7 @@ pub(crate) fn sidebar_width(plans: &[EnvironmentPlan]) -> u16 {
     let widest_row = plans
         .iter()
         .map(|plan| {
-            Line::from(name(plan))
+            Line::from(plan.display_name())
                 .width()
                 .saturating_add(if plan.is_production() { 6 } else { 0 })
                 .saturating_add(4)
@@ -198,22 +183,18 @@ pub(crate) fn render_header(
         .width()
         .min(usize::from(area.width));
     let title_width = usize::from(area.width).saturating_sub(tool_width.saturating_add(1));
-    let title = fit_end(&title, title_width);
+    let title = truncate_middle(&title, title_width);
     let gap =
         usize::from(area.width).saturating_sub(Line::from(title.as_str()).width() + tool_width);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(title, theme::overview_header_style()),
-            Span::styled(" ".repeat(gap), theme::overview_header_style()),
+            Span::styled(title, theme::overview_text_style()),
+            Span::styled(" ".repeat(gap), theme::overview_text_style()),
             Span::styled(tool, theme::overview_text_style()),
         ]))
-        .style(theme::overview_header_style()),
+        .style(theme::overview_text_style()),
         area,
     );
-}
-
-pub(crate) fn name(plan: &EnvironmentPlan) -> String {
-    plan.display_name()
 }
 
 pub(crate) fn context(plan: &EnvironmentPlan) -> String {
@@ -233,8 +214,4 @@ pub(crate) const fn status(plan: &EnvironmentPlan) -> &'static str {
         EnvironmentState::Error => "Error",
         EnvironmentState::ExcludedHcp => "Excluded: HCP execution",
     }
-}
-
-fn fit_end(value: &str, width: usize) -> String {
-    truncate_middle(value, width)
 }

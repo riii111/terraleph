@@ -263,17 +263,13 @@ impl EnvironmentView {
             self.relation_revision = Some(state.revision());
             self.relation_environments = selection.indexes().to_vec();
         }
-        let relation_overview = self
+        let overview = &self
             .environment_relations
             .as_ref()
-            .expect("environment relations are initialized during sync");
-        let matrix_overview = if environments.len() == state.plans().len() {
-            state.overview()
-        } else {
-            &relation_overview.overview
-        };
+            .expect("environment relations are initialized during sync")
+            .overview;
         self.matrix
-            .sync(state, &environments, self.selection.column, matrix_overview);
+            .sync(state, &environments, self.selection.column, overview);
     }
 
     fn selected_relation_node(&self, state: &EnvironmentSession) -> Option<&RelationNodeId> {
@@ -326,7 +322,7 @@ impl EnvironmentView {
         state: &EnvironmentSession,
     ) -> ControlFlow<Option<EnvironmentInput>> {
         if let Some(index) = self.selection.raw {
-            return self.raw_navigation(key, index, size, state);
+            return self.raw_navigation(key, index, state);
         }
 
         if self.active_pane(size.width) == EnvironmentPane::Relations
@@ -344,15 +340,13 @@ impl EnvironmentView {
                 }
                 return ControlFlow::Break(None);
             }
-            KeyCode::Char('2') => {
-                self.focus = EnvironmentPane::Matrix;
-                self.last_right_focus = EnvironmentPane::Matrix;
-                self.maximized = None;
-                return ControlFlow::Break(None);
-            }
-            KeyCode::Char('3') => {
-                self.focus = EnvironmentPane::Relations;
-                self.last_right_focus = EnvironmentPane::Relations;
+            KeyCode::Char(pane @ ('2' | '3')) => {
+                self.focus = if pane == '2' {
+                    EnvironmentPane::Matrix
+                } else {
+                    EnvironmentPane::Relations
+                };
+                self.last_right_focus = self.focus;
                 self.maximized = None;
                 return ControlFlow::Break(None);
             }
@@ -463,15 +457,8 @@ impl EnvironmentView {
     }
 
     fn scroll_relations_vertically(&mut self, key: KeyCode, size: Size) {
-        let sidebar_visible = self.sidebar_visible(size.width);
-        let layout = environments::overview_layout(
-            ratatui::layout::Rect::new(0, 0, size.width, size.height),
-            self.sidebar_width,
-            sidebar_visible,
-            self.maximized_for_width(size.width),
-            !sidebar_visible && self.maximized_for_width(size.width).is_none(),
-            true,
-        );
+        let layout =
+            self.overview_layout(ratatui::layout::Rect::new(0, 0, size.width, size.height));
         let page = layout.relations.height.saturating_sub(5).max(1);
         let Some(scroll) = self.relation_scrolls.get_mut(self.selection.column) else {
             return;
@@ -491,7 +478,6 @@ impl EnvironmentView {
         &mut self,
         key: KeyEvent,
         index: usize,
-        _size: Size,
         state: &EnvironmentSession,
     ) -> ControlFlow<Option<EnvironmentInput>> {
         match key.code {
@@ -548,19 +534,9 @@ impl EnvironmentView {
             KeyCode::Enter | KeyCode::Char('v') => {
                 return ControlFlow::Break(self.open(state, self.selection.column));
             }
-            KeyCode::Char('c') => {
-                if let Some(plan) = state.plans().get(self.selection.column) {
-                    self.show_dialog(format!(
-                        "Context\n{}\n\nEsc close",
-                        environments::context(plan)
-                    ));
-                }
-            }
+            KeyCode::Char('c') => self.show_context(state),
             KeyCode::Char('y') => {
-                return ControlFlow::Break(Some(EnvironmentInput::Review(
-                    self.selection.column,
-                    Box::new(Action::Copy(CopyTarget::Plan)),
-                )));
+                return ControlFlow::Break(Some(copy_plan(self.selection.column)));
             }
             KeyCode::Char('?') => self.help(),
             _ => return ControlFlow::Continue(()),
@@ -579,17 +555,9 @@ impl EnvironmentView {
             OverviewInput::Quit => self.quit(),
             OverviewInput::Open => self.open_selected_matrix_row(state),
             OverviewInput::ViewPlan => self.open(state, self.selection.column),
-            OverviewInput::Copy => Some(EnvironmentInput::Review(
-                self.selection.column,
-                Box::new(Action::Copy(CopyTarget::Plan)),
-            )),
+            OverviewInput::Copy => Some(copy_plan(self.selection.column)),
             OverviewInput::OpenContext => {
-                if let Some(plan) = state.plans().get(self.selection.column) {
-                    self.show_dialog(format!(
-                        "Context\n{}\n\nEsc close",
-                        environments::context(plan)
-                    ));
-                }
+                self.show_context(state);
                 None
             }
             OverviewInput::OpenHelp => {
@@ -623,35 +591,10 @@ impl EnvironmentView {
         let area = Self::raw_area(size);
         let view = &mut self.reviews[index];
         if view.overlay().is_some() {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('?') => view.close_overlay(),
-                KeyCode::Up => view.scroll_overlay(-1),
-                KeyCode::Down => view.scroll_overlay(1),
-                KeyCode::Char('k')
-                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
-                {
-                    view.scroll_overlay(-1);
-                }
-                KeyCode::Char('j')
-                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
-                {
-                    view.scroll_overlay(1);
-                }
-                KeyCode::PageUp => view.scroll_overlay(-8),
-                KeyCode::PageDown => view.scroll_overlay(8),
-                KeyCode::Left => view.scroll_overlay_left(),
-                KeyCode::Right => view.scroll_overlay_right(),
-                KeyCode::Char('h')
-                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
-                {
-                    view.scroll_overlay_left();
-                }
-                KeyCode::Char('l')
-                    if view.overlay() == Some(plan_review::PlanReviewOverlay::Help) =>
-                {
-                    view.scroll_overlay_right();
-                }
-                _ => {}
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                view.close_overlay();
+            } else {
+                view.overlay_scroll_mut().handle_key(key.code, 8);
             }
             return None;
         }
@@ -662,12 +605,7 @@ impl EnvironmentView {
         )?;
         match input {
             PlanReviewInput::Quit => return self.quit(),
-            PlanReviewInput::Copy => {
-                return Some(EnvironmentInput::Review(
-                    index,
-                    Box::new(Action::Copy(CopyTarget::Plan)),
-                ));
-            }
+            PlanReviewInput::Copy => return Some(copy_plan(index)),
             PlanReviewInput::Apply => {
                 let review = review.review();
                 if !review.apply_allowed() || !review.metadata().applyable() {
@@ -775,7 +713,7 @@ impl EnvironmentView {
             self.select_environment(index);
             self.show_dialog(format!(
                 "{}: {}\n{}\n{}\n\nEsc close   r retries Error after closing",
-                environments::name(plan),
+                plan.display_name(),
                 environments::status(plan),
                 environments::context(plan),
                 if matches!(plan.state(), EnvironmentState::Error) {
@@ -827,7 +765,7 @@ impl EnvironmentView {
         {
             self.notice = Some(format!(
                 "{} has not finished plan acquisition.",
-                environments::name(plan)
+                plan.display_name()
             ));
             return None;
         }
@@ -836,14 +774,14 @@ impl EnvironmentView {
                 CellState::Unavailable => {
                     self.notice = Some(format!(
                         "{} has not finished plan acquisition.",
-                        environments::name(plan)
+                        plan.display_name()
                     ));
                     return None;
                 }
                 CellState::Missing => {
                     self.notice = Some(format!(
                         "{} has no resource in this row.",
-                        environments::name(plan)
+                        plan.display_name()
                     ));
                     return None;
                 }
@@ -870,7 +808,7 @@ impl EnvironmentView {
         let Some(review) = plan.review() else {
             self.notice = Some(format!(
                 "{} has no ready plan for this row.",
-                environments::name(plan)
+                plan.display_name()
             ));
             return None;
         };
@@ -887,7 +825,7 @@ impl EnvironmentView {
             let row = addresses.first().map_or("the selected row", String::as_str);
             self.notice = Some(format!(
                 "No source block for {row} in {}.",
-                environments::name(plan)
+                plan.display_name()
             ));
             return None;
         };
@@ -901,25 +839,23 @@ impl EnvironmentView {
     }
 
     fn handle_dialog_key(&mut self, key: KeyEvent) -> Option<EnvironmentInput> {
-        let is_help = matches!(self.dialog, Some(EnvironmentDialog::Help));
         match key.code {
             KeyCode::Esc | KeyCode::Char('?') => self.dialog = None,
-            KeyCode::Up | KeyCode::Char('k') if is_help => self.dialog_scroll.scroll_by(-1),
-            KeyCode::Down | KeyCode::Char('j') if is_help => self.dialog_scroll.scroll_by(1),
-            KeyCode::Up => self.dialog_scroll.scroll_by(-1),
-            KeyCode::Down => self.dialog_scroll.scroll_by(1),
-            KeyCode::PageUp => self.dialog_scroll.scroll_by(-4),
-            KeyCode::PageDown => self.dialog_scroll.scroll_by(4),
-            KeyCode::Left | KeyCode::Char('h') if is_help => {
-                self.dialog_scroll.scroll_left();
-            }
-            KeyCode::Right | KeyCode::Char('l') if is_help => {
-                self.dialog_scroll.scroll_right();
-            }
             KeyCode::Char('q') => return self.quit(),
-            _ => {}
+            code => {
+                self.dialog_scroll.handle_key(code, 4);
+            }
         }
         None
+    }
+
+    fn show_context(&mut self, state: &EnvironmentSession) {
+        if let Some(plan) = state.plans().get(self.selection.column) {
+            self.show_dialog(format!(
+                "Context\n{}\n\nEsc close",
+                environments::context(plan)
+            ));
+        }
     }
 
     fn show_dialog(&mut self, text: String) {
@@ -936,6 +872,10 @@ impl EnvironmentView {
         self.confirming_quit = true;
         None
     }
+}
+
+fn copy_plan(index: usize) -> EnvironmentInput {
+    EnvironmentInput::Review(index, Box::new(Action::Copy(CopyTarget::Plan)))
 }
 
 fn adjacent_environment(active: usize, delta: isize, count: usize) -> usize {
