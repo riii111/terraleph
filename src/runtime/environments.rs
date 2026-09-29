@@ -27,12 +27,15 @@ use crate::{
             configuration::{self, ExecutionLocation},
         },
     },
-    ui::features::environments::{EnvironmentInput, EnvironmentView},
+    ui::features::{
+        environments::{EnvironmentInput, EnvironmentView},
+        execution::ExecutionViewState,
+    },
 };
 
 use super::{
     WorkerGuard,
-    event_loop::{self, RuntimeEffects, SessionViews},
+    event_loop::{self, ClipboardWriter, RuntimeEffects, SessionViews},
     invocation::Invocation,
     terminal::{self, TerminalInput},
 };
@@ -251,10 +254,6 @@ impl ApplyRuntime {
         clipboard: &mut ClipboardExecutor,
         dirty: &mut bool,
     ) -> io::Result<ApplyStep> {
-        let finished = self.worker.poll_finished();
-        if finished.as_ref().is_some_and(Result::is_err) {
-            return Err(super::worker_panic_error(super::WorkerKind::Apply));
-        }
         // Apply runs only the saved plan acquired and reviewed for this environment, in its own
         // directory; it never re-plans and never touches another environment's plan.
         let mut effects = RuntimeEffects {
@@ -273,24 +272,15 @@ impl ApplyRuntime {
             apply_worker: &mut self.worker,
             history: self.history.as_ref(),
         };
-        if let Some(session) = state.session_mut(apply.index) {
-            let execution_view = &mut apply.views.execution;
-            let (outcome, received) =
-                event_loop::receive_messages(&self.receiver, session, execution_view, &mut effects);
-            *dirty |= received;
-            if let Some(outcome) = outcome {
-                return Ok(ApplyStep::Finished(outcome));
-            }
-            let (outcome, disconnected) = event_loop::dispatch_apply_disconnect(
-                session,
-                execution_view,
-                finished.is_some(),
-                &mut effects,
-            );
-            *dirty |= disconnected;
-            if let Some(outcome) = outcome {
-                return Ok(ApplyStep::Finished(outcome));
-            }
+        let (outcome, redraw) = receive_apply(
+            &self.receiver,
+            state.session_mut(apply.index),
+            &mut apply.views.execution,
+            &mut effects,
+        )?;
+        *dirty |= redraw;
+        if let Some(outcome) = outcome {
+            return Ok(ApplyStep::Finished(outcome));
         }
         draw_apply_if_needed(
             terminal,
@@ -338,6 +328,31 @@ impl ApplyRuntime {
             history: HistoryStore::platform(),
         }
     }
+}
+
+// A worker panic is reported before any message is read. A disconnect is judged only after the
+// messages the worker sent have been processed, so a final message is never lost to it.
+fn receive_apply<C: ClipboardWriter>(
+    messages: &mpsc::Receiver<PlanReviewMessage>,
+    session: Option<&mut SessionState>,
+    execution_view: &mut ExecutionViewState,
+    effects: &mut RuntimeEffects<'_, C>,
+) -> io::Result<(Option<SessionOutcome>, bool)> {
+    let finished = effects.apply_worker.poll_finished();
+    if finished.as_ref().is_some_and(Result::is_err) {
+        return Err(super::worker_panic_error(super::WorkerKind::Apply));
+    }
+    let Some(session) = session else {
+        return Ok((None, false));
+    };
+    let (outcome, received) =
+        event_loop::receive_messages(messages, session, execution_view, effects);
+    if outcome.is_some() {
+        return Ok((outcome, received));
+    }
+    let (outcome, disconnected) =
+        event_loop::dispatch_apply_disconnect(session, execution_view, finished.is_some(), effects);
+    Ok((outcome, received || disconnected))
 }
 
 fn draw_apply_if_needed<B: Backend>(
@@ -561,8 +576,9 @@ mod tests {
     use super::*;
     use crate::{
         app::{
-            copy::{CopyResult, CopyTarget},
+            copy::{CopyEffect, CopyResult, CopyTarget},
             environments::{EnvironmentAvailability, EnvironmentIdentity},
+            execution::{ApplyStatus, ExecutionState},
             plan::Plan,
             review::{PlanMetadata, PlanReview, test_support::plan_document},
             session::Action,
@@ -619,6 +635,145 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    mod receive_apply {
+        use super::*;
+
+        const DISCONNECT_MESSAGE: &str = "Apply worker disconnected.";
+
+        struct Fixture {
+            sender: mpsc::Sender<PlanReviewMessage>,
+            receiver: mpsc::Receiver<PlanReviewMessage>,
+            cancellation: CancellationToken,
+            worker: WorkerGuard,
+            session: SessionState,
+            view: ExecutionViewState,
+        }
+
+        impl Fixture {
+            fn new(worker: Option<thread::JoinHandle<()>>) -> Self {
+                if let Some(handle) = &worker {
+                    while !handle.is_finished() {
+                        thread::yield_now();
+                    }
+                }
+                let cancellation = CancellationToken::new();
+                let (sender, receiver) = mpsc::channel();
+                Self {
+                    sender,
+                    receiver,
+                    worker: WorkerGuard {
+                        cancellation: cancellation.clone(),
+                        handle: worker,
+                    },
+                    cancellation,
+                    session: SessionState::Apply(Box::new(ExecutionState::applying(
+                        Instant::now(),
+                        ExecutionContext::loading("/project"),
+                    ))),
+                    view: ExecutionViewState::default(),
+                }
+            }
+
+            fn queue_apply_completed(&self) {
+                self.sender
+                    .send(PlanReviewMessage::ApplyCompleted {
+                        status: ApplyStatus::Succeeded,
+                        summary_line: None,
+                    })
+                    .expect("the receiver should be alive");
+            }
+
+            fn receive(&mut self) -> io::Result<(Option<SessionOutcome>, bool)> {
+                let mut clipboard = NoClipboard;
+                let mut effects = RuntimeEffects {
+                    tool: Tool::Terraform,
+                    root: Path::new("/project"),
+                    display_root: Path::new("/project"),
+                    global_arguments: &[],
+                    apply_arguments: &[],
+                    sender: &self.sender,
+                    plan_path: None,
+                    cancellation: &self.cancellation,
+                    clipboard: &mut clipboard,
+                    apply_worker: &mut self.worker,
+                    history: None,
+                };
+                receive_apply(
+                    &self.receiver,
+                    Some(&mut self.session),
+                    &mut self.view,
+                    &mut effects,
+                )
+            }
+
+            fn reports_disconnect(&self) -> bool {
+                self.session.apply().is_some_and(|apply| {
+                    apply
+                        .progress()
+                        .diagnostics()
+                        .iter()
+                        .any(|diagnostic| diagnostic.summary == DISCONNECT_MESSAGE)
+                })
+            }
+        }
+
+        struct NoClipboard;
+
+        impl ClipboardWriter for NoClipboard {
+            fn execute(&mut self, _effect: &CopyEffect) -> CopyResult {
+                CopyResult::Written
+            }
+        }
+
+        #[test]
+        fn worker_panic_fails_before_a_queued_message_is_read() {
+            let mut fixture = Fixture::new(Some(thread::spawn(|| panic!("apply panic"))));
+            fixture.queue_apply_completed();
+
+            let error = fixture
+                .receive()
+                .expect_err("a panicked apply worker should fail the runtime");
+
+            assert_eq!(error.to_string(), "apply worker panicked");
+            assert!(fixture.receiver.try_recv().is_ok());
+            assert!(
+                fixture
+                    .session
+                    .apply()
+                    .is_some_and(|apply| apply.result().is_none())
+            );
+        }
+
+        #[test]
+        fn queued_final_message_is_processed_before_a_finished_worker_is_reported() {
+            let mut fixture = Fixture::new(Some(thread::spawn(|| {})));
+            fixture.queue_apply_completed();
+
+            let (outcome, redraw) = fixture.receive().expect("the worker exited normally");
+
+            assert!(outcome.is_none());
+            assert!(redraw);
+            assert!(!fixture.reports_disconnect());
+            assert!(
+                fixture
+                    .session
+                    .apply()
+                    .is_some_and(|apply| apply.result().is_some())
+            );
+        }
+
+        #[test]
+        fn finished_worker_without_a_final_message_is_reported_as_disconnected() {
+            let mut fixture = Fixture::new(Some(thread::spawn(|| {})));
+
+            let (outcome, redraw) = fixture.receive().expect("the worker exited normally");
+
+            assert!(outcome.is_none());
+            assert!(redraw);
+            assert!(fixture.reports_disconnect());
+        }
     }
 
     #[test]
