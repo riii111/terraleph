@@ -4,9 +4,7 @@ use std::path::Path;
 use crate::app::execution::{ApplyStatus, ExecutionEvent, ExecutionEventKind, Tool};
 use crate::infra::CancellationToken;
 
-use super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, run_command,
-};
+use super::command::{ProcessRunner, TerraformCommand, TerraformExecutionError, run_command};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApplyResult {
     status: ApplyStatus,
@@ -69,7 +67,7 @@ pub(crate) fn run_apply_with_arguments(
             summary_line: None,
         });
     }
-    if !matches!(output.status, ProcessStatus::Exited(0)) {
+    if !output.status.is_success() {
         return Ok(ApplyResult {
             status: ApplyStatus::Failed,
             summary_line: None,
@@ -90,7 +88,7 @@ mod tests {
     use crate::app::execution::{
         Diagnostic, DiagnosticSeverity, DiagnosticSource, EventStream, ResourceEventKind,
     };
-    use crate::infra::terraform::test_support::{ProcessOutput, RunningProcess};
+    use crate::infra::terraform::test_support::{ProcessOutput, ProcessStatus, RunningProcess};
 
     struct FakeRunner {
         response: RefCell<Option<(ProcessStatus, ProcessOutput)>>,

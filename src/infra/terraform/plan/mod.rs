@@ -126,7 +126,7 @@ pub(crate) fn run_environment_plan(
         }
         if process.status.is_plan_success() {
             diagnostics.extend(attempt_diagnostics);
-            return Ok(process.status == ProcessStatus::Exited(2));
+            return Ok(process.status.has_plan_changes());
         }
         if !initialized && reinit {
             initialized = true;
@@ -656,17 +656,9 @@ mod tests {
             bytes,
         });
         let chunks: VecDeque<_> = stdout_chunks.chain(stderr_chunks).collect();
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        for chunk in &chunks {
-            match chunk.stream {
-                EventStream::Stdout => stdout.extend_from_slice(&chunk.bytes),
-                EventStream::Stderr => stderr.extend_from_slice(&chunk.bytes),
-            }
-        }
         FakeResponse::Streaming {
             status,
-            output: ProcessOutput::new(stdout, stderr),
+            output: ProcessOutput::from_chunks(&chunks),
             chunks,
         }
     }
@@ -976,6 +968,7 @@ mod tests {
             TerraformExecutionErrorKind::NonZero { .. }
         ));
         assert!(!error.to_string().contains("secret"));
+        // Guards against the error type carrying Terraform output again.
         assert!(!format!("{error:?}").contains("secret"));
         assert_eq!(runner.invocations.borrow().len(), 1);
         fs::remove_dir(directory).expect("test directory should be empty");

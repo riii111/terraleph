@@ -186,7 +186,7 @@ fn run_saved_plan_review(
     initial_overview: bool,
     variable_sources: VariableSources,
 ) -> ExitCode {
-    let changed = plan_status == terraform::ProcessStatus::Exited(2);
+    let changed = plan_status.has_plan_changes();
     let review_root = match fs::canonicalize(display_root) {
         Ok(root) => root,
         Err(error) => {

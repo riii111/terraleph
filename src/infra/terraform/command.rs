@@ -64,6 +64,12 @@ impl ProcessStatus {
         matches!(self, Self::Exited(0 | 2))
     }
 
+    /// `-detailed-exitcode` reports a plan with changes as exit status 2.
+    #[must_use]
+    pub(crate) const fn has_plan_changes(self) -> bool {
+        matches!(self, Self::Exited(2))
+    }
+
     #[must_use]
     pub(crate) const fn code(self) -> Option<i32> {
         match self {
@@ -82,6 +88,7 @@ impl Display for ProcessStatus {
     }
 }
 
+// No Debug: the output is raw Terraform text that can include sensitive values.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProcessOutput {
     pub(super) stdout: Vec<u8>,
@@ -166,7 +173,7 @@ impl TerraformExecutionError {
         )
     }
 
-    pub(super) const fn new_for_tool(tool: Tool, kind: TerraformExecutionErrorKind) -> Self {
+    const fn new_for_tool(tool: Tool, kind: TerraformExecutionErrorKind) -> Self {
         Self { tool, kind }
     }
 }
@@ -837,6 +844,17 @@ mod tests {
                 if !bytes.is_empty() {
                     output.append(&ProcessOutputChunk { stream, bytes });
                 }
+            }
+            output
+        }
+
+        // Records every chunk in order, as the reader threads do while a process runs.
+        pub(crate) fn from_chunks<'a>(
+            chunks: impl IntoIterator<Item = &'a ProcessOutputChunk>,
+        ) -> Self {
+            let mut output = Self::empty();
+            for chunk in chunks {
+                output.append(chunk);
             }
             output
         }
