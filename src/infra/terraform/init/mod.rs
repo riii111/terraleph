@@ -1,9 +1,6 @@
 use std::{ffi::OsString, fs, path::Path};
 
-use super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, interrupted_error,
-    non_zero_error, run_command_with_events,
-};
+use super::command::{ProcessRunner, TerraformCommand, TerraformExecutionError, run_successful};
 use crate::{
     app::execution::{ExecutionEvent, Tool},
     infra::CancellationToken,
@@ -63,7 +60,7 @@ pub(crate) fn run(
     runner: &dyn ProcessRunner,
     event_sink: &mut dyn FnMut(ExecutionEvent),
 ) -> Result<(), TerraformExecutionError> {
-    let process = run_command_with_events(
+    run_successful(
         tool,
         root,
         TerraformCommand::Init,
@@ -71,14 +68,8 @@ pub(crate) fn run(
         cancellation,
         runner,
         Some(event_sink),
-    )?;
-    if process.interrupted {
-        return Err(interrupted_error(tool, TerraformCommand::Init, process));
-    }
-    if process.status != Some(ProcessStatus::Exited(0)) {
-        return Err(non_zero_error(tool, TerraformCommand::Init, process));
-    }
-    Ok(())
+    )
+    .map(drop)
 }
 
 #[cfg(test)]
