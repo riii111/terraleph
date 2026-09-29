@@ -37,7 +37,7 @@ fn no_arguments_without_a_terminal_prints_help_without_terraform() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: terraleph"));
 }
 
-#[cfg(all(unix, feature = "test-support"))]
+#[cfg(unix)]
 mod pty_tests {
     use rstest::rstest;
     use std::{
@@ -1446,6 +1446,8 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         fixture.assert_saved_plan_removed();
     }
 
+    // The panic hook exists only in builds with the test-support feature.
+    #[cfg(feature = "test-support")]
     #[test]
     fn pty_panic_restores_terminal_and_cleans_any_created_plan() {
         let fixture = Fixture::new();
