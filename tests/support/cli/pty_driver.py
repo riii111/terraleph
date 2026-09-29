@@ -598,20 +598,20 @@ try:
                 send_key(b"f")
             send_key(b"/")
             wait_new("Filter:", "matrix_filter")
-            send_text("[198]")
+            send_text("[108]")
             send_key(b"\r")
             send_key(b" ")
             send_key(b"j")
             send_key(b"]")
             send_key(b"v")
             wait_parts(
-                ["terraform_data.server[0]", "Esc overview"],
+                ["terraform_data.server[90]", "Esc overview"],
                 "matrix_full_plan",
             )
             send_key(b"]")
             wait_new("c-prod", "matrix_digit_environment")
             send_key(b"\x1b")
-            wait_parts(["Filter: /[198]", "server[198]"], "restored_matrix_selection")
+            wait_parts(["Filter: /[108]", "server[108]"], "restored_matrix_selection")
             exit_code = quit_with_enter()
         elif scenario == "env_many":
             for _ in range(11):
@@ -876,7 +876,7 @@ try:
         "apply_mapping",
     ):
         wait_review("plan_text", timeout=30)
-        if scenario == "apply_success":
+        if scenario in ("apply_success", "apply_log_view"):
             send_key(b"/")
             wait_new("/ ", "apply_filter_input")
             send_text("not-present")
