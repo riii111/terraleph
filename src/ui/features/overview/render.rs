@@ -725,8 +725,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         };
         Plan {
             resource_changes: addresses.into_iter().map(change).collect(),
