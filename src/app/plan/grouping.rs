@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    AttributeType, PlanAction, ProviderSchemas, ResourceChange, ResourceSchema,
+    AttributeType, PlanAction, ProviderSchemas, RelationNodeId, ResourceChange, ResourceChangeKind,
+    ResourceSchema,
     attribute_diff::{
         AttributeChangeKind, AttributeDiff, AttributePathSegment, GroupingValue, UnknownShape,
         diff_resource_attributes,
@@ -13,8 +14,27 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChangeGroup {
     pub(crate) display_address: String,
-    pub(crate) members: Vec<ResourceChange>,
+    pub(crate) members: Vec<GroupMember>,
     pub(crate) has_unknown: bool,
+    /// The node every changed member maps to; the Overview sets it when it builds its graph.
+    pub(crate) node_id: Option<RelationNodeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GroupMember {
+    pub(crate) address: String,
+    pub(crate) kind: ResourceChangeKind,
+    pub(crate) actions: Vec<PlanAction>,
+}
+
+impl From<&ResourceChange> for GroupMember {
+    fn from(change: &ResourceChange) -> Self {
+        Self {
+            address: change.address.clone(),
+            kind: change.kind,
+            actions: change.actions.clone(),
+        }
+    }
 }
 
 impl ChangeGroup {
@@ -87,7 +107,7 @@ pub(in crate::app) fn group_resource_changes(
         let has_unknown = bucket.iter().any(|candidate| candidate.has_unknown);
         let mut members = bucket
             .into_iter()
-            .map(|candidate| candidate.change.clone())
+            .map(|candidate| GroupMember::from(candidate.change))
             .collect::<Vec<_>>();
         members.sort_by(|left, right| left.address.cmp(&right.address));
         groups.push(LocatedGroup {
@@ -96,6 +116,7 @@ pub(in crate::app) fn group_resource_changes(
                 display_address,
                 members,
                 has_unknown,
+                node_id: None,
             },
         });
     }
@@ -181,8 +202,9 @@ struct LocatedGroup {
 fn single_group(change: &ResourceChange) -> ChangeGroup {
     ChangeGroup {
         display_address: change.address.clone(),
-        members: vec![change.clone()],
+        members: vec![GroupMember::from(change)],
         has_unknown: false,
+        node_id: None,
     }
 }
 
@@ -344,13 +366,7 @@ fn resource_schema<'a>(
     change: &ResourceChange,
     schemas: Option<&'a ProviderSchemas>,
 ) -> Option<&'a ResourceSchema> {
-    let provider = change.provider.as_ref()?;
-    let resource_type = change.resource_type.as_ref()?;
-    schemas?
-        .providers
-        .get(provider)?
-        .resources
-        .get(resource_type)
+    schemas?.resource(change)
 }
 
 fn has_duplicate_addresses(bucket: &[Candidate<'_>]) -> bool {
@@ -365,7 +381,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::app::plan::{PlanValue, ProviderSchema, ResourceChangeKind, ResourceMode};
+    use crate::app::plan::{PlanValue, ProviderSchema, ResourceMode};
 
     fn plan_value(value: Value) -> PlanValue {
         match value {
@@ -397,8 +413,6 @@ mod tests {
             before_sensitive: Some(PlanValue::Bool(false)),
             after_sensitive: Some(PlanValue::Bool(false)),
             after_unknown: Some(PlanValue::Bool(false)),
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

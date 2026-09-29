@@ -611,11 +611,7 @@ fn confirmation_opened_from_the_overview_detail_draws_the_same_background() {
         },
         now,
     );
-    session::update(
-        &mut session,
-        Action::OpenReviewFromOverview { address: None },
-        now,
-    );
+    session::update(&mut session, Action::OpenReviewFromOverview, now);
     session::update(
         &mut session,
         Action::ReviewSearchChanged("worker".to_owned()),
@@ -674,11 +670,7 @@ fn overview_detail_layout_matches_the_raw_review_opened_from_the_overview() {
     let predicted =
         overview_detail_layout(area, &PlanReviewViewState::default(), overview.review());
 
-    session::update(
-        &mut session,
-        Action::OpenReviewFromOverview { address: None },
-        now,
-    );
+    session::update(&mut session, Action::OpenReviewFromOverview, now);
     let raw = layout(
         area,
         &PlanReviewViewState::default(),

@@ -173,9 +173,7 @@ pub(crate) enum Action {
     },
     ReviewSearchChanged(String),
     OpenOverview,
-    OpenReviewFromOverview {
-        address: Option<String>,
-    },
+    OpenReviewFromOverview,
     ReturnToOverview,
     OpenApplyConfirmation,
     ConfirmApply(String),
@@ -388,7 +386,7 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
             }
             None
         }
-        Action::OpenReviewFromOverview { address: _ } => {
+        Action::OpenReviewFromOverview => {
             if let SessionState::Review(review) = state {
                 review.open_raw_from_overview();
             }
@@ -493,7 +491,7 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
                 SessionState::Review(_) => target == CopyTarget::Plan,
             };
             if let Some(feedback) = state.copy_feedback_mut() {
-                feedback.record(target, result, now, flash);
+                feedback.record(result, now, flash);
             }
             None
         }
@@ -613,16 +611,7 @@ mod tests {
         };
         assert_eq!(overview.review().search_query(), "api");
 
-        assert!(
-            update(
-                &mut state,
-                Action::OpenReviewFromOverview {
-                    address: Some("terraform_data.api".to_owned()),
-                },
-                now,
-            )
-            .is_none()
-        );
+        assert!(update(&mut state, Action::OpenReviewFromOverview, now,).is_none());
         let Some(review) = state.review() else {
             panic!("raw review should be visible");
         };
@@ -639,16 +628,7 @@ mod tests {
             "api"
         );
 
-        assert!(
-            update(
-                &mut state,
-                Action::OpenReviewFromOverview {
-                    address: Some("terraform_data.api".to_owned()),
-                },
-                now,
-            )
-            .is_none()
-        );
+        assert!(update(&mut state, Action::OpenReviewFromOverview, now,).is_none());
         assert!(update(&mut state, Action::ReturnToOverview, now).is_none());
         assert_eq!(
             state
@@ -685,11 +665,7 @@ mod tests {
                 .is_some_and(|feedback| feedback.notice().is_some())
         );
 
-        update(
-            &mut state,
-            Action::OpenReviewFromOverview { address: None },
-            now,
-        );
+        update(&mut state, Action::OpenReviewFromOverview, now);
         assert!(
             state
                 .copy_feedback()
@@ -734,10 +710,7 @@ mod tests {
     #[rstest]
     #[case::confirm_from_raw(ReviewSessionState::new, Action::ConfirmApply("yes".to_owned()))]
     #[case::cancel_from_raw(ReviewSessionState::new, Action::CancelApply)]
-    #[case::raw_from_raw(
-        ReviewSessionState::new,
-        Action::OpenReviewFromOverview { address: None }
-    )]
+    #[case::raw_from_raw(ReviewSessionState::new, Action::OpenReviewFromOverview)]
     #[case::return_from_plan_raw(ReviewSessionState::new, Action::ReturnToOverview)]
     #[case::confirm_from_overview(overview_session, Action::ConfirmApply("yes".to_owned()))]
     #[case::overview_from_overview(overview_session, Action::OpenOverview)]
@@ -746,10 +719,7 @@ mod tests {
     #[case::cancel_from_overview(overview_session, Action::CancelApply)]
     #[case::search_from_overview(overview_session, Action::ReviewSearchChanged("x".to_owned()))]
     #[case::overview_from_confirmation(apply_confirmation_session, Action::OpenOverview)]
-    #[case::raw_from_confirmation(
-        apply_confirmation_session,
-        Action::OpenReviewFromOverview { address: None }
-    )]
+    #[case::raw_from_confirmation(apply_confirmation_session, Action::OpenReviewFromOverview)]
     #[case::return_from_confirmation(apply_confirmation_session, Action::ReturnToOverview)]
     #[case::apply_from_confirmation(apply_confirmation_session, Action::OpenApplyConfirmation)]
     #[case::search_from_confirmation(
@@ -998,11 +968,7 @@ mod tests {
         assert!(!review.apply_entry());
         update(&mut state, Action::ReviewCompleted(review), now);
         update(&mut state, Action::OpenOverview, now);
-        update(
-            &mut state,
-            Action::OpenReviewFromOverview { address: None },
-            now,
-        );
+        update(&mut state, Action::OpenReviewFromOverview, now);
 
         assert!(update(&mut state, Action::OpenApplyConfirmation, now).is_none());
         assert!(state.apply_confirmation().is_some());

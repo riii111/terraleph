@@ -10,9 +10,8 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::app::plan::{
-    OutputChange, Plan, PlanAction, PlanValue, ReplacePathSegment, ResourceChange,
-    ResourceChangeKind, ResourceMode, UnsupportedChange, UnsupportedChangeKind,
-    UnsupportedChangeScope,
+    OutputChange, Plan, PlanAction, PlanValue, ResourceChange, ResourceChangeKind, ResourceMode,
+    UnsupportedChange, UnsupportedChangeKind, UnsupportedChangeScope,
 };
 use crate::app::review::PlanMetadata;
 
@@ -254,8 +253,6 @@ fn parse_resource_change(
         before_sensitive: optional_plan_value(change, "before_sensitive"),
         after_sensitive: optional_plan_value(change, "after_sensitive"),
         after_unknown: optional_plan_value(change, "after_unknown"),
-        replace_paths: parse_replace_paths(change)?,
-        action_reason: parse_optional_string(resource, "action_reason")?,
         previous_address,
         importing,
     };
@@ -362,11 +359,6 @@ fn parse_output_changes(output_changes: &Value) -> Result<Vec<OutputChange>, Pla
         changes.push(OutputChange {
             address: address.clone(),
             actions,
-            before: optional_plan_value(change, "before"),
-            after: optional_plan_value(change, "after"),
-            before_sensitive: optional_plan_value(change, "before_sensitive"),
-            after_sensitive: optional_plan_value(change, "after_sensitive"),
-            after_unknown: optional_plan_value(change, "after_unknown"),
         });
     }
 
@@ -515,39 +507,6 @@ fn classify_actions(actions: &[PlanAction]) -> ActionClassification {
         }
         _ => ActionClassification::Unsupported(UnsupportedChangeKind::UnsupportedActions),
     }
-}
-
-fn parse_replace_paths(
-    change: &Map<String, Value>,
-) -> Result<Option<Vec<Vec<ReplacePathSegment>>>, PlanParseError> {
-    let Some(value) = change.get("replace_paths") else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let paths = value
-        .as_array()
-        .ok_or(PlanParseError::InvalidField("replace_paths"))?;
-
-    paths
-        .iter()
-        .map(|path| {
-            path.as_array()
-                .ok_or(PlanParseError::InvalidField("replace_paths"))?
-                .iter()
-                .map(|segment| match segment {
-                    Value::String(segment) => Ok(ReplacePathSegment::Attribute(segment.clone())),
-                    Value::Number(number) => number
-                        .as_u64()
-                        .map(ReplacePathSegment::Index)
-                        .ok_or(PlanParseError::InvalidField("replace_paths")),
-                    _ => Err(PlanParseError::InvalidField("replace_paths")),
-                })
-                .collect()
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
 }
 
 fn optional_array<'a>(
@@ -731,25 +690,6 @@ mod tests {
             Some(plan_value(&json!({"id": false})))
         );
         assert_eq!(change.after_unknown, Some(plan_value(&json!({"id": true}))));
-        assert_eq!(
-            change.replace_paths,
-            Some(vec![vec![ReplacePathSegment::Attribute("id".to_owned())]])
-        );
-    }
-
-    #[test]
-    fn reads_action_reason_from_resource_change_metadata() {
-        let mut resource = resource("aws_instance.api", "managed", json!(["delete", "create"]));
-        resource["action_reason"] = json!("replace_because_cannot_update");
-        resource["change"]["action_reason"] = json!("wrong-level");
-
-        let plan =
-            parse_plan_json(&plan_with_resources(json!([resource]))).expect("plan should parse");
-
-        assert_eq!(
-            plan.resource_changes[0].action_reason,
-            Some("replace_because_cannot_update".to_owned())
-        );
     }
 
     #[test]
@@ -906,11 +846,6 @@ mod tests {
         assert_eq!(plan.resource_changes[0].kind, ResourceChangeKind::NoOp);
         assert_eq!(plan.output_changes.len(), 1);
         assert_eq!(plan.output_changes[0].actions, vec![PlanAction::Update]);
-        assert_eq!(plan.output_changes[0].before, Some(PlanValue::Null));
-        assert_eq!(
-            plan.output_changes[0].after,
-            Some(PlanValue::String("synthetic-endpoint".to_owned()))
-        );
     }
 
     #[test]
@@ -1068,25 +1003,6 @@ mod tests {
     }
 
     #[test]
-    fn preserves_numeric_replacement_path_steps() {
-        let mut resource = resource("aws_instance.api", "managed", json!(["replace"]));
-        resource["change"]["actions"] = json!(["delete", "create"]);
-        resource["change"]["replace_paths"] = json!([["disks", 0, "size"]]);
-
-        let plan =
-            parse_plan_json(&plan_with_resources(json!([resource]))).expect("plan should parse");
-
-        assert_eq!(
-            plan.resource_changes[0].replace_paths,
-            Some(vec![vec![
-                ReplacePathSegment::Attribute("disks".to_owned()),
-                ReplacePathSegment::Index(0),
-                ReplacePathSegment::Attribute("size".to_owned()),
-            ]])
-        );
-    }
-
-    #[test]
     fn preserves_arbitrary_precision_json_numbers() {
         let cases = [
             (
@@ -1158,7 +1074,6 @@ mod tests {
         let plan = parse_plan_json(&input.to_string()).expect("Terraform plan should parse");
 
         assert_eq!(plan.resource_changes.len(), 1);
-        assert_eq!(plan.resource_changes[0].replace_paths, None);
         assert!(plan.unsupported_changes.is_empty());
     }
 

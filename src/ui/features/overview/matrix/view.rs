@@ -4,7 +4,7 @@ use ratatui::text::Line;
 
 use crate::app::environments::{
     EnvironmentSession,
-    comparison::{CellState, ComparisonRow, DifferenceReason, SourceReference},
+    comparison::{CellState, ComparisonRow, DifferenceReason},
     overview::{EnvironmentOverview, GroupId, OverviewRow, OverviewRowId},
 };
 use crate::app::plan::ResourceChangeKind;
@@ -15,7 +15,6 @@ use crate::ui::text_input;
 pub(crate) struct MatrixCell {
     pub(crate) state: CellState,
     pub(crate) members: Vec<String>,
-    pub(crate) source: Option<SourceReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -483,7 +482,6 @@ fn rows(overview: &EnvironmentOverview, filter: &str, expanded: &BTreeSet<GroupI
                         MatrixCell {
                             state: cell.state.clone(),
                             members: members.iter().map(|child| child.address.clone()).collect(),
-                            source: cell.source.clone(),
                         }
                     })
                     .collect();
@@ -537,7 +535,6 @@ fn individual(row: &ComparisonRow, child: bool, selection: MatrixRowSelection) -
             .map(|cell| MatrixCell {
                 state: cell.state.clone(),
                 members: vec![row.address.clone()],
-                source: cell.source.clone(),
             })
             .collect(),
         difference: row.difference,
@@ -598,7 +595,7 @@ mod tests {
     fn individual_row_identity_keeps_the_full_resource_address() {
         let address = "module.application.terraform_data.api[\"primary\"]".to_owned();
         let overview = EnvironmentOverview {
-            scope: ComparisonScope::All { compared: vec![0] },
+            scope: ComparisonScope::All,
             rows: vec![OverviewRow::Individual(ComparisonRow {
                 address: address.clone(),
                 cells: Vec::new(),

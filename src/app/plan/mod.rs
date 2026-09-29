@@ -5,17 +5,16 @@ mod attribute_diff;
 pub(crate) mod comparison;
 pub(crate) mod grouping;
 mod number;
+pub(crate) mod path;
 mod relations;
 mod relations_graph;
-use grouping::PlanGrouping;
-pub(crate) mod path;
 pub(crate) use relations::{
     ConfigurationRelationStatus, PlanRelations, RelationEndpoint, RelationEvidence, RelationSource,
     RelationUnresolvedReason, StateRelationStatus,
 };
 pub(crate) use relations_graph::{
     RelationGraph, RelationGraphGroup, RelationGraphLink, RelationGraphLinkKind, RelationNode,
-    RelationNodeId, RelationNodeInput,
+    RelationNodeId,
 };
 // Screens read prepared graphs; only app builds them, once per review or comparison selection.
 pub(in crate::app) use relations_graph::build_relation_graph;
@@ -30,16 +29,22 @@ pub(crate) enum PlanValue {
     Object(BTreeMap<String, Self>),
 }
 
+impl PlanValue {
+    /// Whether a sensitivity or unknown marker marks this value or any value nested in it.
+    pub(crate) fn marks_any(&self) -> bool {
+        match self {
+            Self::Bool(value) => *value,
+            Self::Array(values) => values.iter().any(Self::marks_any),
+            Self::Object(values) => values.values().any(Self::marks_any),
+            Self::Null | Self::Number(_) | Self::String(_) => false,
+        }
+    }
+}
+
 impl Debug for PlanValue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("<redacted>")
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ReplacePathSegment {
-    Attribute(String),
-    Index(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +87,7 @@ impl ResourceChangeKind {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResourceChange {
     pub(crate) address: String,
     pub(crate) provider: Option<String>,
@@ -96,43 +101,8 @@ pub(crate) struct ResourceChange {
     pub(crate) before_sensitive: Option<PlanValue>,
     pub(crate) after_sensitive: Option<PlanValue>,
     pub(crate) after_unknown: Option<PlanValue>,
-    pub(crate) replace_paths: Option<Vec<Vec<ReplacePathSegment>>>,
-    pub(crate) action_reason: Option<String>,
     pub(crate) previous_address: Option<String>,
     pub(crate) importing: Option<PlanValue>,
-}
-
-impl Debug for ResourceChange {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ResourceChange")
-            .field("address", &self.address)
-            .field("provider", &self.provider)
-            .field("resource_type", &self.resource_type)
-            .field("resource_name", &self.resource_name)
-            .field("mode", &self.mode)
-            .field("actions", &self.actions)
-            .field("kind", &self.kind)
-            .field("before", &self.before.as_ref().map(|_| "<redacted>"))
-            .field("after", &self.after.as_ref().map(|_| "<redacted>"))
-            .field(
-                "before_sensitive",
-                &self.before_sensitive.as_ref().map(|_| "<redacted>"),
-            )
-            .field(
-                "after_sensitive",
-                &self.after_sensitive.as_ref().map(|_| "<redacted>"),
-            )
-            .field(
-                "after_unknown",
-                &self.after_unknown.as_ref().map(|_| "<redacted>"),
-            )
-            .field("replace_paths", &self.replace_paths)
-            .field("action_reason", &self.action_reason)
-            .field("previous_address", &self.previous_address)
-            .field("importing", &self.importing.as_ref().map(|_| "<redacted>"))
-            .finish()
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -172,61 +142,19 @@ pub(crate) struct UnsupportedChange {
     pub(crate) action_type: Option<String>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OutputChange {
     pub(crate) address: String,
     pub(crate) actions: Vec<PlanAction>,
-    pub(crate) before: Option<PlanValue>,
-    pub(crate) after: Option<PlanValue>,
-    pub(crate) before_sensitive: Option<PlanValue>,
-    pub(crate) after_sensitive: Option<PlanValue>,
-    pub(crate) after_unknown: Option<PlanValue>,
 }
 
-impl std::fmt::Debug for OutputChange {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("OutputChange")
-            .field("address", &self.address)
-            .field("actions", &self.actions)
-            .field("before", &self.before.as_ref().map(|_| "<redacted>"))
-            .field("after", &self.after.as_ref().map(|_| "<redacted>"))
-            .field(
-                "before_sensitive",
-                &self.before_sensitive.as_ref().map(|_| "<redacted>"),
-            )
-            .field(
-                "after_sensitive",
-                &self.after_sensitive.as_ref().map(|_| "<redacted>"),
-            )
-            .field(
-                "after_unknown",
-                &self.after_unknown.as_ref().map(|_| "<redacted>"),
-            )
-            .finish()
-    }
-}
-
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Plan {
     pub(crate) resource_changes: Vec<ResourceChange>,
     pub(crate) value_addresses: BTreeSet<String>,
     pub(crate) unsupported_changes: Vec<UnsupportedChange>,
     pub(crate) output_changes: Vec<OutputChange>,
     pub(crate) drifted_resources: Vec<String>,
-}
-
-impl std::fmt::Debug for Plan {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Plan")
-            .field("resource_changes", &self.resource_changes)
-            .field("value_addresses", &self.value_addresses)
-            .field("unsupported_changes", &self.unsupported_changes)
-            .field("output_changes", &self.output_changes)
-            .field("drifted_resources", &self.drifted_resources)
-            .finish()
-    }
 }
 
 impl Plan {
@@ -259,14 +187,6 @@ impl Plan {
             }
         }
         summary
-    }
-
-    #[must_use]
-    pub(in crate::app) fn grouped_changes(
-        &self,
-        schemas: Option<&ProviderSchemas>,
-    ) -> PlanGrouping {
-        grouping::group_resource_changes(&self.resource_changes, schemas)
     }
 }
 
@@ -311,6 +231,15 @@ pub(crate) struct ProviderSchemas {
     pub(crate) providers: BTreeMap<String, ProviderSchema>,
 }
 
+impl ProviderSchemas {
+    pub(crate) fn resource(&self, change: &ResourceChange) -> Option<&ResourceSchema> {
+        self.providers
+            .get(change.provider.as_ref()?)?
+            .resources
+            .get(change.resource_type.as_ref()?)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::{OutputChange, PlanAction, ResourceChange, ResourceChangeKind, ResourceMode};
@@ -319,11 +248,6 @@ pub(crate) mod test_support {
         OutputChange {
             address: address.to_owned(),
             actions: vec![action],
-            before: None,
-            after: None,
-            before_sensitive: None,
-            after_sensitive: None,
-            after_unknown: None,
         }
     }
 
@@ -354,8 +278,6 @@ pub(crate) mod test_support {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

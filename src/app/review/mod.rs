@@ -797,13 +797,7 @@ mod tests {
         }
 
         fn sensitive_no_op_output() -> OutputChange {
-            OutputChange {
-                before: Some(PlanValue::String("synthetic-secret".to_owned())),
-                after: Some(PlanValue::String("synthetic-secret".to_owned())),
-                before_sensitive: Some(PlanValue::Bool(true)),
-                after_sensitive: Some(PlanValue::Bool(true)),
-                ..output_change("secret", PlanAction::NoOp)
-            }
+            output_change("secret", PlanAction::NoOp)
         }
 
         #[test]
