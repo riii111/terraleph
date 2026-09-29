@@ -11,17 +11,37 @@ pub(crate) fn render(focused: bool) -> Span<'static> {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
 
-    #[rstest]
-    #[case::focused(true, "* ")]
-    #[case::unfocused(false, "  ")]
-    fn marks_only_the_focused_pane(#[case] focused: bool, #[case] expected: &str) {
-        let mark = render(focused);
+    struct MarkCase {
+        name: &'static str,
+        focused: bool,
+        expected: &'static str,
+    }
 
-        assert_eq!(mark.content, expected);
-        assert_eq!(mark.style, theme::relation_frame_style(focused));
+    #[test]
+    fn marks_only_the_focused_pane() {
+        for case in [
+            MarkCase {
+                name: "focused",
+                focused: true,
+                expected: "* ",
+            },
+            MarkCase {
+                name: "unfocused",
+                focused: false,
+                expected: "  ",
+            },
+        ] {
+            let mark = render(case.focused);
+
+            assert_eq!(mark.content, case.expected, "case: {}", case.name);
+            assert_eq!(
+                mark.style,
+                theme::relation_frame_style(case.focused),
+                "case: {}",
+                case.name
+            );
+        }
     }
 }

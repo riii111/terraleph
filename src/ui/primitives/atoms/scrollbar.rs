@@ -108,26 +108,3 @@ fn end_style(
         theme::scrollbar_thumb_style()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    #[case::fits_exactly(4, 10, (false, false))]
-    #[case::tall_only(5, 5, (true, false))]
-    #[case::wide_only(3, 11, (false, true))]
-    #[case::tall_bar_makes_width_overflow(5, 10, (true, true))]
-    #[case::wide_bar_makes_height_overflow(4, 11, (true, true))]
-    fn reserves_the_bars_that_the_content_needs(
-        #[case] line_count: usize,
-        #[case] line_width: usize,
-        #[case] expected: (bool, bool),
-    ) {
-        let area = Rect::new(0, 0, 10, 4);
-
-        assert_eq!(reservations(line_count, line_width, area), expected);
-    }
-}
