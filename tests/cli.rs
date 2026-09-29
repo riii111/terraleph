@@ -1446,7 +1446,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         fixture.assert_saved_plan_removed();
     }
 
-    // The panic hook exists only in builds with the test-support feature.
+    // TERRALEPH_TEST_PANIC_AFTER_DRAW is honored only in builds with the test-support feature.
     #[cfg(feature = "test-support")]
     #[test]
     fn pty_panic_restores_terminal_and_cleans_any_created_plan() {
