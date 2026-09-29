@@ -28,7 +28,6 @@ pub(crate) enum TerraformCommand {
     Apply,
     WorkspaceShow,
     StatePull,
-    Version,
     ProvidersSchema,
 }
 
@@ -41,7 +40,6 @@ impl Display for TerraformCommand {
             Self::Apply => "apply",
             Self::WorkspaceShow => "workspace show",
             Self::StatePull => "state pull",
-            Self::Version => "version",
             Self::ProvidersSchema => "providers schema",
         })
     }

@@ -262,6 +262,7 @@ impl Debug for PlanDocument {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct PlanMetadata {
     applyable: bool,
+    tool_version: Option<String>,
     sensitive_values: Vec<SensitiveValue>,
 }
 
@@ -270,6 +271,7 @@ impl Debug for PlanMetadata {
         formatter
             .debug_struct("PlanMetadata")
             .field("applyable", &self.applyable)
+            .field("tool_version", &self.tool_version)
             .field("sensitive_values", &"<redacted>")
             .finish()
     }
@@ -280,8 +282,15 @@ impl PlanMetadata {
     pub(crate) const fn new(applyable: bool) -> Self {
         Self {
             applyable,
+            tool_version: None,
             sensitive_values: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_tool_version(mut self, tool_version: Option<String>) -> Self {
+        self.tool_version = tool_version;
+        self
     }
 
     #[must_use]
@@ -293,6 +302,11 @@ impl PlanMetadata {
     #[must_use]
     pub(crate) const fn applyable(&self) -> bool {
         self.applyable
+    }
+
+    #[must_use]
+    pub(crate) fn tool_version(&self) -> Option<&str> {
+        self.tool_version.as_deref()
     }
 
     #[must_use]

@@ -422,7 +422,7 @@ fn confirmation_sections(
         ]),
         Line::from(vec![
             Span::styled("Tool: ", theme::secondary_style()),
-            Span::styled(tool_version(context), theme::body_style()),
+            Span::styled(context::tool_label(context), theme::body_style()),
         ]),
     ]);
     if let (Some(planned_at), Some(now)) = (review.planned_at(), age_at) {
@@ -591,14 +591,6 @@ fn source_name(path: &std::path::Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
-}
-
-fn tool_version(context: &ExecutionContext) -> String {
-    let version = match context.tool_version() {
-        ExecutionContextValue::Known(version) => version.as_str(),
-        ExecutionContextValue::Loading => "loading...",
-    };
-    format!("{} {version}", context.tool_name())
 }
 
 fn dim_background(frame: &mut Frame<'_>) {

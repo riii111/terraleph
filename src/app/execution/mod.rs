@@ -9,7 +9,8 @@ mod log_index;
 mod progress;
 
 pub(crate) use context::{
-    ExecutionContext, ExecutionContextValue, Tool, VariableSources, directory_display_name,
+    ExecutionContext, ExecutionContextValue, Tool, ToolVersion, VariableSources,
+    directory_display_name,
 };
 pub(crate) use event::{
     Diagnostic, DiagnosticPoint, DiagnosticPosition, DiagnosticSeverity, DiagnosticSource,
