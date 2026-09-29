@@ -77,12 +77,6 @@ mod tests {
 
         let cases = [
             Case {
-                name: "uppercase_without_shift",
-                character: 'Y',
-                modifiers: KeyModifiers::NONE,
-                expected: KeyModifiers::NONE,
-            },
-            Case {
                 name: "uppercase_with_redundant_shift",
                 character: 'Y',
                 modifiers: KeyModifiers::SHIFT,

@@ -721,21 +721,21 @@ mod layout {
                 Environment {
                     tool: Tool::Terraform,
                     availability: EnvironmentAvailability::Available(EnvironmentIdentity {
-                        directory: PathBuf::from(format!("/synthetic/{ordinary_name}")),
+                        directory: PathBuf::from("/synthetic/dev"),
                         workspace: "default".to_owned(),
                     }),
                 },
                 Environment {
                     tool: Tool::Terraform,
                     availability: EnvironmentAvailability::Available(EnvironmentIdentity {
-                        directory: PathBuf::from("/synthetic/prod"),
+                        directory: PathBuf::from(format!("/synthetic/{production_name}")),
                         workspace: "default".to_owned(),
                     }),
                 },
             ],
             false,
         );
-        assert_eq!(environments::sidebar_width(mixed.plans()), 24);
+        assert_eq!(environments::sidebar_width(mixed.plans()), 30);
 
         let name = "x".repeat(60);
         let state = EnvironmentSession::new(

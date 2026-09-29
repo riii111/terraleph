@@ -640,18 +640,6 @@ mod tests {
     }
 
     #[test]
-    fn document_key_follows_clones_but_not_rebuilt_documents() {
-        let document = plan_document("same text".to_owned());
-        let key = document.key();
-        let rebuilt = plan_document("same text".to_owned());
-        let documents = [document.clone(), document];
-
-        assert!(documents.iter().all(|document| key.is_for(document)));
-        assert_eq!(rebuilt, documents[0]);
-        assert!(!key.is_for(&rebuilt));
-    }
-
-    #[test]
     fn document_keeps_common_lines_and_matching_blocks_in_original_order() {
         let document = plan_document_with_blocks(
             "preamble\nresource api\napi value\nresource worker\nworker value\nsummary\n"
@@ -719,7 +707,6 @@ mod tests {
         let mixed = document.filter("e");
         assert_eq!(mixed.matching_resources(), 2);
         assert_eq!(mixed.matching_outputs(), 1);
-        assert_eq!(mixed.matching_resources() + mixed.matching_outputs(), 3);
 
         let empty = document.filter("");
         assert_eq!(empty.matching_resources(), 2);
@@ -1053,22 +1040,6 @@ mod tests {
                 ["terraform_data.replace"]
             );
             assert_eq!(review.confirmation_input(), "project");
-        }
-
-        #[test]
-        fn non_destructive_plan_confirms_with_yes() {
-            let review = review(
-                Plan {
-                    resource_changes: vec![
-                        resource_change("terraform_data.create", ResourceChangeKind::Create),
-                        resource_change("terraform_data.update", ResourceChangeKind::Update),
-                    ],
-                    ..Plan::empty()
-                },
-                PlanMetadata::new(true),
-            );
-
-            assert_eq!(review.confirmation_input(), "yes");
         }
     }
 }

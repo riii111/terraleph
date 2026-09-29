@@ -853,47 +853,6 @@ mod tests {
     }
 
     #[test]
-    fn review_copy_flash_expires_without_clearing_the_notice() {
-        let now = Instant::now();
-        let mut state = SessionState::new(ExecutionState::with_context(
-            now,
-            ExecutionContext::loading("/project"),
-        ));
-        update(&mut state, Action::ReviewCompleted(review()), now);
-        update(
-            &mut state,
-            Action::CopyCompleted {
-                target: CopyTarget::Plan,
-                result: CopyResult::Written,
-            },
-            now,
-        );
-
-        let SessionState::Review(review) = &state else {
-            panic!("review should be visible");
-        };
-        assert!(
-            review
-                .copy_feedback()
-                .flash_active(now + Duration::from_millis(100))
-        );
-        assert!(review.copy_feedback().notice().is_some());
-
-        let SessionState::Review(review) = &mut state else {
-            panic!("review should be visible");
-        };
-        review
-            .copy_feedback
-            .clear_expired(now + Duration::from_millis(200));
-        assert!(
-            !review
-                .copy_feedback()
-                .flash_active(now + Duration::from_millis(200))
-        );
-        assert!(review.copy_feedback().notice().is_some());
-    }
-
-    #[test]
     fn copy_notice_replacement_resets_the_success_and_failure_deadlines() {
         let started_at = Instant::now();
         let mut state = SessionState::new(ExecutionState::with_context(

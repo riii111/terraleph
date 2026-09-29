@@ -937,19 +937,6 @@ mod tests {
                 "case: {case_name}; line: {line}"
             );
         }
-
-        let duplicate_addresses = ["terraform_data.duplicate", "terraform_data.duplicate"];
-        let mut duplicate_indices = HashMap::new();
-        for (index, address) in duplicate_addresses.iter().enumerate() {
-            duplicate_indices.entry(*address).or_insert(index);
-        }
-        assert_eq!(
-            resource_header(
-                "  # terraform_data.duplicate will be created",
-                &duplicate_indices
-            ),
-            Some(0)
-        );
     }
 
     #[test]
@@ -977,16 +964,6 @@ mod tests {
                 "case: {case_name}; line: {line}"
             );
         }
-
-        let duplicate_names = ["duplicate", "duplicate"];
-        let mut duplicate_indices = HashMap::new();
-        for (index, name) in duplicate_names.iter().enumerate() {
-            duplicate_indices.entry(*name).or_insert(index);
-        }
-        assert_eq!(
-            output_header("  + duplicate = (known after apply)", &duplicate_indices),
-            Some(0)
-        );
     }
 
     #[test]

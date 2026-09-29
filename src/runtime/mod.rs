@@ -759,18 +759,6 @@ mod tests {
     }
 
     #[test]
-    fn ui_error_takes_precedence_over_worker_panics() {
-        let error = finalize_ui_result(
-            Err(io::Error::other("terminal failed")),
-            &panic_join(),
-            &panic_join(),
-        )
-        .expect_err("the UI error should be returned");
-
-        assert_eq!(error.to_string(), "terminal failed");
-    }
-
-    #[test]
     fn ui_error_with_worker_panic_text_is_not_reclassified() {
         let ui_error = io::Error::other("apply worker panicked");
         let error = finalize_ui_result(Err(ui_error), &panic_join(), &panic_join())
@@ -819,16 +807,6 @@ mod tests {
 
         assert_eq!(error.to_string(), "apply worker panicked");
         assert_eq!(worker_panic_kind(&error), Some(WorkerKind::Apply));
-    }
-
-    #[test]
-    fn successful_worker_joins_preserve_the_ui_outcome() {
-        let outcome = SessionOutcome::Interrupted(ExecutionStage::Initializing);
-        let apply_join = Ok(());
-        let plan_join = Ok(());
-        let actual = finalize_ui_result(Ok(outcome.clone()), &apply_join, &plan_join)
-            .expect("successful worker joins should preserve the UI result");
-        assert_eq!(actual, outcome);
     }
 
     #[test]

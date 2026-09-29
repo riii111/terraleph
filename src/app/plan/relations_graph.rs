@@ -558,13 +558,7 @@ mod tests {
         assert_eq!(aggregate.breadcrumbs, ["app"]);
         assert!(aggregate.differs);
         assert!(aggregate.has_unknown);
-        assert_eq!(
-            aggregate.id.addresses(),
-            &[
-                "aws_instance.web[0]".to_owned(),
-                "aws_instance.web[1]".to_owned()
-            ]
-        );
+        assert_eq!(aggregate.id, aggregate_id);
     }
 
     #[test]

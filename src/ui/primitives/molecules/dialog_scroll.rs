@@ -113,10 +113,10 @@ mod tests {
         assert_eq!(scroll.clamp_for_render(10), 10);
 
         scroll.scroll_by(-1);
-        assert_eq!(scroll.offset, 9);
+        assert_eq!(scroll.clamp_for_render(10), 9);
 
         scroll.scroll_by(8);
-        assert_eq!(scroll.offset, 10);
+        assert_eq!(scroll.clamp_for_render(10), 10);
     }
 
     #[test]

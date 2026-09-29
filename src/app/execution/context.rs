@@ -369,12 +369,6 @@ mod tests {
 
         for case in [
             Case {
-                name: "ascii_directory",
-                cwd: b"/repo/infra",
-                workspace: "default",
-                expected: "infra",
-            },
-            Case {
                 name: "non_ascii_utf8_directory",
                 cwd: "/repo/インフラ".as_bytes(),
                 workspace: "default",

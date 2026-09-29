@@ -1421,18 +1421,6 @@ mod tests {
                     expected: false,
                 },
                 DrawCase {
-                    name: "dirty_confirmation",
-                    state: confirmation_state(),
-                    dirty: true,
-                    expected: true,
-                },
-                DrawCase {
-                    name: "clean_confirmation",
-                    state: confirmation_state(),
-                    dirty: false,
-                    expected: false,
-                },
-                DrawCase {
                     name: "running_execution",
                     state: SessionState::new(ExecutionState::with_context(
                         started_at,

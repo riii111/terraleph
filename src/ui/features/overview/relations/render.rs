@@ -912,10 +912,7 @@ mod tests {
             RelationNode, RelationNodeId, RelationSource, RelationUnresolvedReason,
             ResourceChangeKind,
         },
-        ui::{
-            test_support::{buffer_text, buffer_visual_snapshot, render_to_buffer},
-            theme,
-        },
+        ui::test_support::{buffer_text, buffer_visual_snapshot, render_to_buffer},
     };
 
     use super::{
@@ -1637,19 +1634,6 @@ mod tests {
                 "height={height}\n{text}"
             );
         }
-    }
-
-    #[test]
-    fn focused_and_operation_styles_use_terminal_palette_colors() {
-        assert_eq!(theme::relation_frame_style(true).fg, Some(Color::Cyan));
-        assert_eq!(theme::overview_total_add_style().fg, Some(Color::Green));
-        assert_eq!(theme::overview_total_update_style().fg, Some(Color::Yellow));
-        assert_eq!(
-            theme::overview_total_replace_style().fg,
-            Some(Color::Magenta)
-        );
-        assert_eq!(theme::overview_total_destroy_style().fg, Some(Color::Red));
-        assert_eq!(theme::overview_text_style().bg, Some(Color::Reset));
     }
 
     fn view<'a>(

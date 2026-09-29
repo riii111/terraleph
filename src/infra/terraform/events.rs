@@ -340,6 +340,8 @@ fn unknown_event_diagnostic(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde_json::json;
 
     use super::*;
@@ -408,20 +410,28 @@ mod tests {
         let stdout = br#"{"type":"refresh_start","hook":{"resource":{"addr":"aws_vpc.main"}}}
 "#;
         let stderr = b"provider warning";
-        let timestamp = Instant::now();
+        let first_at = Instant::now();
+        let stdout_complete_at = first_at + Duration::from_millis(20);
+        let stderr_finished_at = first_at + Duration::from_millis(30);
 
         assert!(
             parser
-                .push(EventStream::Stdout, &stdout[..20], timestamp)
+                .push(EventStream::Stdout, &stdout[..20], first_at)
                 .is_empty()
         );
-        let stdout_events = parser.push(EventStream::Stdout, &stdout[20..], timestamp);
         assert!(
             parser
-                .push(EventStream::Stderr, stderr, timestamp)
+                .push(
+                    EventStream::Stderr,
+                    stderr,
+                    first_at + Duration::from_millis(10)
+                )
                 .is_empty()
         );
-        let stderr_events = parser.finish(EventStream::Stderr, timestamp);
+        let stdout_events = parser.push(EventStream::Stdout, &stdout[20..], stdout_complete_at);
+        let stderr_events = parser.finish(EventStream::Stderr, stderr_finished_at);
+
+        assert_eq!(stdout_events.len(), 1);
         assert!(matches!(
             stdout_events[0].kind,
             ExecutionEventKind::Resource(ResourceEvent {
@@ -429,17 +439,20 @@ mod tests {
                 ..
             })
         ));
+        assert_eq!(stdout_events[0].received_at, stdout_complete_at);
+        assert_eq!(stderr_events.len(), 1);
         assert!(matches!(
-            stderr_events[0].kind,
+            &stderr_events[0].kind,
             ExecutionEventKind::Diagnostic(Diagnostic {
                 severity: DiagnosticSeverity::Unknown,
                 source: DiagnosticSource::NonJson {
                     stream: EventStream::Stderr
                 },
+                summary,
                 ..
-            })
+            }) if summary == "provider warning"
         ));
-        assert_eq!(stdout_events[0].received_at, timestamp);
+        assert_eq!(stderr_events[0].received_at, stderr_finished_at);
     }
 
     #[test]

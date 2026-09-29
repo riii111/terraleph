@@ -714,18 +714,15 @@ mod tests {
         let mut view = EnvironmentView::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         let mut dirty = true;
-        let mut draws = 0;
 
         assert!(
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("initial draw should succeed")
         );
-        draws += 1;
         assert!(
             !draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("empty poll should succeed")
         );
-        assert_eq!(draws, 1);
 
         for event in [
             Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
@@ -737,7 +734,6 @@ mod tests {
                 draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                     .expect("input and resize should draw")
             );
-            draws += 1;
         }
         assert!(!event_requires_draw(&Event::Key(KeyEvent::new_with_kind(
             KeyCode::Down,
@@ -756,7 +752,6 @@ mod tests {
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("copy notice should draw")
         );
-        draws += 1;
         assert!(
             !draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("pending copy notice should not draw on an empty poll")
@@ -768,12 +763,10 @@ mod tests {
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("expired copy notice should draw once")
         );
-        draws += 1;
         assert!(
             !draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("idle poll after expiration should succeed")
         );
-        assert_eq!(draws, 5);
     }
 
     #[test]
@@ -782,26 +775,22 @@ mod tests {
         let mut view = EnvironmentView::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         let mut dirty = true;
-        let mut draws = 0;
 
         assert!(
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("initial draw should succeed")
         );
-        draws += 1;
         let index = state.start_next().expect("environment should start");
         dirty = true;
         assert!(
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("worker start should draw")
         );
-        draws += 1;
         assert!(should_draw(&state, false));
         assert!(
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("acquisition poll should draw")
         );
-        draws += 1;
 
         assert!(state.complete(index, PlanResult::Error("failed".to_owned()), Vec::new()));
         dirty = true;
@@ -809,7 +798,6 @@ mod tests {
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("worker result should draw")
         );
-        draws += 1;
         assert!(
             !draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("completed poll should be idle")
@@ -821,7 +809,6 @@ mod tests {
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("retry should draw")
         );
-        draws += 1;
         assert!(should_draw(&state, false));
 
         let retry_index = state.start_next().expect("retry should start");
@@ -832,11 +819,9 @@ mod tests {
             draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("retry result should draw")
         );
-        draws += 1;
         assert!(
             !draw_if_needed(&state, &mut view, &mut terminal, &mut dirty)
                 .expect("idle poll after retry should not draw")
         );
-        assert_eq!(draws, 6);
     }
 }

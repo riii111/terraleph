@@ -1097,7 +1097,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse_plan_json("not json"),
+            parse_plan_json_with_metadata(b"not json", false).map(|_| ()),
             Err(PlanParseError::InvalidJson)
         );
         let empty = parse_plan_json(r#"{"format_version":"1.0"}"#)

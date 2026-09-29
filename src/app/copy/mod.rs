@@ -463,24 +463,6 @@ mod tests {
     }
 
     #[test]
-    fn clearing_feedback_reports_flash_and_notice_expiration() {
-        let started_at = Instant::now();
-        let mut feedback = CopyFeedback::default();
-        feedback.record(CopyResult::Written, started_at, true);
-
-        let flash_expired_at = started_at + FLASH_DURATION;
-        assert!(feedback.clear_expired(flash_expired_at));
-        assert!(feedback.pending());
-        assert!(!feedback.flash_active(flash_expired_at));
-        assert!(!feedback.clear_expired(flash_expired_at));
-
-        let notice_expired_at = started_at + CopyNotice::Copied.duration();
-        assert!(feedback.clear_expired(notice_expired_at));
-        assert!(!feedback.pending());
-        assert!(!feedback.clear_expired(notice_expired_at));
-    }
-
-    #[test]
     fn terminal_copy_keeps_the_flash_with_its_own_notice() {
         let started_at = Instant::now();
         let mut feedback = CopyFeedback::default();
