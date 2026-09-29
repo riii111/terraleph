@@ -517,16 +517,6 @@ const fn action_matches(action: &ResourceAction, expected: &PlanAction) -> bool 
 
 #[cfg(test)]
 mod tests {
-    impl super::ExecutionTargetState {
-        const fn completed_stages(&self) -> usize {
-            self.completed_stages
-        }
-
-        const fn duration(&self) -> Option<Duration> {
-            self.duration
-        }
-    }
-
     use super::super::event::{
         DiagnosticSeverity, DiagnosticSource, ExecutionSummary, ProcessExitStatus,
     };
@@ -688,7 +678,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Running
         );
-        assert_eq!(progress.targets()[0].completed_stages(), 1);
+        assert_eq!(progress.targets()[0].completed_stages, 1);
 
         progress.record(ExecutionEvent {
             received_at: started_at,
@@ -704,7 +694,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(progress.targets()[0].completed_stages(), 2);
+        assert_eq!(progress.targets()[0].completed_stages, 2);
         assert_eq!(progress.targets()[0].log_ids(), &[0, 1]);
     }
 
@@ -739,10 +729,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(
-            progress.targets()[0].duration(),
-            Some(Duration::from_secs(7))
-        );
+        assert_eq!(progress.targets()[0].duration, Some(Duration::from_secs(7)));
         assert_eq!(
             progress.targets()[0].previous(),
             Some(Duration::from_secs(9))
@@ -773,7 +760,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(progress.targets()[0].duration(), None);
+        assert_eq!(progress.targets()[0].duration, None);
         assert!(
             progress
                 .successful_history(&ExecutionContext::loading("/repo").with_workspace("default"))
@@ -879,7 +866,7 @@ mod tests {
         });
 
         assert_eq!(failed.targets()[0].status(), ExecutionTargetStatus::Failed);
-        assert_eq!(failed.targets()[0].duration(), Some(Duration::from_secs(1)));
+        assert_eq!(failed.targets()[0].duration, Some(Duration::from_secs(1)));
         assert!(failed.successful_history(&context).is_empty());
         assert_eq!(
             skipped.targets()[0].status(),
@@ -1027,7 +1014,7 @@ mod tests {
                 }),
             });
         }
-        assert_eq!(progress.targets()[0].completed_stages(), 1);
+        assert_eq!(progress.targets()[0].completed_stages, 1);
         assert_eq!(
             progress.targets()[0].status(),
             ExecutionTargetStatus::Running
@@ -1043,7 +1030,7 @@ mod tests {
             }),
         });
 
-        assert_eq!(progress.targets()[0].completed_stages(), 2);
+        assert_eq!(progress.targets()[0].completed_stages, 2);
         assert_eq!(
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
@@ -1083,7 +1070,7 @@ mod tests {
                 progress.targets()[0].status(),
                 ExecutionTargetStatus::Running
             );
-            assert_eq!(progress.targets()[0].completed_stages(), 0);
+            assert_eq!(progress.targets()[0].completed_stages, 0);
         }
     }
 
