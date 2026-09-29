@@ -980,13 +980,14 @@ mod tests {
             "prior_state": {"values": {"root_module": null}},
             "configuration": {"root_module": {"resources": [
                 resource("terraform_data.source", "source", json!({}), json!([])),
+                resource("terraform_data.other", "other", json!({}), json!([])),
                 resource("terraform_data.dependent", "dependent", json!({
                     "input": {"references": [
                         "terraform_data.source[1].id",
                         "terraform_data.source[1]",
                         "terraform_data.source"
                     ]}
-                }), json!(["terraform_data.source"]))
+                }), json!(["terraform_data.other"]))
             ]}}
         });
 
@@ -995,6 +996,7 @@ mod tests {
             &[
                 "terraform_data.source[0]",
                 "terraform_data.source[1]",
+                "terraform_data.other",
                 "terraform_data.dependent",
             ],
         );
@@ -1009,8 +1011,13 @@ mod tests {
         assert!(relations.configuration.iter().any(|edge| {
             edge.dependent.address() == "terraform_data.dependent"
                 && edge.referenced.as_ref().is_some_and(|target| {
-                    target.address() == "terraform_data.source" && !target.is_instance()
+                    target.address() == "terraform_data.other" && !target.is_instance()
                 })
+        }));
+        assert!(!relations.configuration.iter().any(|edge| {
+            edge.referenced.as_ref().is_some_and(|target| {
+                target.address() == "terraform_data.source" && !target.is_instance()
+            })
         }));
     }
 

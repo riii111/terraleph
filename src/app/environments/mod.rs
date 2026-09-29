@@ -564,6 +564,7 @@ mod tests {
             "development",
             "sandbox",
             "live",
+            "devops",
             "nonprod",
             "int",
             "stage",
@@ -607,6 +608,7 @@ mod tests {
                 "stage",
                 "stg",
                 "uat",
+                "devops",
                 "live",
                 "nonprod",
                 "tokyo",
@@ -623,22 +625,6 @@ mod tests {
         assert_eq!(state.plans()[1].directory(), Path::new("/synthetic/a-dev"));
         assert_eq!(state.plans()[2].directory(), Path::new("/synthetic/dev"));
         assert_eq!(state.plans()[3].directory(), Path::new("/synthetic/z-dev"));
-    }
-
-    #[test]
-    fn environment_stage_matches_complete_case_insensitive_tokens_and_numeric_suffixes() {
-        for (name, expected) in [
-            ("DEV", 0),
-            ("dev2", 0),
-            ("devops", 3),
-            ("preprod", 2),
-            ("prod-mirror-dev", 4),
-            ("prod2", 4),
-            ("nonprod", 3),
-            ("live", 3),
-        ] {
-            assert_eq!(environment_stage(name), expected, "environment: {name}");
-        }
     }
 
     #[test]

@@ -833,8 +833,6 @@ mod tests {
         scroll_selected_range_into_view(&mut view, (10, 11), 8);
 
         assert_eq!(view.vertical, 10);
-        assert!(view.vertical <= 10);
-        assert!(view.vertical + 8 > 11);
     }
 
     #[test]
@@ -844,8 +842,6 @@ mod tests {
         scroll_selected_range_into_view(&mut view, (10, 11), 8);
 
         assert_eq!(view.vertical, 4);
-        assert!(view.vertical <= 10);
-        assert!(view.vertical + 8 > 11);
     }
 
     #[test]
