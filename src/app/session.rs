@@ -675,7 +675,7 @@ mod tests {
             Action::ReviewSearchChanged("worker".to_owned()),
             now,
         );
-        update(&mut state, Action::OpenApplyConfirmation, now);
+        assert!(update(&mut state, Action::OpenApplyConfirmation, now).is_none());
         let confirmation = state
             .apply_confirmation()
             .expect("confirmation should open from the overview detail");
@@ -688,14 +688,14 @@ mod tests {
             now,
         );
 
-        update(&mut state, Action::CancelApply, now);
+        assert!(update(&mut state, Action::CancelApply, now).is_none());
         let raw = state
             .review()
             .expect("cancel should restore the raw review, not the overview");
         assert!(raw.is_from_overview());
         assert_eq!(raw.review().search_query(), "worker");
 
-        update(&mut state, Action::ReturnToOverview, now);
+        assert!(update(&mut state, Action::ReturnToOverview, now).is_none());
         assert_eq!(
             state
                 .overview()
@@ -954,31 +954,6 @@ mod tests {
             review.review().document().text(),
             "Terraform will perform actions.\n"
         );
-    }
-
-    #[test]
-    fn plan_entry_opens_apply_from_the_overview_detail_and_cancel_returns_there() {
-        let now = Instant::now();
-        let mut state = SessionState::new(ExecutionState::with_context(
-            now,
-            ExecutionContext::loading("/project"),
-        ));
-        let review = applyable_review();
-        assert!(!review.apply_entry());
-        update(&mut state, Action::ReviewCompleted(review), now);
-        update(&mut state, Action::OpenOverview, now);
-        update(&mut state, Action::OpenReviewFromOverview, now);
-
-        assert!(update(&mut state, Action::OpenApplyConfirmation, now).is_none());
-        assert!(state.apply_confirmation().is_some());
-        assert!(update(&mut state, Action::CancelApply, now).is_none());
-        assert!(
-            state
-                .review()
-                .is_some_and(ReviewSessionState::is_from_overview)
-        );
-        assert!(update(&mut state, Action::ReturnToOverview, now).is_none());
-        assert!(state.overview().is_some());
     }
 
     #[test]

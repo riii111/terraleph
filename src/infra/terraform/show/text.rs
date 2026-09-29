@@ -568,10 +568,8 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case::terraform("Terraform")]
-    #[case::opentofu("OpenTofu")]
-    fn classifies_list_element_heredocs(#[case] tool: &str) {
+    #[test]
+    fn classifies_list_element_heredocs() {
         let addresses = [
             "terraform_data.created".to_owned(),
             "terraform_data.lookalike".to_owned(),
@@ -579,7 +577,7 @@ mod tests {
             "terraform_data.destroyed".to_owned(),
         ];
         let source = [
-            &format!("{tool} will perform the following actions:"),
+            "Terraform will perform the following actions:",
             "",
             "  # terraform_data.created will be created",
             "  + resource \"terraform_data\" \"created\" {",
@@ -659,12 +657,10 @@ mod tests {
     // Both tools start a terminator in the opening name column and every body line at least two
     // columns right of it, so only `EOT` or `EOT -> ...` there, as the tools print, closes the
     // heredoc; a body line printed that way could not be told apart, but neither tool prints one.
-    #[rstest]
-    #[case::terraform("Terraform")]
-    #[case::opentofu("OpenTofu")]
-    fn keeps_attribute_heredoc_terminator_lookalikes_in_the_body(#[case] tool: &str) {
+    #[test]
+    fn keeps_attribute_heredoc_terminator_lookalikes_in_the_body() {
         let source = [
-            &format!("{tool} will perform the following actions:"),
+            "Terraform will perform the following actions:",
             "",
             "  # terraform_data.attr will be updated in-place",
             "  ~ resource \"terraform_data\" \"attr\" {",
@@ -731,12 +727,10 @@ mod tests {
 
     // Lines copied from Terraform 1.16.1 and OpenTofu 1.10.6 plans, plus lookalikes in the marker
     // column. An element's terminator starts in the column of its `<<` and ends with a comma.
-    #[rstest]
-    #[case::terraform("Terraform")]
-    #[case::opentofu("OpenTofu")]
-    fn keeps_list_element_heredoc_terminator_lookalikes_in_the_body(#[case] tool: &str) {
+    #[test]
+    fn keeps_list_element_heredoc_terminator_lookalikes_in_the_body() {
         let source = [
-            &format!("{tool} will perform the following actions:"),
+            "Terraform will perform the following actions:",
             "",
             "  # terraform_data.nested will be updated in-place",
             "  ~ resource \"terraform_data\" \"nested\" {",

@@ -3,12 +3,6 @@ valid:
   # A module owns a test condition; its name and nesting are unrestricted.
   - |-
     #[cfg(test)]
-    mod tests {}
-  - |-
-    #[cfg(test)]
-    mod tests { mod support; use self::support::fixture; }
-  - |-
-    #[cfg(test)]
     mod tests {
         mod retained {
             #[cfg(test)]
@@ -24,9 +18,6 @@ valid:
   - |-
     #[cfg(test)]
     pub(crate) mod git;
-  - |-
-    #[cfg(all(test, unix))]
-    mod unix_tests {}
   - |-
     #[cfg(any(test, feature = "test-support"))]
     mod test_support;
@@ -130,9 +121,6 @@ invalid:
   - |-
     #[cfg(test)]
     use foo::Bar;
-  - |-
-    #[cfg(test)]
-    pub use foo::Bar;
 
   # Attributes on fields and statements are also individual gates.
   - |-

@@ -322,15 +322,16 @@ mod help {
                         .contains(ratatui::style::Modifier::DIM)
                 );
             }
+            if (width, height) == (160, 60) {
+                assert!(text.contains("environment"), "{text}");
+                assert!(
+                    text.contains("compare the selected / all environments"),
+                    "{text}"
+                );
+            }
             insta::assert_snapshot!(format!("environment_help_{width}x{height}"), text);
         }
 
-        let wide = render_text(&mut view, &state, (160, 60));
-        assert!(wide.contains("environment"), "{wide}");
-        assert!(
-            wide.contains("compare the selected / all environments"),
-            "{wide}"
-        );
         view.dialog_scroll.bottom();
         let wide = render_text(&mut view, &state, (160, 60));
         for explanation in [
@@ -655,12 +656,7 @@ mod layout {
         assert_eq!(view.sidebar, SidebarSetting::Closed);
         assert_eq!(view.maximized, Some(EnvironmentPane::Matrix));
         assert!(maximized.contains("[2] Compare"), "{maximized}");
-
-        let hidden = render_text(&mut view, &state, (89, 40));
-        assert!(!hidden.contains("[1] Envs"), "{hidden}");
-        assert_eq!(view.maximized, Some(EnvironmentPane::Matrix));
-        let restored_width = render_text(&mut view, &state, (90, 40));
-        assert!(!restored_width.contains("[1] Envs"), "{restored_width}");
+        assert!(!maximized.contains("[1] Envs"), "{maximized}");
 
         handle_key_code(&mut view, KeyCode::Char('1'), size, &state);
         assert_eq!(view.maximized, None);

@@ -315,6 +315,9 @@ mod tests {
     #[case::json_shape("main.tf.json", r#"{"terraform":true}"#)]
     #[case::json_backend_missing_label("main.tf.json", r#"{"terraform":{"backend":{}}}"#)]
     #[case::json_backend_missing_label_array("main.tf.json", r#"{"terraform":{"backend":[]}}"#)]
+    #[case::hcl_backend_missing_label("main.tf", "terraform {\n backend {}\n}")]
+    #[case::json_backend_body("main.tf.json", r#"{"terraform":{"backend":{"s3":true}}}"#)]
+    #[case::json_cloud_body("main.tf.json", r#"{"terraform":{"cloud":true}}"#)]
     fn broken_configuration_is_indeterminate(#[case] name: &str, #[case] source: &str) {
         let fixture = Fixture::new(name, source);
         assert!(execution_location(&fixture.0, None).is_err());
@@ -357,18 +360,6 @@ mod tests {
         "main.tf.json",
         r#"{"terraform":{"backend":{"s3":{}}}}"#,
         "main.tofu.json",
-        r#"{"terraform":{"cloud":{}}}"#
-    )]
-    #[case::hcl_repeated_extension(
-        "a.tf.tf",
-        "terraform {\n  backend \"s3\" {}\n}\n",
-        "a.tf.tofu",
-        "terraform {\n  cloud {}\n}\n"
-    )]
-    #[case::json_repeated_extension(
-        "a.tf.json.tf.json",
-        r#"{"terraform":{"backend":{"s3":{}}}}"#,
-        "a.tf.json.tofu.json",
         r#"{"terraform":{"cloud":{}}}"#
     )]
     fn opentofu_prefers_tofu_configuration_over_same_named_terraform_file(

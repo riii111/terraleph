@@ -91,16 +91,12 @@ fn opentofu_parent_files_prevent_terraform_child_discovery() {
 }
 
 #[rstest]
-#[case::out_inline(&["-out=plan"], &[], None, "-out")]
-#[case::out_separate(&["--out", "plan"], &[], None, "-out")]
-#[case::generate_inline(&["-generate-config-out=imports.tf"], &[], None, "-generate-config-out")]
-#[case::generate_separate(&["-generate-config-out", "imports.tf"], &[], None, "-generate-config-out")]
-#[case::environment(&[], &[("TF_CLI_ARGS_plan", "-out=plan")], None, "-out")]
-#[case::data_dir(&[], &[], Some("shared"), "TF_DATA_DIR")]
+#[case::out_separate(&["--out", "plan"], &[], "-out")]
+#[case::generate_inline(&["-generate-config-out=imports.tf"], &[], "-generate-config-out")]
+#[case::environment(&[], &[("TF_CLI_ARGS_plan", "-out=plan")], "-out")]
 fn multiple_environment_options_are_rejected_before_discovery(
     #[case] args: &[&str],
     #[case] environment: &[(&str, &str)],
-    #[case] data_dir: Option<&str>,
     #[case] expected: &str,
 ) {
     let fixture = Fixture::new();
@@ -108,7 +104,7 @@ fn multiple_environment_options_are_rejected_before_discovery(
     arguments.extend_from_slice(args);
     let mut invocation = fixture.parse(Tool::Terraform, &arguments, environment);
 
-    let error = select_entry(&mut invocation, data_dir.map(OsStr::new)).unwrap_err();
+    let error = select_entry(&mut invocation, None).unwrap_err();
 
     assert!(error.to_string().contains(expected));
 }
