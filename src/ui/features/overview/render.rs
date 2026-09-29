@@ -14,10 +14,10 @@ use crate::app::{
 };
 use crate::ui::{
     primitives::{
-        atoms::{copy_flash, focus_mark, scrollbar, separator},
+        atoms::{copy_flash, focus_mark, ready_mark, scrollbar, separator},
         molecules::{context_dialog, help_dialog, terminal_notice},
     },
-    shell::{context, environments as shell_environments, footer, header, layout as shell_layout},
+    shell::{context, footer, header, layout as shell_layout},
     theme,
 };
 
@@ -245,7 +245,7 @@ fn render_terminal_size_notice(frame: &mut Frame<'_>, area: Rect, quit_confirmat
 fn status_line(state: &ReviewSessionState, view: &OverviewViewState) -> Line<'static> {
     let counts = state.review().summary();
     let mut spans = vec![
-        shell_environments::ready_marker(),
+        ready_mark::render(),
         Span::styled("Ready", theme::overview_text_style()),
     ];
     append_count(

@@ -1887,6 +1887,29 @@ mod filter {
     }
 
     #[test]
+    fn confirmed_filter_narrow_footer_of_a_plan_that_cannot_apply_keeps_required_actions() {
+        let mut plan = review_with_applyable(false);
+        plan.set_search_query("endpoint".to_owned());
+        let state = review_state(plan);
+
+        let buffer = render_to_buffer((24, 24), |frame| {
+            render(
+                frame,
+                &state,
+                &PlanReviewViewState::default(),
+                Instant::now(),
+            );
+        });
+
+        let text = buffer_text(&buffer);
+        assert!(text.contains("Esc clear"), "{text}");
+        assert!(text.contains("/ edit"), "{text}");
+        assert!(text.contains("copy all"), "{text}");
+        assert!(text.contains("? help"), "{text}");
+        assert!(!text.contains("apply"), "{text}");
+    }
+
+    #[test]
     fn production_filter_states_show_search_hits_in_the_footer() {
         let mut input_view = PlanReviewViewState::default();
         input_view.apply_with_matches(
