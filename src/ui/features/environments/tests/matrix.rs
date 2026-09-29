@@ -1204,6 +1204,7 @@ mod layout {
             assert!(!rendered.contains("Space expand selected"));
             assert!(!rendered.contains("[1] Envs"));
         }
+        // 165x50 only adds blank space to the 120x40 layout, so it takes no snapshot.
         if (width, height) != (165, 50) {
             insta::assert_snapshot!(format!("three_environments_{width}x{height}"), rendered);
         }
