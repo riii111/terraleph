@@ -522,7 +522,6 @@ fn acquire(
         cancellation,
         &terraform::SystemProcessRunner,
         &mut |_| {},
-        &mut |_| {},
     )
     .map_err(|error| environment_failure(&error, cancellation))?;
     Ok(PlanResult::Ready {
