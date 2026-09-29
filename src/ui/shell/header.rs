@@ -34,7 +34,7 @@ enum HeaderFieldKind {
     Directory,
 }
 
-pub(crate) fn render(frame: &mut Frame<'_>, area: Rect, lines: Vec<Line<'static>>) {
+fn render(frame: &mut Frame<'_>, area: Rect, lines: Vec<Line<'static>>) {
     frame.render_widget(Paragraph::new(lines).style(theme::secondary_style()), area);
 }
 
@@ -96,16 +96,14 @@ pub(crate) fn render_execution(frame: &mut Frame<'_>, area: Rect, context: &Exec
     );
 }
 
-fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
+// Target, workspace, tool with version, and directory, as both review headers show them.
+fn review_header_values(review: &PlanReview) -> [String; 4] {
     let context = review.context();
     let target_name = match context.display_name() {
-        ExecutionContextValue::Known(name) => {
-            if context.is_production() == Some(true) {
-                format!("{name} [PROD]")
-            } else {
-                name.clone()
-            }
+        ExecutionContextValue::Known(name) if context.is_production() == Some(true) => {
+            format!("{name} [PROD]")
         }
+        ExecutionContextValue::Known(name) => name.clone(),
         ExecutionContextValue::Loading => target(review.root()),
     };
     let workspace = match context.workspace() {
@@ -116,8 +114,16 @@ fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
         ExecutionContextValue::Known(value) => value.as_str(),
         ExecutionContextValue::Loading => "loading...",
     };
-    let tool = format!("{} {version}", context.tool_name());
-    let directory = relative_directory(context.cwd_path(), context.launch_root_path());
+    [
+        target_name,
+        workspace.to_owned(),
+        format!("{} {version}", context.tool_name()),
+        relative_directory(context.cwd_path(), context.launch_root_path()),
+    ]
+}
+
+fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
+    let [target_name, workspace, tool, directory] = review_header_values(review);
     fit_header(
         &[
             HeaderField {
@@ -128,8 +134,8 @@ fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
             },
             HeaderField {
                 label: "Workspace: ",
-                minimum_value_width: display_width(workspace).min(7),
-                value: workspace.to_owned(),
+                minimum_value_width: display_width(&workspace).min(7),
+                value: workspace,
                 kind: HeaderFieldKind::Workspace,
             },
             HeaderField {
@@ -183,32 +189,9 @@ fn compact_review_header_line(
     width: u16,
     normal_tool_style: bool,
 ) -> Line<'static> {
-    let context = review.context();
-    let target_name = match context.display_name() {
-        ExecutionContextValue::Known(name) => {
-            if context.is_production() == Some(true) {
-                format!("{name} [PROD]")
-            } else {
-                name.clone()
-            }
-        }
-        ExecutionContextValue::Loading => target(review.root()),
-    };
-    let workspace = match context.workspace() {
-        ExecutionContextValue::Known(value) => value.as_str(),
-        ExecutionContextValue::Loading => review.workspace(),
-    };
-    let version = match context.tool_version() {
-        ExecutionContextValue::Known(value) => value.as_str(),
-        ExecutionContextValue::Loading => "loading...",
-    };
+    let [target_name, workspace, tool, directory] = review_header_values(review);
     fit_compact_header(
-        &[
-            target_name,
-            format!("ws:{workspace}"),
-            format!("{} {version}", context.tool_name()),
-            relative_directory(context.cwd_path(), context.launch_root_path()),
-        ],
+        &[target_name, format!("ws:{workspace}"), tool, directory],
         width,
         normal_tool_style,
     )
