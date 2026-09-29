@@ -232,7 +232,7 @@ fn parse_resource_change(
     Ok(())
 }
 
-/// Returns how many deferred changes the document lists. Their fields are validated but not kept.
+/// The callers only need the count, so the fields are validated but not kept.
 fn parse_deferred_changes(deferred_changes: &Value) -> Result<usize, PlanParseError> {
     if deferred_changes.is_null() {
         return Ok(0);
@@ -315,7 +315,6 @@ fn parse_output_changes(output_changes: &Value) -> Result<Vec<OutputChange>, Pla
     Ok(changes)
 }
 
-/// Returns how many action invocations the document lists. Their fields are validated but not kept.
 fn parse_action_invocations(action_invocations: &Value) -> Result<usize, PlanParseError> {
     if action_invocations.is_null() {
         return Ok(0);
@@ -335,7 +334,6 @@ fn parse_action_invocations(action_invocations: &Value) -> Result<usize, PlanPar
     Ok(action_invocations.len())
 }
 
-/// Returns how many deferred action invocations the document lists.
 fn parse_deferred_action_invocations(
     deferred_action_invocations: &Value,
 ) -> Result<usize, PlanParseError> {
