@@ -111,8 +111,8 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         });
         let review = PlanReview::new(
             PathBuf::from(format!("/synthetic/{name}")),
@@ -674,17 +674,13 @@ mod layout {
 
     #[test]
     fn environment_layout_reserves_the_sidebar_and_four_six_right_panes() {
-        let layout = environments::overview_layout(
-            ratatui::layout::Rect::new(0, 0, 160, 53),
-            41,
-            true,
-            None,
-        );
+        let layout =
+            shell::overview_layout(ratatui::layout::Rect::new(0, 0, 160, 53), 41, true, None);
         assert_eq!(layout.environments.width, 41);
         assert_eq!(layout.matrix.height, 20);
         assert_eq!(layout.relations.height, 30);
 
-        assert_eq!(environments::sidebar_width(partial_session().plans()), 24);
+        assert_eq!(shell::sidebar_width(partial_session().plans()), 24);
 
         let ordinary_name = "x".repeat(20);
         let ordinary = EnvironmentSession::new(
@@ -697,7 +693,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(ordinary.plans()), 24);
+        assert_eq!(shell::sidebar_width(ordinary.plans()), 24);
 
         let production_name = format!("prod-{}", "x".repeat(15));
         let production = EnvironmentSession::new(
@@ -710,7 +706,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(production.plans()), 30);
+        assert_eq!(shell::sidebar_width(production.plans()), 30);
 
         let mixed = EnvironmentSession::new(
             vec![
@@ -731,7 +727,7 @@ mod layout {
             ],
             false,
         );
-        assert_eq!(environments::sidebar_width(mixed.plans()), 30);
+        assert_eq!(shell::sidebar_width(mixed.plans()), 30);
 
         let name = "x".repeat(60);
         let state = EnvironmentSession::new(
@@ -744,7 +740,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(state.plans()), 41);
+        assert_eq!(shell::sidebar_width(state.plans()), 41);
     }
 
     #[test]
@@ -1607,8 +1603,7 @@ mod change_summary {
     #[test]
     fn ready_environments_ignore_no_op_outputs_and_count_output_changes_once() {
         use crate::app::plan::{
-            PlanAction, ResourceChangeKind, UnsupportedChange, UnsupportedChangeKind,
-            UnsupportedChangeScope,
+            PlanAction, ResourceChangeKind,
             test_support::{output_change, resource_change},
         };
 
@@ -1648,14 +1643,7 @@ mod change_summary {
                         "data.terraform_data.read",
                         ResourceChangeKind::Read,
                     )],
-                    unsupported_changes: vec![UnsupportedChange {
-                        scope: UnsupportedChangeScope::Resource,
-                        address: "data.terraform_data.read".to_owned(),
-                        actions: vec![PlanAction::Read],
-                        kind: UnsupportedChangeKind::Read,
-                        reason: None,
-                        action_type: None,
-                    }],
+                    unsupported_change_count: 1,
                     output_changes: vec![output_change("endpoint", PlanAction::Create)],
                     ..Plan::empty()
                 },

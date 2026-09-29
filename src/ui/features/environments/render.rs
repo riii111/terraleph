@@ -1,4 +1,9 @@
-use super::{EnvironmentDialog, EnvironmentView, overview::matrix::MatrixSelectedItem, sidebar};
+use super::{
+    EnvironmentDialog, EnvironmentView, matrix,
+    matrix::MatrixSelectedItem,
+    shell::{self, EnvironmentPane},
+    sidebar,
+};
 use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
@@ -6,14 +11,14 @@ use crate::{
     },
     ui::{
         features::{
-            overview::{
-                matrix,
-                relations::{self, RelationGraphTitle, RelationGraphView},
-            },
+            overview::relations::{self, RelationGraphTitle, RelationGraphView},
             plan_review,
         },
-        primitives::molecules::{dialog_scroll::DialogScroll, help_dialog},
-        shell::{environments, environments::EnvironmentPane, footer},
+        primitives::{
+            atoms::focus_mark,
+            molecules::{dialog_scroll::DialogScroll, help_dialog},
+        },
+        shell::footer,
         theme,
     },
 };
@@ -46,7 +51,7 @@ impl EnvironmentView {
             && let Some(review) = state.plans()[index].review()
         {
             let header = header_row(area);
-            environments::render_header(frame, header, state, &self.selection);
+            shell::render_header(frame, header, state, &self.selection);
             let body = review_body(area, header);
             if self.confirming_quit {
                 plan_review::render_environment_with_quit_confirmation(
@@ -68,7 +73,7 @@ impl EnvironmentView {
             }
         } else {
             let layout = self.overview_layout(area);
-            environments::render_header(frame, layout.header, state, &self.selection);
+            shell::render_header(frame, layout.header, state, &self.selection);
             self.render_overview(frame, &layout, state);
         }
         if self.confirming_quit && state.acquiring() {
@@ -113,7 +118,7 @@ impl EnvironmentView {
         self.sync(state);
         frame.render_widget(Block::new().style(theme::overview_text_style()), area);
         let header = header_row(area);
-        environments::render_header(frame, header, state, &self.selection);
+        shell::render_header(frame, header, state, &self.selection);
         plan_review::render_environment(
             frame,
             review_body(area, header),
@@ -130,8 +135,8 @@ impl EnvironmentView {
         );
     }
 
-    pub(super) fn overview_layout(&self, area: Rect) -> environments::EnvironmentLayout {
-        environments::overview_layout(
+    pub(super) fn overview_layout(&self, area: Rect) -> shell::EnvironmentLayout {
+        shell::overview_layout(
             area,
             self.sidebar_width,
             self.sidebar_visible(area.width),
@@ -142,7 +147,7 @@ impl EnvironmentView {
     fn render_overview(
         &mut self,
         frame: &mut Frame<'_>,
-        layout: &environments::EnvironmentLayout,
+        layout: &shell::EnvironmentLayout,
         state: &EnvironmentSession,
     ) {
         if layout.environments.width > 0 && layout.environments.height > 0 {
@@ -417,11 +422,8 @@ fn environment_summary_line(plan: &EnvironmentPlan) -> Line<'static> {
     let mut line = Line::from(vec![
         Span::styled(plan.display_name(), theme::overview_text_style()),
         Span::styled(" ", theme::overview_muted_style()),
-        environments::status_marker(plan.state()),
-        Span::styled(
-            environments::status(plan),
-            environments::status_style(plan.state()),
-        ),
+        shell::status_marker(plan.state()),
+        Span::styled(shell::status(plan), shell::status_style(plan.state())),
     ]);
     if let Some(review) = plan.review() {
         let review = review.review();
@@ -497,10 +499,9 @@ struct MatrixContentLayout {
 }
 
 fn pane_block(focused: bool, title: &str, border_style: Style) -> Block<'static> {
-    let mark = if focused { "* " } else { "  " };
     let (pane_name, context) = title.split_once(" · ").unwrap_or((title, ""));
     let mut title_spans = vec![
-        Span::styled(mark, theme::relation_frame_style(focused)),
+        focus_mark::render(focused),
         Span::styled(pane_name.to_owned(), theme::overview_pane_title_style()),
     ];
     if !context.is_empty() {
@@ -805,7 +806,7 @@ fn comparison_help() -> help_dialog::HelpSection {
 )]
 struct OverviewFooterContext<'a> {
     width: u16,
-    focus: environments::EnvironmentPane,
+    focus: shell::EnvironmentPane,
     searching: bool,
     expanded: Option<bool>,
     comparison_toggle_available: bool,

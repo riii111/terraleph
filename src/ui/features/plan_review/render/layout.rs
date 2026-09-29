@@ -4,6 +4,7 @@ use ratatui::{layout::Rect, style::Style, text::Line};
 
 use crate::app::{copy::CopyNotice, review::PlanReview, session::ReviewSessionState};
 use crate::ui::features::plan_review::{PlanReviewMatch, PlanReviewViewState};
+use crate::ui::primitives::atoms::scrollbar;
 use crate::ui::shell::{footer, header, layout as shell_layout};
 use crate::ui::theme;
 
@@ -283,7 +284,7 @@ pub(super) fn layout_with_content(
         inner.width,
         inner.height.saturating_sub(fixed_status_height),
     );
-    let (vertical_scrollbar, horizontal_scrollbar) = scrollbar_reservations(
+    let (vertical_scrollbar, horizontal_scrollbar) = scrollbar::reservations(
         content_metrics.line_count,
         content_metrics.max_width,
         available,
@@ -319,20 +320,4 @@ fn limits(line_count: usize, line_width: usize, body: Rect) -> (usize, usize) {
         line_count.saturating_sub(usize::from(body.height)),
         line_width.saturating_sub(usize::from(body.width)),
     )
-}
-
-fn scrollbar_reservations(line_count: usize, line_width: usize, area: Rect) -> (bool, bool) {
-    let mut vertical = false;
-    let mut horizontal = false;
-    loop {
-        let next_vertical =
-            line_count > usize::from(area.height.saturating_sub(u16::from(horizontal)));
-        let next_horizontal =
-            line_width > usize::from(area.width.saturating_sub(u16::from(vertical)));
-        if next_vertical == vertical && next_horizontal == horizontal {
-            return (vertical, horizontal);
-        }
-        vertical = next_vertical;
-        horizontal = next_horizontal;
-    }
 }
