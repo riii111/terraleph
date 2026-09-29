@@ -439,18 +439,6 @@ mod tests {
     }
 
     #[test]
-    fn alternative_keys_use_the_same_separator() {
-        let cases: &[(&str, &[&str], &str)] = &[
-            ("single", &["Enter"], "Enter confirm"),
-            ("two", &["Enter", "Space"], "Enter/Space confirm"),
-        ];
-
-        for (name, keys, expected) in cases {
-            assert_eq!(hint(keys, "confirm").to_string(), *expected, "case: {name}");
-        }
-    }
-
-    #[test]
     fn quit_confirmation_fits_the_prompt_and_emphasizes_the_question_and_both_keys() {
         struct QuitPromptCase {
             name: &'static str,

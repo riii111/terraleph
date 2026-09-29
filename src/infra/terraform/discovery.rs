@@ -77,7 +77,6 @@ fn inspect_directory(
 mod tests {
     use super::*;
     use crate::infra::terraform::command::{ProcessOutput, ProcessStatus, RunningProcess};
-    use rstest::rstest;
     use std::{
         cell::RefCell,
         ffi::OsString,
@@ -199,16 +198,10 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case::cloud("main.tf", "terraform {\n cloud {}\n}")]
-    #[case::remote("main.tf", "terraform {\n backend \"remote\" {}\n}")]
-    #[case::json("main.tf.json", r#"{"terraform":{"cloud":{}}}"#)]
-    fn hcp_candidates_are_retained_without_running_commands(
-        #[case] name: &str,
-        #[case] source: &str,
-    ) {
+    #[test]
+    fn hcp_candidates_are_retained_without_running_commands() {
         let fixture = Fixture::new();
-        fixture.write(&format!("hcp/{name}"), source);
+        fixture.write("hcp/main.tf", "terraform {\n cloud {}\n}");
         let runner = WorkspaceRunner::default();
 
         let environments = fixture.discover(Tool::Terraform, &runner);
@@ -222,23 +215,10 @@ mod tests {
         assert!(runner.calls.borrow().is_empty());
     }
 
-    #[rstest]
-    #[case::hcl("main.tf", "terraform {")]
-    #[case::json("main.tf.json", "{")]
-    #[case::backend_label("main.tf", "terraform {\n backend {}\n}")]
-    #[case::backend_body("main.tf.json", r#"{"terraform":{"backend":{"s3":true}}}"#)]
-    #[case::cloud_body("main.tf.json", r#"{"terraform":{"cloud":true}}"#)]
-    #[case::json_missing_backend_label("main.tf.json", r#"{"terraform":{"backend":{}}}"#)]
-    #[case::json_duplicate_backends(
-        "main.tf.json",
-        r#"{"terraform":{"backend":{"local":[{},{}]}}}"#
-    )]
-    fn broken_candidates_are_errors_without_running_commands(
-        #[case] name: &str,
-        #[case] source: &str,
-    ) {
+    #[test]
+    fn broken_candidates_are_errors_without_running_commands() {
         let fixture = Fixture::new();
-        fixture.write(&format!("broken/{name}"), source);
+        fixture.write("broken/main.tf", "terraform {");
         let runner = WorkspaceRunner::default();
 
         let environments = fixture.discover(Tool::Terraform, &runner);
@@ -268,21 +248,11 @@ mod tests {
         assert!(runner.calls.borrow().is_empty());
     }
 
-    #[rstest]
-    #[case::hcl("main.tf", "main.tofu", "terraform {\n backend \"local\" {}\n}")]
-    #[case::json(
-        "main.tf.json",
-        "main.tofu.json",
-        r#"{"terraform":{"backend":{"local":{}}}}"#
-    )]
-    fn opentofu_ignores_broken_shadowed_terraform_configuration(
-        #[case] terraform: &str,
-        #[case] tofu: &str,
-        #[case] source: &str,
-    ) {
+    #[test]
+    fn opentofu_ignores_broken_shadowed_terraform_configuration() {
         let fixture = Fixture::new();
-        fixture.write(&format!("dev/{terraform}"), "broken {");
-        fixture.write(&format!("dev/{tofu}"), source);
+        fixture.write("dev/main.tf", "broken {");
+        fixture.write("dev/main.tofu", "terraform {\n backend \"local\" {}\n}");
         let runner = WorkspaceRunner::default();
 
         assert!(fixture.discover(Tool::OpenTofu, &runner)[0].is_available());

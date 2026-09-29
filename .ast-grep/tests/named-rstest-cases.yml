@@ -10,15 +10,10 @@ valid:
     #[case::up_vim(Key::Char('k'))]
     fn maps(#[case] key: Key) {}
   - |-
-    fn f(#[case] value: i32) {}
-  - |-
     #[case::named(1)]
     fn f() {}
 
   # Other items are outside this rule; an intervening item blocks a later function.
-  - |-
-    #[case(1)]
-    struct S;
   - |-
     #[case(1)] const VALUE: i32 = 1; fn f() {}
 

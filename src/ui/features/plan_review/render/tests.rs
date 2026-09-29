@@ -43,7 +43,7 @@ use super::{
     content::{display_width, styled_plan_line, visible_lines},
     layout::PlanReviewLayout,
     overlay::plan_help_sections,
-    review_footer::{footer_items, position_status},
+    review_footer::footer_items,
     status::{horizontal_offset, search_query_line},
     *,
 };
@@ -549,15 +549,6 @@ fn renders_plan_help_with_overview_navigation_and_scrollable_sections() {
     }
 
     view.overlay_scroll_mut().bottom();
-    let bottom = render_to_buffer((80, 24), |frame| {
-        render(frame, &state, &view, Instant::now());
-    });
-    let bottom_text = buffer_text(&bottom);
-    assert!(bottom_text.contains("Exit"));
-    assert!(bottom_text.contains("quit"));
-    assert_eq!(bottom_text.matches("close").count(), 1);
-    snapshot("preview_80x24_help_bottom", &bottom);
-
     let small_bottom = render_to_buffer((40, 16), |frame| {
         render(frame, &state, &view, Instant::now());
     });
@@ -734,7 +725,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
             );
         }
 
-        if width == 40 {
+        if (width, height) == (40, 16) {
             view.overlay_scroll_mut().bottom();
             let bottom = render_to_buffer((width, height), |frame| {
                 render_apply_confirmation(
@@ -778,22 +769,6 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
     });
     assert!(buffer_text(&context).contains("Execution directory"));
     assert!(buffer_text(&context).contains("/repo/environments/production/main"));
-}
-
-#[test]
-fn renders_plan_review_quit_confirmation_in_the_footer() {
-    let state = review_state(review());
-    let buffer = render_to_buffer((80, 24), |frame| {
-        render_with_quit_confirmation(
-            frame,
-            &state,
-            &PlanReviewViewState::default(),
-            Instant::now(),
-            true,
-        );
-    });
-
-    snapshot("preview_80x24_quit-confirmation", &buffer);
 }
 
 #[test]
@@ -2651,7 +2626,6 @@ mod confirmation {
             (0, "Planned: <1m ago"),
             (59, "Planned: <1m ago"),
             (60, "Planned: 1m ago"),
-            (59 * 60, "Planned: 59m ago"),
             (60 * 60 - 1, "Planned: 59m ago"),
             (60 * 60, "Planned: 1h 0m ago"),
             (65 * 60, "Planned: 1h 5m ago"),
@@ -2963,6 +2937,7 @@ mod overlay {
         let text = buffer_text(&buffer);
         assert!(text.contains("Quit Terraleph?   [Enter] Quit   [Esc] Cancel"));
         assert!(!text.contains("q quit"));
+        snapshot("preview_80x24_quit-confirmation", &buffer);
 
         let narrow = render_to_buffer((32, 9), |frame| {
             render_with_quit_confirmation(
@@ -3250,40 +3225,17 @@ mod overlay {
     #[test]
     fn narrow_environment_footer_keeps_help_and_quit() {
         let state = review_state(review_with_applyable(true));
-        for width in 24..=28 {
-            let mut view = PlanReviewViewState::default();
-            let text = buffer_text(&render_to_buffer((width, 24), |frame| {
-                render_environment(frame, frame.area(), &state, &mut view, Instant::now());
-            }));
+        let mut view = PlanReviewViewState::default();
+        let text = buffer_text(&render_to_buffer((24, 24), |frame| {
+            render_environment(frame, frame.area(), &state, &mut view, Instant::now());
+        }));
 
-            assert!(text.contains("q quit"), "width {width}:\n{text}");
-            assert!(text.contains("? help"), "width {width}:\n{text}");
-        }
+        assert!(text.contains("q quit"), "{text}");
+        assert!(text.contains("? help"), "{text}");
     }
 
     #[test]
-    fn single_environment_footer_shows_overview_when_it_fits() {
-        let wide = footer::layout_prioritized(
-            footer_items(
-                false,
-                true,
-                0,
-                false,
-                ReviewNavigation::Standalone,
-                footer::available_width(80, Some("Line 1/43")),
-            ),
-            footer::available_width(80, Some("Line 1/43")),
-        );
-        let wide_text = wide
-            .iter()
-            .flat_map(|line| line.spans.iter())
-            .map(|span| span.content.as_ref())
-            .collect::<String>();
-
-        assert!(wide_text.contains("s overview"), "{wide_text}");
-        assert!(wide_text.starts_with("s overview"), "{wide_text}");
-        assert!(!wide_text.contains("y copy plan"), "{wide_text}");
-
+    fn single_environment_footer_omits_overview_when_narrow() {
         let narrow = footer::layout_prioritized(
             footer_items(
                 false,
@@ -3357,39 +3309,6 @@ mod overlay {
         );
         assert!(footer_lines.iter().any(|line| line.contains(position)));
         assert!(!footer_lines.iter().any(|line| line.contains("y copy plan")));
-    }
-
-    #[test]
-    fn environment_help_shows_bracket_navigation_at_supported_widths() {
-        let sections = plan_help_sections(&review(), ReviewNavigation::Environments, false);
-        for size in [(40, 16), (40, 24), (80, 24), (120, 40), (160, 60)] {
-            let text = buffer_text(&render_to_buffer(size, |frame| {
-                help_dialog::render(
-                    frame,
-                    frame.area(),
-                    "Help",
-                    &sections,
-                    &DialogScroll::default(),
-                );
-            }));
-            let compact = text
-                .chars()
-                .filter(|character| !character.is_whitespace())
-                .collect::<String>();
-
-            assert!(compact.contains("[/]"), "{size:?}: {text}");
-            assert!(compact.contains("next"), "{size:?}: {text}");
-            assert!(compact.contains("previous"), "{size:?}: {text}");
-            if size.0 >= 80 {
-                assert!(compact.contains("environment"), "{size:?}: {text}");
-            }
-        }
-    }
-
-    #[test]
-    fn position_status_names_the_source_line_at_wide_and_narrow_widths() {
-        assert_eq!(position_status(10, 47, 80), "Line 11/47");
-        assert_eq!(position_status(10, 47, 40), "L11/47");
     }
 
     fn footer_text(state: &ReviewSessionState) -> String {

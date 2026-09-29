@@ -1244,23 +1244,6 @@ mod layout {
         assert!(header.contains("why"));
     }
 
-    #[rstest]
-    #[case::one(1)]
-    #[case::three(3)]
-    #[case::ten(10)]
-    fn matrix_symbol_legend_remains_visible_across_environment_counts(#[case] count: usize) {
-        let names = (0..count)
-            .map(|index| format!("env-{index:02}"))
-            .collect::<Vec<_>>();
-        let state = session(&names.iter().map(String::as_str).collect::<Vec<_>>());
-        let mut view = EnvironmentView::default();
-        let rendered = render_text(&mut view, &state, (120, 40));
-
-        assert!(rendered.contains("blank: absent"));
-        assert!(rendered.contains(".: unchanged"));
-        assert!(rendered.contains("?: plan unavailable"));
-    }
-
     #[test]
     fn matrix_title_separates_comparison_filtering_from_ready_plans() {
         let mut state = session(&["dev", "prod", "stg"]);

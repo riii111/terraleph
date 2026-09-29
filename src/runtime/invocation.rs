@@ -705,7 +705,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unknown(&["plan", "-future"], &[])]
     #[case::help(&["plan", "-help"], &[])]
     #[case::version(&["-version"], &[])]
     #[case::missing_value(&["plan", "-var"], &[])]

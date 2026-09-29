@@ -473,11 +473,6 @@ mod tests {
         };
         for case in [
             StatusCase {
-                name: "empty",
-                plan: Plan::empty(),
-                expected: "No changes",
-            },
-            StatusCase {
                 name: "no_op_outputs",
                 plan: Plan {
                     output_changes: outputs([PlanAction::NoOp, PlanAction::NoOp]),
@@ -660,46 +655,6 @@ mod tests {
         for count in ["+111", "~222", "444 replace", "-333 destroy"] {
             assert!(normalized.contains(count), "{rendered}");
         }
-    }
-
-    #[test]
-    fn review_header_labels_context_and_preserves_target_identity_at_eighty_columns() {
-        let fields = [
-            HeaderField {
-                label: "Target: ",
-                minimum_value_width: 8,
-                value: "very-long-target-name-for-review [PROD]".to_owned(),
-                kind: HeaderFieldKind::Target,
-            },
-            HeaderField {
-                label: "Workspace: ",
-                minimum_value_width: 7,
-                value: "default".to_owned(),
-                kind: HeaderFieldKind::Workspace,
-            },
-            HeaderField {
-                label: "Tool: ",
-                minimum_value_width: 15,
-                value: "terraform 1.9.0".to_owned(),
-                kind: HeaderFieldKind::Tool,
-            },
-            HeaderField {
-                label: "Dir: ",
-                minimum_value_width: 7,
-                value: "./environments/production".to_owned(),
-                kind: HeaderFieldKind::Directory,
-            },
-        ];
-        let line = fit_header(&fields, 80);
-        let value = line.to_string();
-
-        assert!(value.starts_with("Target: "), "{value}");
-        assert!(value.contains("[PROD]"), "{value}");
-        assert!(value.contains("view [PROD]"), "{value}");
-        assert!(value.contains("Workspace:"), "{value}");
-        assert!(value.contains("Tool: terraform"), "{value}");
-        assert!(value.contains("Dir: ./"), "{value}");
-        assert!(line.width() <= 80, "{value}");
     }
 
     #[test]

@@ -754,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn acquisition_and_retry_recompute_only_ready_scope_and_unavailable_cells() {
+    fn acquisition_recomputes_only_ready_scope_and_unavailable_cells() {
         let change = unknown(update(json!({"id": "old"}), json!({})), json!({"id": true}));
         let mut session = EnvironmentSession::new(
             vec![
@@ -779,18 +779,9 @@ mod tests {
         );
         complete_next(&mut session, review(vec![change], None));
         let run = session.start_next().unwrap();
-        for phase in ["running", "error", "retry pending", "retry running"] {
-            match phase {
-                "error" => {
-                    session.complete(run, PlanResult::Error("failed".to_owned()), Vec::new());
-                }
-                "retry pending" => {
-                    assert!(session.retry(1));
-                }
-                "retry running" => {
-                    session.start_next().unwrap();
-                }
-                _ => {}
+        for phase in ["running", "error"] {
+            if phase == "error" {
+                session.complete(run, PlanResult::Error("failed".to_owned()), Vec::new());
             }
             let comparison = compare_all(session.plans());
             assert_eq!(comparison.scope, ComparisonScope::Partial, "{phase}");

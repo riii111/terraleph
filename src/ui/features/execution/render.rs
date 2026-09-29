@@ -1505,7 +1505,8 @@ mod tests {
 
     #[test]
     fn renders_apply_progress_stopping_and_log_view_vrt_at_all_supported_sizes() {
-        for &(width, height) in &SIZES {
+        // 160x60 differs from 120x40 only in border and blank space, so it has no snapshot here.
+        for (width, height) in [(80, 24), (120, 40)] {
             let (state, now) = applying_state_with_content(6, 16);
             let compact = render_to_buffer((width, height), |frame| {
                 render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
@@ -1531,22 +1532,6 @@ mod tests {
             });
             snapshot(&format!("ux12r_{width}x{height}_apply-logs"), &logs);
         }
-    }
-
-    #[test]
-    fn renders_apply_quit_confirmation_in_the_footer() {
-        let (state, now) = apply_state(ApplyStatus::Succeeded);
-        let buffer = render_to_buffer((80, 24), |frame| {
-            render_execution_with_quit_confirmation(
-                frame,
-                &state,
-                ExecutionViewState::default(),
-                now,
-                true,
-            );
-        });
-
-        snapshot("preview_80x24_quit-confirmation", &buffer);
     }
 
     #[test]
@@ -1745,9 +1730,10 @@ mod tests {
 
         #[test]
         fn target_columns_line_up_and_addresses_shrink_only_when_the_panel_is_narrow() {
-            for (fixture, target_count) in [
-                (apply_state(ApplyStatus::Succeeded), 4),
-                (long_address_state(), 3),
+            let mut long_address_texts = Vec::new();
+            for (long_addresses, fixture, target_count) in [
+                (false, apply_state(ApplyStatus::Succeeded), 4),
+                (true, long_address_state(), 3),
             ] {
                 let (state, now) = fixture;
                 for &(width, height) in &SIZES {
@@ -1759,6 +1745,9 @@ mod tests {
                             now,
                         );
                     });
+                    if long_addresses {
+                        long_address_texts.push(buffer_text(&buffer));
+                    }
                     let rows = table_rows(&buffer, target_count);
                     let header = &rows[0];
                     let status = column(header, "Status");
@@ -1780,13 +1769,8 @@ mod tests {
                 }
             }
 
-            let (state, now) = long_address_state();
-            let texts = SIZES.map(|(width, height)| {
-                buffer_text(&render_to_buffer((width, height), |frame| {
-                    render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
-                }))
-            });
             // Only the widest panel has room for the whole address.
+            let texts = long_address_texts;
             for text in &texts[..2] {
                 assert!(!text.contains(LONG_ADDRESS), "{text}");
                 let row = text
@@ -2073,6 +2057,7 @@ mod tests {
             let text = buffer_text(&buffer);
             assert!(text.contains("Quit Terraleph?   [Enter] Quit   [Esc] Cancel"));
             assert!(!text.contains("q/Ctrl-C quit"));
+            snapshot("preview_80x24_quit-confirmation", &buffer);
 
             let narrow = render_to_buffer((32, 9), |frame| {
                 render_execution_with_quit_confirmation(

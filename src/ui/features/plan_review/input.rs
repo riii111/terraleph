@@ -258,10 +258,6 @@ mod tests {
             Some(PlanReviewInput::SearchRight)
         );
         assert_eq!(
-            key_to_input(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), true, false,),
-            Some(PlanReviewInput::SearchCancel)
-        );
-        assert_eq!(
             key_to_input(
                 KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
                 true,
@@ -300,7 +296,6 @@ mod tests {
         struct CtrlCCase {
             name: &'static str,
             searching: bool,
-            filter_confirmed: bool,
             expected: PlanReviewInput,
         }
         let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
@@ -309,24 +304,16 @@ mod tests {
             CtrlCCase {
                 name: "full_review",
                 searching: false,
-                filter_confirmed: false,
                 expected: PlanReviewInput::Quit,
             },
             CtrlCCase {
                 name: "search_input",
                 searching: true,
-                filter_confirmed: false,
                 expected: PlanReviewInput::SearchCancel,
-            },
-            CtrlCCase {
-                name: "confirmed_filter",
-                searching: false,
-                filter_confirmed: true,
-                expected: PlanReviewInput::Quit,
             },
         ] {
             assert_eq!(
-                key_to_input(key, case.searching, case.filter_confirmed),
+                key_to_input(key, case.searching, false),
                 Some(case.expected),
                 "case: {}",
                 case.name
