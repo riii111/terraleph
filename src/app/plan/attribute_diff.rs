@@ -479,8 +479,8 @@ mod tests {
             before_sensitive: Some(plan_value(fixture.before_sensitive)),
             after_sensitive: Some(plan_value(fixture.after_sensitive)),
             after_unknown: Some(plan_value(fixture.after_unknown)),
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 

@@ -4,14 +4,13 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Rect, Size};
 
 use crate::app::session::{Action, ReviewSessionState};
-use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input};
+use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input::TextInput};
 
 use super::{ApplyConfirmationInput, apply_confirmation_key_to_input, apply_confirmation_layout};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ApplyConfirmationViewState {
-    input: String,
-    cursor: usize,
+    input: TextInput,
     scroll: u16,
     rejected: bool,
     overlay: Option<ConfirmationOverlay>,
@@ -60,40 +59,33 @@ impl ApplyConfirmationViewState {
         self.scroll = self.scroll.min(max_vertical);
         match input {
             ApplyConfirmationInput::Character(character) => {
-                self.input.insert(self.cursor, character);
-                self.cursor = text_input::next_grapheme_boundary_at_or_after(
-                    &self.input,
-                    self.cursor + character.len_utf8(),
-                );
+                self.input.insert(character);
                 self.rejected = false;
                 None
             }
             ApplyConfirmationInput::Backspace => {
-                if self.cursor > 0 {
-                    let previous = text_input::previous_grapheme_boundary(&self.input, self.cursor);
-                    self.input.drain(previous..self.cursor);
-                    self.cursor = previous;
+                if self.input.backspace() {
                     self.rejected = false;
                 }
                 None
             }
             ApplyConfirmationInput::Left => {
-                self.cursor = text_input::previous_grapheme_boundary(&self.input, self.cursor);
+                self.input.move_left();
                 None
             }
             ApplyConfirmationInput::Right => {
-                self.cursor = text_input::next_grapheme_boundary(&self.input, self.cursor);
+                self.input.move_right();
                 None
             }
             ApplyConfirmationInput::Home => {
-                self.cursor = 0;
+                self.input.move_home();
                 None
             }
             ApplyConfirmationInput::End => {
-                self.cursor = self.input.len();
+                self.input.move_end();
                 None
             }
-            ApplyConfirmationInput::Confirm if self.input == expected => {
+            ApplyConfirmationInput::Confirm if self.input.text() == expected => {
                 self.reset();
                 Some(Action::ConfirmApply(expected.to_owned()))
             }
@@ -135,11 +127,11 @@ impl ApplyConfirmationViewState {
     }
 
     pub(crate) const fn input(&self) -> &str {
-        self.input.as_str()
+        self.input.text()
     }
 
     pub(crate) const fn cursor(&self) -> usize {
-        self.cursor
+        self.input.cursor()
     }
 
     pub(crate) const fn scroll(&self) -> u16 {
@@ -169,7 +161,6 @@ impl ApplyConfirmationViewState {
 
     fn reset(&mut self) {
         self.input.clear();
-        self.cursor = 0;
         self.scroll = 0;
         self.rejected = false;
         self.overlay = None;

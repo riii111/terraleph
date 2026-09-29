@@ -14,7 +14,7 @@ use crate::app::{
     plan::PlanAction,
 };
 use crate::ui::display_text::{shown_width, visible_cells};
-use crate::ui::primitives::atoms::{scrollbar, separator};
+use crate::ui::primitives::atoms::{copy_flash, scrollbar, separator};
 use crate::ui::primitives::molecules::terminal_notice;
 use crate::ui::shell::{
     context::{display_width, truncate_middle},
@@ -252,7 +252,7 @@ fn render_log_panel(
     let horizontal = view.horizontal().min(layout.max_horizontal());
     let lines = content.visible_lines(scroll, horizontal, layout.body());
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(lines)
+        copy_flash::restyle_lines(lines)
     } else {
         lines
     };
@@ -289,7 +289,7 @@ fn render_log_view(
     // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
     let lines = content.visible_lines(scroll, horizontal, layout.log_area());
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(lines)
+        copy_flash::restyle_lines(lines)
     } else {
         lines
     };
@@ -515,7 +515,7 @@ fn log_view_layout(
         .to_vec();
     let (status_area, available, separator_area) = (chunks[0], chunks[1], chunks[2]);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.line_count(), content.max_width(), available);
+        scrollbar::reservations(content.line_count(), content.max_width(), available);
     let body = Rect::new(
         available.x,
         available.y,
@@ -603,7 +603,7 @@ fn applying_layout(
     let target_max_vertical = layout_target_max(target_count, target_body.height);
     let log_inner = Block::new().borders(Borders::ALL).inner(log_panel);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.line_count(), content.max_width(), log_inner);
+        scrollbar::reservations(content.line_count(), content.max_width(), log_inner);
     let body = Rect::new(
         log_inner.x,
         log_inner.y,
@@ -1058,7 +1058,6 @@ fn status_lines(
         Line::from("Stopping...")
     } else {
         match state.stage() {
-            ExecutionStage::Initializing => running_status_line("Initializing...", state, now),
             ExecutionStage::Reading => running_status_line("Reading plan...", state, now),
             ExecutionStage::Failed => Line::from(state.result().map_or_else(
                 || "Terraform failed.".to_owned(),
@@ -1190,29 +1189,6 @@ fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (usize, us
     (vertical, horizontal)
 }
 
-fn scrollbar_reservations(line_count: usize, line_width: usize, area: Rect) -> (bool, bool) {
-    let mut vertical = false;
-    let mut horizontal = false;
-    loop {
-        let next_vertical =
-            line_count > usize::from(area.height.saturating_sub(u16::from(horizontal)));
-        let next_horizontal =
-            line_width > usize::from(area.width.saturating_sub(u16::from(vertical)));
-        if next_vertical == vertical && next_horizontal == horizontal {
-            return (vertical, horizontal);
-        }
-        vertical = next_vertical;
-        horizontal = next_horizontal;
-    }
-}
-
-fn flash_lines(lines: Vec<Line<'_>>) -> Vec<Line<'static>> {
-    lines
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line.to_string(), theme::copy_flash_style())))
-        .collect()
-}
-
 fn initial_scroll(state: &ExecutionState, view: ExecutionViewState, max: usize) -> usize {
     if !matches!(
         state.stage(),
@@ -1261,7 +1237,7 @@ mod tests {
     use crate::app::copy::{CopyResult, CopyTarget};
     use crate::app::execution::{
         ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionAction,
-        ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionPhase,
+        ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine,
         ExecutionTargetSpec, ResourceAction, ResourceEvent, ResourceEventKind,
         test_support::log_event,
     };
@@ -1538,7 +1514,7 @@ mod tests {
 
     #[test]
     fn renders_plan_progress_and_failure() {
-        let (running, now) = plan_state(Some(ExecutionPhase::Reading), &["reading output"]);
+        let (running, now) = plan_state(&["reading output"]);
         let mut failed = running.clone();
         failed.fail("synthetic plan failure".to_owned(), now);
 
@@ -1603,19 +1579,13 @@ mod tests {
         (state, now)
     }
 
-    fn plan_state(phase: Option<ExecutionPhase>, lines: &[&str]) -> (ExecutionState, Instant) {
+    fn plan_state(lines: &[&str]) -> (ExecutionState, Instant) {
         let started_at = Instant::now();
         let mut state = ExecutionState::with_context(
             started_at,
             ExecutionContext::loading("/repo/environments/production/main")
                 .with_workspace("default"),
         );
-        if let Some(phase) = phase {
-            state.record(ExecutionEvent {
-                received_at: started_at,
-                kind: ExecutionEventKind::Phase(phase),
-            });
-        }
         for text in lines {
             state.record(ExecutionEvent {
                 received_at: started_at,
@@ -3491,46 +3461,10 @@ mod tests {
         }
 
         #[test]
-        fn stages_outside_the_snapshot_show_their_title_and_status() {
-            struct StageCase {
-                name: &'static str,
-                phase: Option<ExecutionPhase>,
-                title: &'static str,
-                status: &'static str,
-            }
-
-            for case in [
-                StageCase {
-                    name: "initializing",
-                    phase: None,
-                    title: "Initializing",
-                    status: "Initializing...",
-                },
-                StageCase {
-                    name: "reading",
-                    phase: Some(ExecutionPhase::Reading),
-                    title: "Reading",
-                    status: "Reading plan...",
-                },
-            ] {
-                let (state, now) = plan_state(case.phase, &[]);
-
-                let text = render_text((80, 24), &state, ExecutionViewState::default(), now, false);
-
-                assert!(
-                    text.contains(&format!("┌{}─", case.title)),
-                    "case: {}",
-                    case.name
-                );
-                assert!(text.contains(case.status), "case: {}", case.name);
-            }
-        }
-
-        #[test]
         fn running_plan_follows_the_newest_line_until_scrolled_up() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
+            let (state, now) = plan_state(&lines);
             let layout = execution_layout(Rect::new(0, 0, 80, 24), &state);
 
             let following =
@@ -3554,7 +3488,7 @@ mod tests {
         fn failed_plan_starts_at_the_first_error_until_end_is_pressed() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
+            let (mut state, now) = plan_state(&lines);
             state.fail("synthetic plan failure".to_owned(), now);
 
             let initial = render_text((80, 24), &state, ExecutionViewState::default(), now, false);
@@ -3596,7 +3530,7 @@ mod tests {
                     expected: "Quit? Enter exit / Esc cancel",
                 },
             ] {
-                let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+                let (mut state, now) = plan_state(&["output"]);
                 if case.failed {
                     state.fail("synthetic plan failure".to_owned(), now);
                 }
@@ -3620,7 +3554,7 @@ mod tests {
 
         #[test]
         fn quit_confirmation_and_copy_notice_replace_the_failed_footer_in_place() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+            let (mut state, now) = plan_state(&["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             let area = Rect::new(0, 0, 80, 24);
             let normal = execution_layout(area, &state);
@@ -3660,7 +3594,7 @@ mod tests {
 
         #[test]
         fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+            let (mut state, now) = plan_state(&["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             state
                 .copy_feedback_mut()
@@ -3778,7 +3712,7 @@ mod tests {
                     ExecutionViewState::default(),
                     started_at + Duration::from_millis(u64::try_from(index).unwrap() * 100),
                 );
-                assert_eq!(status[0].to_string(), format!("{frame} Initializing..."));
+                assert_eq!(status[0].to_string(), format!("{frame} Reading plan..."));
             }
         }
 

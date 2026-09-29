@@ -455,13 +455,6 @@ fn heredoc_marker(line: &str, marker_column: u16) -> Option<char> {
         .then_some(marker)
 }
 
-pub(super) fn flash_lines(lines: &[Line<'_>]) -> Vec<Line<'static>> {
-    lines
-        .iter()
-        .map(|line| Line::from(Span::styled(line.to_string(), theme::copy_flash_style())))
-        .collect()
-}
-
 // Paragraph::scroll takes u16 offsets, so the body receives only the visible window instead. The
 // window walks the same graphemes and cell widths as ratatui's line truncation.
 pub(super) fn visible_lines<'a>(

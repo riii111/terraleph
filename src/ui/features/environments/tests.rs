@@ -111,8 +111,8 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         });
         let review = PlanReview::new(
             PathBuf::from(format!("/synthetic/{name}")),
@@ -1607,8 +1607,7 @@ mod change_summary {
     #[test]
     fn ready_environments_ignore_no_op_outputs_and_count_output_changes_once() {
         use crate::app::plan::{
-            PlanAction, ResourceChangeKind, UnsupportedChange, UnsupportedChangeKind,
-            UnsupportedChangeScope,
+            PlanAction, ResourceChangeKind,
             test_support::{output_change, resource_change},
         };
 
@@ -1648,14 +1647,7 @@ mod change_summary {
                         "data.terraform_data.read",
                         ResourceChangeKind::Read,
                     )],
-                    unsupported_changes: vec![UnsupportedChange {
-                        scope: UnsupportedChangeScope::Resource,
-                        address: "data.terraform_data.read".to_owned(),
-                        actions: vec![PlanAction::Read],
-                        kind: UnsupportedChangeKind::Read,
-                        reason: None,
-                        action_type: None,
-                    }],
+                    unsupported_change_count: 1,
                     output_changes: vec![output_change("endpoint", PlanAction::Create)],
                     ..Plan::empty()
                 },
@@ -1834,7 +1826,7 @@ mod apply {
         .with_context(
             ExecutionContext::loading(format!("/synthetic/{name}"))
                 .with_workspace("default")
-                .with_tool_version(Tool::Terraform, "1.9.0"),
+                .with_tool_version(Tool::Terraform, Some("1.9.0")),
         )
     }
 

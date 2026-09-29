@@ -9,7 +9,7 @@ use std::{
 pub(crate) use temporary::remove_orphaned_plans;
 
 use crate::app::execution::{
-    Diagnostic, ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionPhase, Tool,
+    Diagnostic, ExecutionContext, ExecutionEvent, ExecutionEventKind, Tool,
 };
 use crate::app::{plan::StateRelationStatus, review::PlanReview};
 use crate::infra::CancellationToken;
@@ -212,16 +212,7 @@ pub(crate) fn read_saved_plan_review(
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
     event_sink: &mut dyn FnMut(ExecutionEvent),
-    phase_sink: &mut dyn FnMut(ExecutionPhase),
 ) -> Result<PlanReview, TerraformExecutionError> {
-    phase_sink(ExecutionPhase::Reading);
-    let version = super::version::read_version_with_arguments(
-        tool,
-        launch_root,
-        global_arguments,
-        cancellation,
-        runner,
-    )?;
     let workspace =
         read_workspace_with_arguments(tool, launch_root, global_arguments, cancellation, runner)?;
     event_sink(ExecutionEvent {
@@ -258,7 +249,7 @@ pub(crate) fn read_saved_plan_review(
         runner,
     )?;
     let context = initial_context
-        .with_tool_version(tool, version)
+        .with_tool_version(tool, metadata.tool_version())
         .with_workspace(workspace.clone());
     let review = PlanReview::new(
         display_root.to_owned(),
@@ -321,8 +312,8 @@ pub(crate) mod test_support {
 
     use super::super::command::{TerraformCommand, TerraformExecutionErrorKind, run_successful};
     use super::{
-        CancellationToken, ExecutionEvent, ExecutionPhase, OsString, Path, ProcessRunner,
-        SavedPlan, TerraformExecutionError,
+        CancellationToken, ExecutionEvent, OsString, Path, ProcessRunner, SavedPlan,
+        TerraformExecutionError,
     };
 
     #[derive(Debug)]
@@ -374,19 +365,11 @@ pub(crate) mod test_support {
         cancellation: &CancellationToken,
         runner: &dyn ProcessRunner,
         event_sink: &mut dyn FnMut(ExecutionEvent),
-        phase_sink: &mut dyn FnMut(ExecutionPhase),
     ) -> Result<Plan, PlanTestError> {
         let saved_plan = SavedPlan::create().map_err(|error| PlanTestError::TemporaryPlan {
             message: error.to_string(),
         })?;
-        let result = execute_plan(
-            root,
-            saved_plan.path(),
-            cancellation,
-            runner,
-            event_sink,
-            phase_sink,
-        );
+        let result = execute_plan(root, saved_plan.path(), cancellation, runner, event_sink);
 
         finish_plan(saved_plan, result)
     }
@@ -397,7 +380,6 @@ pub(crate) mod test_support {
         cancellation: &CancellationToken,
         runner: &dyn ProcessRunner,
         event_sink: &mut dyn FnMut(ExecutionEvent),
-        phase_sink: &mut dyn FnMut(ExecutionPhase),
     ) -> Result<Plan, TerraformExecutionError> {
         run_successful(
             Tool::Terraform,
@@ -409,7 +391,6 @@ pub(crate) mod test_support {
             Some(event_sink),
         )?;
 
-        phase_sink(ExecutionPhase::Reading);
         super::super::show::test_support::read_plan(root, plan_path, cancellation, runner)
     }
 
@@ -472,14 +453,7 @@ mod tests {
         cancellation: &CancellationToken,
         runner: &dyn ProcessRunner,
     ) -> Result<Plan, TerraformExecutionError> {
-        execute_plan(
-            root,
-            plan_path,
-            cancellation,
-            runner,
-            &mut |_| {},
-            &mut |_| {},
-        )
+        execute_plan(root, plan_path, cancellation, runner, &mut |_| {})
     }
 
     const PLAN_JSON: &[u8] = br#"{"format_version":"1.0"}"#;
@@ -888,7 +862,6 @@ mod tests {
             &cancellation,
             &runner,
             &mut |event| events.push(event),
-            &mut |_| {},
         );
         let result = finish_plan(saved_plan, result).expect("plan should be returned");
 
@@ -1155,13 +1128,11 @@ mod tests {
 
         let cancellation = CancellationToken::new();
         let mut ignore_event = |_| {};
-        let mut ignore_phase = |_| {};
         let result = run_plan(
             &directory,
             &cancellation,
             &super::super::command::SystemProcessRunner,
             &mut ignore_event,
-            &mut ignore_phase,
         );
         let cleanup = Command::new("python3")
             .args(["fixtures/basic/plan.py", "test", "clean"])

@@ -13,7 +13,9 @@ use crate::app::{
 use crate::ui::theme;
 
 use super::changes;
-use super::context::{display_width, relative_directory, take_from_start, target, truncate_middle};
+use super::context::{
+    display_width, relative_directory, take_from_start, target, tool_label, truncate_middle,
+};
 
 const REVIEW_HEADER_SEPARATOR: &str = " ";
 const PRODUCTION_SUFFIX: &str = " [PROD]";
@@ -110,14 +112,10 @@ fn review_header_values(review: &PlanReview) -> [String; 4] {
         ExecutionContextValue::Known(value) => value.as_str(),
         ExecutionContextValue::Loading => review.workspace(),
     };
-    let version = match context.tool_version() {
-        ExecutionContextValue::Known(value) => value.as_str(),
-        ExecutionContextValue::Loading => "loading...",
-    };
     [
         target_name,
         workspace.to_owned(),
-        format!("{} {version}", context.tool_name()),
+        tool_label(context),
         relative_directory(context.cwd_path(), context.launch_root_path()),
     ]
 }
@@ -435,8 +433,7 @@ fn header_line(path: &Path, workspace: Option<&str>, width: u16) -> Line<'static
 mod tests {
     use super::*;
     use crate::app::plan::{
-        Plan, PlanAction, ResourceChangeKind, UnsupportedChange, UnsupportedChangeKind,
-        UnsupportedChangeScope,
+        Plan, PlanAction, ResourceChangeKind,
         test_support::{output_change, resource_change},
     };
     use crate::app::review::{PlanDocument, PlanMetadata};
@@ -454,14 +451,7 @@ mod tests {
                 "data.terraform_data.read",
                 ResourceChangeKind::Read,
             )],
-            unsupported_changes: vec![UnsupportedChange {
-                scope: UnsupportedChangeScope::Resource,
-                address: "data.terraform_data.read".to_owned(),
-                actions: vec![PlanAction::Read],
-                kind: UnsupportedChangeKind::Read,
-                reason: None,
-                action_type: None,
-            }],
+            unsupported_change_count: 1,
             ..Plan::empty()
         };
         let outputs = |actions: [PlanAction; 2]| {

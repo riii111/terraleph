@@ -40,6 +40,13 @@ pub(crate) enum ExecutionContextValue {
     Known(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ToolVersion {
+    Loading,
+    Known(String),
+    Unavailable,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct VariableSources {
     automatic_files: Vec<PathBuf>,
@@ -93,7 +100,7 @@ pub(crate) struct ExecutionContext {
     display_name: ExecutionContextValue,
     production: Option<bool>,
     tool: Tool,
-    tool_version: ExecutionContextValue,
+    tool_version: ToolVersion,
     variable_sources: VariableSources,
 }
 
@@ -106,7 +113,7 @@ impl ExecutionContext {
             display_name: ExecutionContextValue::Loading,
             production: None,
             tool: Tool::Terraform,
-            tool_version: ExecutionContextValue::Loading,
+            tool_version: ToolVersion::Loading,
             variable_sources: VariableSources::default(),
         }
     }
@@ -129,9 +136,11 @@ impl ExecutionContext {
         self
     }
 
-    pub(crate) fn with_tool_version(mut self, tool: Tool, version: impl Into<String>) -> Self {
+    pub(crate) fn with_tool_version(mut self, tool: Tool, version: Option<&str>) -> Self {
         self.tool = tool;
-        self.tool_version = ExecutionContextValue::Known(version.into());
+        self.tool_version = version.map_or(ToolVersion::Unavailable, |version| {
+            ToolVersion::Known(version.to_owned())
+        });
         self
     }
 
@@ -176,7 +185,7 @@ impl ExecutionContext {
     }
 
     #[must_use]
-    pub(crate) const fn tool_version(&self) -> &ExecutionContextValue {
+    pub(crate) const fn tool_version(&self) -> &ToolVersion {
         &self.tool_version
     }
 
@@ -484,14 +493,23 @@ mod tests {
     fn opentofu_context_keeps_the_selected_tool_for_the_header() {
         let loading = ExecutionContext::loading("/repo/infra").with_tool(Tool::OpenTofu);
         assert_eq!(loading.tool_name(), "tofu");
-        assert_eq!(loading.tool_version(), &ExecutionContextValue::Loading);
+        assert_eq!(loading.tool_version(), &ToolVersion::Loading);
 
-        let context = loading.with_tool_version(Tool::OpenTofu, "1.10.0");
+        let context = loading.with_tool_version(Tool::OpenTofu, Some("1.10.0"));
 
         assert_eq!(context.tool_name(), "tofu");
         assert_eq!(
             context.tool_version(),
-            &ExecutionContextValue::Known("1.10.0".to_owned())
+            &ToolVersion::Known("1.10.0".to_owned())
         );
+    }
+
+    #[test]
+    fn missing_tool_version_is_unavailable_and_keeps_the_selected_tool() {
+        let context =
+            ExecutionContext::loading("/repo/infra").with_tool_version(Tool::OpenTofu, None);
+
+        assert_eq!(context.tool_name(), "tofu");
+        assert_eq!(context.tool_version(), &ToolVersion::Unavailable);
     }
 }

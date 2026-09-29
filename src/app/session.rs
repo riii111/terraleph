@@ -25,7 +25,7 @@ pub(crate) enum SessionOutcome {
         summary_line: Option<String>,
     },
     Failed(ExecutionStage),
-    Interrupted(ExecutionStage),
+    Interrupted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,9 +347,7 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
                 return None;
             };
             if execution.cancellation_requested() {
-                return Some(Effect::Finish(SessionOutcome::Interrupted(
-                    execution.stage(),
-                )));
+                return Some(Effect::Finish(SessionOutcome::Interrupted));
             }
             if review.apply_entry() && !review.metadata().applyable() {
                 return Some(Effect::Finish(SessionOutcome::NoChanges));
@@ -365,9 +363,7 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
                 return None;
             };
             if interrupted || execution.cancellation_requested() {
-                return Some(Effect::Finish(SessionOutcome::Interrupted(
-                    execution.stage(),
-                )));
+                return Some(Effect::Finish(SessionOutcome::Interrupted));
             }
             execution.fail(message, now);
             None
@@ -450,9 +446,9 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
             Some(Effect::PersistHistory(execution.successful_history()))
         }
         Action::WorkerDisconnected => match state {
-            SessionState::Execution(execution) if execution.cancellation_requested() => Some(
-                Effect::Finish(SessionOutcome::Interrupted(execution.stage())),
-            ),
+            SessionState::Execution(execution) if execution.cancellation_requested() => {
+                Some(Effect::Finish(SessionOutcome::Interrupted))
+            }
             SessionState::Execution(execution) if execution.stage() == ExecutionStage::Failed => {
                 None
             }
@@ -775,7 +771,7 @@ mod tests {
         );
         assert!(matches!(
             update(&mut state, Action::ReviewCompleted(review()), now),
-            Some(Effect::Finish(SessionOutcome::Interrupted(_)))
+            Some(Effect::Finish(SessionOutcome::Interrupted))
         ));
     }
 
@@ -1206,7 +1202,7 @@ mod tests {
                 resource_changes: vec![
                     resource_change("terraform_data.api", ResourceChangeKind::Update),
                     ResourceChange {
-                        previous_address: Some("terraform_data.previous".to_owned()),
+                        has_previous_address: true,
                         ..resource_change("terraform_data.moved", ResourceChangeKind::Move)
                     },
                     resource_change("terraform_data.worker", ResourceChangeKind::Create),

@@ -17,7 +17,10 @@ use crate::app::{
     },
     plan::{PlanAction, ResourceChangeKind},
 };
-use crate::ui::{primitives::atoms::scrollbar, theme};
+use crate::ui::{
+    primitives::atoms::{scroll, scrollbar},
+    theme,
+};
 
 const WHY_WIDTH: usize = 7;
 const MIN_CELL_WIDTH: usize = 9;
@@ -106,7 +109,7 @@ fn render_content(
     let max_vertical = lines.len().saturating_sub(body_height);
     view.vertical = view.vertical.min(max_vertical);
     if let Some(selected_lines) = selected_lines.filter(|_| body_height > 0) {
-        scroll_selected_range_into_view(view, selected_lines, body_height);
+        view.vertical = scroll::offset_showing_range(view.vertical, selected_lines, body_height);
     }
     let content_length = lines.len();
     frame.render_widget(
@@ -229,32 +232,6 @@ fn content_lines(
     }
 
     (lines, selected_lines)
-}
-
-const fn scroll_selected_range_into_view(
-    view: &mut MatrixView,
-    selected_lines: (usize, usize),
-    body_height: usize,
-) {
-    if selected_lines
-        .1
-        .saturating_sub(selected_lines.0)
-        .saturating_add(1)
-        > body_height
-    {
-        view.vertical = selected_lines.0;
-        return;
-    }
-    if selected_lines.0 < view.vertical {
-        view.vertical = selected_lines.0;
-    }
-    let visible_end = view.vertical.saturating_add(body_height);
-    if selected_lines.1 >= visible_end {
-        view.vertical = selected_lines
-            .1
-            .saturating_add(1)
-            .saturating_sub(body_height);
-    }
 }
 
 fn same_section_title(view: &MatrixView, state: &EnvironmentSession) -> &'static str {
@@ -823,25 +800,6 @@ mod tests {
         assert!(line.contains("server[*]"), "{line}");
         let note = unknown_note_line(&view.rows[0], false).to_string();
         assert!(note.contains("[unknown values]"), "{note}");
-    }
-
-    #[test]
-    fn scrolling_up_keeps_the_selected_unknown_row_and_its_note_visible() {
-        let mut view = matrix_view(0);
-        view.vertical = 12;
-
-        scroll_selected_range_into_view(&mut view, (10, 11), 8);
-
-        assert_eq!(view.vertical, 10);
-    }
-
-    #[test]
-    fn scrolling_down_keeps_the_selected_unknown_row_and_its_note_visible() {
-        let mut view = matrix_view(0);
-
-        scroll_selected_range_into_view(&mut view, (10, 11), 8);
-
-        assert_eq!(view.vertical, 4);
     }
 
     #[test]

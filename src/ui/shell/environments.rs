@@ -9,7 +9,7 @@ use super::context::truncate_middle;
 use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
-        execution::{ExecutionContextValue, directory_display_name},
+        execution::{ToolVersion, directory_display_name},
         session::SessionState,
     },
     ui::theme,
@@ -176,10 +176,12 @@ pub(crate) fn render_header(
         |review| {
             let review = review.review();
             match review.context().tool_version() {
-                ExecutionContextValue::Known(version) => {
+                ToolVersion::Known(version) => {
                     format!("{} {version}", plan.tool.display_name())
                 }
-                ExecutionContextValue::Loading => plan.tool.display_name().to_owned(),
+                ToolVersion::Loading | ToolVersion::Unavailable => {
+                    plan.tool.display_name().to_owned()
+                }
             }
         },
     );
