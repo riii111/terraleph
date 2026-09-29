@@ -27,10 +27,6 @@ use crate::{
     },
 };
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the event loop keeps the connected session lifecycle together"
-)]
 pub(crate) fn run_connected(
     terminal: &mut DefaultTerminal,
     execution: ExecutionState,
@@ -40,14 +36,10 @@ pub(crate) fn run_connected(
     initial_overview: bool,
 ) -> io::Result<SessionOutcome> {
     let input = super::terminal::TerminalInput::spawn()?;
-    let mut execution_view = execution::ExecutionViewState::default();
-    let mut review_view = plan_review::PlanReviewViewState::default();
-    let mut confirmation_view = plan_review::ApplyConfirmationViewState::default();
+    let mut views = SessionViews::default();
     let mut state = SessionState::new(execution);
     let mut start_in_overview = initial_overview;
-    let mut quit_confirmation = false;
     let mut dirty = true;
-    let mut scheduled_draw = None;
 
     loop {
         // The caller maps the signal to the exit status; this error only unwinds the terminal
@@ -60,7 +52,7 @@ pub(crate) fn run_connected(
         let (outcome, received) = receive_messages_with_initial_overview(
             messages,
             &mut state,
-            &mut execution_view,
+            &mut views.execution,
             &mut effects,
             &mut start_in_overview,
         );
@@ -73,7 +65,7 @@ pub(crate) fn run_connected(
         let (outcome, received) = receive_messages_with_initial_overview(
             messages,
             &mut state,
-            &mut execution_view,
+            &mut views.execution,
             &mut effects,
             &mut start_in_overview,
         );
@@ -83,7 +75,7 @@ pub(crate) fn run_connected(
         }
         if let Some(outcome) = dispatch_finished_workers(
             &mut state,
-            &mut execution_view,
+            &mut views.execution,
             finished_workers,
             &mut effects,
         ) {
@@ -99,22 +91,11 @@ pub(crate) fn run_connected(
             overview::reconcile_view(
                 Rect::new(0, 0, size.width, size.height),
                 overview_state,
-                review_view.overview_mut(),
+                views.review.overview_mut(),
             );
         }
 
-        let now = Instant::now();
-        draw_if_needed_with_quit_confirmation(
-            &mut state,
-            terminal,
-            execution_view,
-            &review_view,
-            &confirmation_view,
-            &mut dirty,
-            &mut scheduled_draw,
-            now,
-            quit_confirmation,
-        )?;
+        draw_if_needed(&mut state, terminal, &mut views, &mut dirty, Instant::now())?;
 
         if let Some(input_event) = input.next(Duration::from_millis(100))? {
             match input_event {
@@ -122,55 +103,16 @@ pub(crate) fn run_connected(
                     dirty = true;
                     reconcile_resize(
                         &state,
-                        &mut review_view,
+                        &mut views.review,
                         Rect::new(0, 0, width, height),
-                        quit_confirmation,
+                        views.quit_confirmation,
                     );
                 }
                 Event::Key(key) if key.is_press() => {
                     dirty = true;
-                    let mut confirmed_quit = false;
-                    let action = if quit_confirmation {
-                        match quit_confirmation_key_to_input(key) {
-                            QuitConfirmationInput::Confirm => {
-                                quit_confirmation = false;
-                                confirmed_quit = true;
-                                Some(Action::Quit)
-                            }
-                            QuitConfirmationInput::Cancel => {
-                                quit_confirmation = false;
-                                None
-                            }
-                            QuitConfirmationInput::Consume => None,
-                            QuitConfirmationInput::Forward(key) => {
-                                quit_confirmation = false;
-                                handle_key_event(
-                                    terminal,
-                                    &state,
-                                    &mut execution_view,
-                                    &mut review_view,
-                                    &mut confirmation_view,
-                                    key,
-                                )?
-                            }
-                        }
-                    } else {
-                        handle_key_event(
-                            terminal,
-                            &state,
-                            &mut execution_view,
-                            &mut review_view,
-                            &mut confirmation_view,
-                            key,
-                        )?
-                    };
-                    if let Some(action) = action {
-                        if let Some(action) = action_after_quit_confirmation(
-                            action,
-                            confirmed_quit,
-                            &mut quit_confirmation,
-                        ) && let Some(outcome) =
-                            dispatch(&mut state, action, &mut execution_view, &mut effects)
+                    if let Some(action) = views.handle_key(terminal, &state, key)? {
+                        if let Some(outcome) =
+                            dispatch(&mut state, action, &mut views.execution, &mut effects)
                         {
                             return Ok(outcome);
                         }
@@ -178,16 +120,12 @@ pub(crate) fn run_connected(
                             .apply()
                             .is_some_and(|apply| apply.stage() == ExecutionStage::Applying)
                         {
-                            draw_if_needed_with_quit_confirmation(
+                            draw_if_needed(
                                 &mut state,
                                 terminal,
-                                execution_view,
-                                &review_view,
-                                &confirmation_view,
+                                &mut views,
                                 &mut dirty,
-                                &mut scheduled_draw,
                                 Instant::now(),
-                                quit_confirmation,
                             )?;
                         }
                     }
@@ -198,16 +136,57 @@ pub(crate) fn run_connected(
     }
 }
 
-fn action_after_quit_confirmation(
-    action: Action,
-    confirmed_quit: bool,
-    quit_confirmation: &mut bool,
-) -> Option<Action> {
-    if matches!(&action, Action::Quit) && !confirmed_quit {
-        *quit_confirmation = true;
-        None
-    } else {
-        Some(action)
+// The view state one session's screens keep between frames, and the quit confirmation that
+// covers whichever screen is showing.
+#[derive(Default)]
+pub(super) struct SessionViews {
+    pub(super) execution: execution::ExecutionViewState,
+    pub(super) review: plan_review::PlanReviewViewState,
+    pub(super) confirmation: plan_review::ApplyConfirmationViewState,
+    pub(super) quit_confirmation: bool,
+    pub(super) scheduled_draw: Option<Instant>,
+}
+
+impl SessionViews {
+    // A quit from the screen opens the confirmation; only a confirmed quit reaches the session.
+    pub(super) fn handle_key<B: Backend>(
+        &mut self,
+        terminal: &Terminal<B>,
+        state: &SessionState,
+        key: KeyEvent,
+    ) -> Result<Option<Action>, B::Error> {
+        let key = if self.quit_confirmation {
+            match quit_confirmation_key_to_input(key) {
+                QuitConfirmationInput::Confirm => {
+                    self.quit_confirmation = false;
+                    return Ok(Some(Action::Quit));
+                }
+                QuitConfirmationInput::Cancel => {
+                    self.quit_confirmation = false;
+                    return Ok(None);
+                }
+                QuitConfirmationInput::Consume => return Ok(None),
+                QuitConfirmationInput::Forward(key) => {
+                    self.quit_confirmation = false;
+                    key
+                }
+            }
+        } else {
+            key
+        };
+        let action = handle_key_event(
+            terminal,
+            state,
+            &mut self.execution,
+            &mut self.review,
+            &mut self.confirmation,
+            key,
+        )?;
+        if matches!(action, Some(Action::Quit)) {
+            self.quit_confirmation = true;
+            return Ok(None);
+        }
+        Ok(action)
     }
 }
 
@@ -263,40 +242,24 @@ fn should_draw(state: &SessionState, dirty: bool) -> bool {
         || state.copy_feedback().is_some_and(CopyFeedback::pending)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the draw step receives the runtime-owned views and rendering state"
-)]
-pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
+fn draw_if_needed<B: Backend>(
     state: &mut SessionState,
     terminal: &mut Terminal<B>,
-    execution_view: execution::ExecutionViewState,
-    review_view: &plan_review::PlanReviewViewState,
-    confirmation_view: &plan_review::ApplyConfirmationViewState,
+    views: &mut SessionViews,
     dirty: &mut bool,
-    scheduled_draw: &mut Option<Instant>,
     now: Instant,
-    quit_confirmation: bool,
 ) -> Result<bool, B::Error> {
     // Layouts reserve footer width for any stored notice, so an expired notice is cleared
     // before the frame that would otherwise draw it as blank space.
     *dirty |= clear_expired_copy_feedback(state, now);
-    *dirty |= scheduled_draw.is_some_and(|at| now >= at);
+    *dirty |= views.scheduled_draw.is_some_and(|at| now >= at);
     if !should_draw(state, *dirty) {
         return Ok(false);
     }
 
-    draw_with_quit_confirmation(
-        state,
-        terminal,
-        execution_view,
-        review_view,
-        confirmation_view,
-        now,
-        quit_confirmation,
-    )?;
+    draw_with_quit_confirmation(state, terminal, views, now)?;
     *dirty = false;
-    *scheduled_draw = scheduled_draw_after(state, now);
+    views.scheduled_draw = scheduled_draw_after(state, now);
     Ok(true)
 }
 
@@ -344,7 +307,7 @@ pub(super) fn reconcile_resize(
     clippy::too_many_lines,
     reason = "the key dispatcher keeps the existing review and apply paths together"
 )]
-pub(super) fn handle_key_event<B: Backend>(
+fn handle_key_event<B: Backend>(
     terminal: &Terminal<B>,
     state: &SessionState,
     execution_view: &mut execution::ExecutionViewState,
@@ -352,7 +315,7 @@ pub(super) fn handle_key_event<B: Backend>(
     confirmation_view: &mut plan_review::ApplyConfirmationViewState,
     key: KeyEvent,
 ) -> Result<Option<Action>, B::Error> {
-    if let Some(execution) = state.execution() {
+    if let Some(execution) = state.execution().or_else(|| state.apply()) {
         return handle_execution_key_event(terminal, execution, execution_view, key);
     }
 
@@ -390,10 +353,6 @@ pub(super) fn handle_key_event<B: Backend>(
         let expected = confirmation.review().confirmation_input();
         return Ok(input
             .and_then(|input| confirmation_view.apply(input, &expected, layout.max_vertical())));
-    }
-
-    if let Some(apply) = state.apply() {
-        return handle_execution_key_event(terminal, apply, execution_view, key);
     }
 
     if let Some(overview_state) = state.overview() {
@@ -658,19 +617,17 @@ fn handle_execution_key_event<B: Backend>(
 fn draw_with_quit_confirmation<B: Backend>(
     state: &SessionState,
     terminal: &mut Terminal<B>,
-    execution_view: execution::ExecutionViewState,
-    review_view: &plan_review::PlanReviewViewState,
-    confirmation_view: &plan_review::ApplyConfirmationViewState,
+    views: &SessionViews,
     now: Instant,
-    quit_confirmation: bool,
 ) -> Result<(), B::Error> {
+    let quit_confirmation = views.quit_confirmation;
     match state {
-        SessionState::Execution(execution) => {
+        SessionState::Execution(execution) | SessionState::Apply(execution) => {
             terminal.draw(|frame| {
                 execution::render_execution_with_quit_confirmation(
                     frame,
                     execution,
-                    execution_view,
+                    views.execution,
                     now,
                     quit_confirmation,
                 );
@@ -682,7 +639,7 @@ fn draw_with_quit_confirmation<B: Backend>(
                     plan_review::render_with_quit_confirmation(
                         frame,
                         review,
-                        review_view,
+                        &views.review,
                         now,
                         quit_confirmation,
                     );
@@ -693,7 +650,7 @@ fn draw_with_quit_confirmation<B: Backend>(
                     overview::render_with_quit_confirmation(
                         frame,
                         review,
-                        review_view.overview(),
+                        views.review.overview(),
                         now,
                         quit_confirmation,
                     );
@@ -704,29 +661,18 @@ fn draw_with_quit_confirmation<B: Backend>(
                     plan_review::render_apply_confirmation(
                         frame,
                         review,
-                        review_view,
-                        confirmation_view,
+                        &views.review,
+                        &views.confirmation,
                         now,
                     );
                 })?;
             }
         },
-        SessionState::Apply(execution) => {
-            terminal.draw(|frame| {
-                execution::render_execution_with_quit_confirmation(
-                    frame,
-                    execution,
-                    execution_view,
-                    now,
-                    quit_confirmation,
-                );
-            })?;
-        }
     }
     Ok(())
 }
 
-fn receive_messages_with_initial_overview<C: ClipboardWriter>(
+pub(super) fn receive_messages_with_initial_overview<C: ClipboardWriter>(
     messages: &Receiver<PlanReviewMessage>,
     state: &mut SessionState,
     execution_view: &mut execution::ExecutionViewState,
@@ -761,7 +707,7 @@ fn receive_messages_with_initial_overview<C: ClipboardWriter>(
     (None, received)
 }
 
-pub(super) fn update_session(
+fn update_session(
     state: &mut SessionState,
     action: Action,
     execution_view: &mut execution::ExecutionViewState,
@@ -802,7 +748,7 @@ pub(super) fn update_session(
     effect
 }
 
-fn dispatch<C: ClipboardWriter>(
+pub(super) fn dispatch<C: ClipboardWriter>(
     state: &mut SessionState,
     action: Action,
     execution_view: &mut execution::ExecutionViewState,
@@ -832,39 +778,15 @@ fn apply_effect<C: ClipboardWriter>(
             }
             None
         }
-        Some(Effect::StartApply) => {
-            let apply = state.apply()?;
-            if let Err(message) = verify_apply_context(apply, effects) {
-                return dispatch(
-                    state,
-                    Action::ApplyFailed { message },
-                    execution_view,
-                    effects,
-                );
-            }
-            match super::spawn_apply_worker(
-                effects.tool,
-                effects.root,
-                effects.global_arguments,
-                effects.apply_arguments,
-                effects.plan_path,
-                effects.cancellation,
-                effects.sender,
-            ) {
-                Ok(handle) => effects.apply_worker.set_handle(handle),
-                Err(error) => {
-                    return dispatch(
-                        state,
-                        Action::ApplyFailed {
-                            message: format!("failed to start the apply worker: {error}"),
-                        },
-                        execution_view,
-                        effects,
-                    );
-                }
-            }
-            None
-        }
+        Some(Effect::StartApply) => match start_apply(state, effects) {
+            Ok(()) => None,
+            Err(message) => dispatch(
+                state,
+                Action::ApplyFailed { message },
+                execution_view,
+                effects,
+            ),
+        },
         Some(Effect::WriteClipboard(effect)) => {
             let target = effect.target();
             let result = effects.clipboard.execute(&effect);
@@ -879,34 +801,43 @@ fn apply_effect<C: ClipboardWriter>(
     }
 }
 
-fn verify_apply_context(
+// Apply runs only the saved plan that was reviewed, in the reviewed directory; it never re-plans.
+fn start_apply(
+    state: &SessionState,
+    effects: &mut RuntimeEffects<'_, impl ClipboardWriter>,
+) -> Result<(), String> {
+    let apply = state
+        .apply()
+        .ok_or_else(|| "The environment is not ready to apply.".to_owned())?;
+    verify_apply_target(apply, effects)?;
+    let plan_path = effects
+        .plan_path
+        .ok_or_else(|| "The reviewed plan is no longer available.".to_owned())?;
+    let handle = super::spawn_apply_worker(
+        effects.tool,
+        effects.root,
+        effects.global_arguments,
+        effects.apply_arguments,
+        plan_path,
+        effects.cancellation,
+        effects.sender,
+    )
+    .map_err(|error| format!("failed to start the apply worker: {error}"))?;
+    effects.apply_worker.set_handle(handle);
+    Ok(())
+}
+
+fn verify_apply_target(
     apply: &ExecutionState,
     effects: &RuntimeEffects<'_, impl ClipboardWriter>,
 ) -> Result<(), String> {
-    verify_apply_target(
-        apply,
-        effects.tool,
-        effects.root,
-        effects.display_root,
-        effects.global_arguments,
-        effects.cancellation,
-    )
-}
-
-pub(super) fn verify_apply_target(
-    apply: &ExecutionState,
-    tool: Tool,
-    root: &Path,
-    display_root: &Path,
-    global_arguments: &[std::ffi::OsString],
-    cancellation: &CancellationToken,
-) -> Result<(), String> {
-    verify_apply_directory(apply.context().cwd_path(), display_root, tool)?;
+    let tool = effects.tool;
+    verify_apply_directory(apply.context().cwd_path(), effects.display_root, tool)?;
     let workspace = terraform::read_workspace_with_arguments(
         tool,
-        root,
-        global_arguments,
-        cancellation,
+        effects.root,
+        effects.global_arguments,
+        effects.cancellation,
         &terraform::SystemProcessRunner,
     )
     .map_err(|error| {
@@ -972,7 +903,7 @@ pub(super) struct RuntimeEffects<'a, C: ClipboardWriter = ClipboardExecutor> {
     pub(super) global_arguments: &'a [std::ffi::OsString],
     pub(super) apply_arguments: &'a [std::ffi::OsString],
     pub(super) sender: &'a std::sync::mpsc::Sender<PlanReviewMessage>,
-    pub(super) plan_path: &'a Path,
+    pub(super) plan_path: Option<&'a Path>,
     pub(super) cancellation: &'a CancellationToken,
     pub(super) clipboard: &'a mut C,
     pub(super) apply_worker: &'a mut super::WorkerGuard,
@@ -1602,17 +1533,13 @@ mod tests {
             assert!(should_draw(&state, false));
 
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let execution_view = execution::ExecutionViewState::default();
-            let review_view = plan_review::PlanReviewViewState::default();
-            let confirmation_view = plan_review::ApplyConfirmationViewState::default();
+            let mut views = SessionViews::default();
             let mut dirty = false;
             assert!(
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     notice_expired_at,
                 )
@@ -1623,9 +1550,7 @@ mod tests {
                 !draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     notice_expired_at,
                 )
@@ -1654,8 +1579,7 @@ mod tests {
             let started_at = Instant::now();
             let flash_active_at = started_at + Duration::from_millis(100);
             let expired_at = started_at + Duration::from_millis(200);
-            let (mut state, mut terminal, execution_view, review_view, confirmation_view) =
-                copy_runtime_fixture(target, started_at);
+            let (mut state, mut terminal, mut views) = copy_runtime_fixture(target, started_at);
             let never_copied = terminal.backend().buffer().clone();
             let before_copy = copy_target_cells(target, &terminal);
             record_copy(
@@ -1669,9 +1593,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     started_at,
                 )
@@ -1684,9 +1606,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     flash_active_at,
                 )
@@ -1699,9 +1619,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     expired_at,
                 )
@@ -1723,9 +1641,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     expired_at,
                 )
@@ -1737,9 +1653,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     notice_expired_at,
                 )
@@ -1762,8 +1676,7 @@ mod tests {
             #[case] target: CopyFlashTarget,
         ) {
             let started_at = Instant::now();
-            let (mut state, mut terminal, execution_view, review_view, confirmation_view) =
-                copy_runtime_fixture(target, started_at);
+            let (mut state, mut terminal, mut views) = copy_runtime_fixture(target, started_at);
             let before_copy = copy_target_cells(target, &terminal);
             record_copy(
                 &mut state,
@@ -1777,9 +1690,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     started_at,
                 )
@@ -1793,9 +1704,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    execution_view,
-                    &review_view,
-                    &confirmation_view,
+                    &mut views,
                     &mut dirty,
                     notice_expired_at,
                 )
@@ -1896,13 +1805,7 @@ mod tests {
         fn copy_runtime_fixture(
             target: CopyFlashTarget,
             started_at: Instant,
-        ) -> (
-            SessionState,
-            Terminal<TestBackend>,
-            execution::ExecutionViewState,
-            plan_review::PlanReviewViewState,
-            plan_review::ApplyConfirmationViewState,
-        ) {
+        ) -> (SessionState, Terminal<TestBackend>, SessionViews) {
             let mut state = copy_flash_state(target, started_at);
             // The narrow Overview has no footer width to spare, so a leftover notice reservation
             // would hide hints that the never-copied frame shows.
@@ -1912,32 +1815,20 @@ mod tests {
             };
             let mut terminal =
                 Terminal::new(TestBackend::new(width, height)).expect("test terminal");
-            let execution_view = execution::ExecutionViewState::default();
-            let review_view = match target {
-                CopyFlashTarget::Review => copy_review_view(&state),
-                CopyFlashTarget::Overview | CopyFlashTarget::Apply => {
-                    plan_review::PlanReviewViewState::default()
-                }
-            };
-            let confirmation_view = plan_review::ApplyConfirmationViewState::default();
+            let mut views = SessionViews::default();
+            if matches!(target, CopyFlashTarget::Review) {
+                views.review = copy_review_view(&state);
+            }
             let mut dirty = true;
             draw_if_needed(
                 &mut state,
                 &mut terminal,
-                execution_view,
-                &review_view,
-                &confirmation_view,
+                &mut views,
                 &mut dirty,
                 started_at,
             )
             .expect("state before copy should render");
-            (
-                state,
-                terminal,
-                execution_view,
-                review_view,
-                confirmation_view,
-            )
+            (state, terminal, views)
         }
 
         fn copy_review_view(state: &SessionState) -> plan_review::PlanReviewViewState {
@@ -2001,27 +1892,19 @@ mod tests {
             let now = Instant::now();
             let mut state = confirmation_state();
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             let mut dirty = true;
 
             let action = views
-                .handle_key(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
                 .expect("confirmation input should be handled");
 
             assert_eq!(action, None);
             assert_eq!(views.confirmation.input(), "y");
 
             assert!(
-                draw_if_needed(
-                    &mut state,
-                    &mut terminal,
-                    views.execution,
-                    &views.review,
-                    &views.confirmation,
-                    &mut dirty,
-                    now,
-                )
-                .expect("confirmation should render")
+                draw_if_needed(&mut state, &mut terminal, &mut views, &mut dirty, now,)
+                    .expect("confirmation should render")
             );
 
             assert!(!dirty);
@@ -2038,20 +1921,15 @@ mod tests {
                     review_plan().with_planned_at(planned_at),
                 )));
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let views = ScreenViews::default();
+            let mut views = SessionViews::default();
             let mut dirty = true;
-            let mut scheduled_draw = None;
             let mut draw = |state: &mut SessionState, dirty: &mut bool, elapsed| {
-                draw_if_needed_with_quit_confirmation(
+                draw_if_needed(
                     state,
                     &mut terminal,
-                    views.execution,
-                    &views.review,
-                    &views.confirmation,
+                    &mut views,
                     dirty,
-                    &mut scheduled_draw,
                     planned_at + Duration::from_secs(elapsed),
-                    false,
                 )
                 .expect("confirmation should render")
             };
@@ -2060,7 +1938,10 @@ mod tests {
             assert!(!draw(&mut state, &mut dirty, 59));
             assert!(draw(&mut state, &mut dirty, 60));
             assert!(!draw(&mut state, &mut dirty, 61));
-            assert_eq!(scheduled_draw, Some(planned_at + Duration::from_secs(120)));
+            assert_eq!(
+                views.scheduled_draw,
+                Some(planned_at + Duration::from_secs(120))
+            );
             assert!(terminal_text(&terminal).contains("Planned: 1m ago"));
         }
 
@@ -2088,18 +1969,18 @@ mod tests {
                 )),
             ));
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             for _ in 0..10 {
                 views
-                    .handle_key(&terminal, &state, KeyCode::PageDown, KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::PageDown, KeyModifiers::NONE)
                     .expect("confirmation page down should be handled");
             }
-            let end = render_apply_to_text(&mut state, &mut terminal, &views, now);
+            let end = render_apply_to_text(&mut state, &mut terminal, &mut views, now);
 
             views
-                .handle_key(&terminal, &state, KeyCode::Up, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Up, KeyModifiers::NONE)
                 .expect("confirmation scroll up should be handled");
-            let scrolled = render_apply_to_text(&mut state, &mut terminal, &views, now);
+            let scrolled = render_apply_to_text(&mut state, &mut terminal, &mut views, now);
 
             assert!(end.contains("terraform_data.old_19"), "{end}");
             assert!(!scrolled.contains("terraform_data.old_19"), "{scrolled}");
@@ -2130,27 +2011,18 @@ mod tests {
         fn press_and_draw(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
-            views: &mut ScreenViews,
+            views: &mut SessionViews,
             code: KeyCode,
             now: Instant,
         ) -> String {
             if let Some(action) = views
-                .handle_key(terminal, state, code, KeyModifiers::NONE)
+                .press(terminal, state, code, KeyModifiers::NONE)
                 .expect("key should be handled")
             {
                 update_session(state, action, &mut views.execution, now);
             }
             let mut dirty = true;
-            draw_if_needed(
-                state,
-                terminal,
-                views.execution,
-                &views.review,
-                &views.confirmation,
-                &mut dirty,
-                now,
-            )
-            .expect("screen should draw");
+            draw_if_needed(state, terminal, views, &mut dirty, now).expect("screen should draw");
             terminal_text(terminal)
         }
 
@@ -2166,7 +2038,7 @@ mod tests {
                 let mut state = applyable_review_state();
                 let mut terminal =
                     Terminal::new(TestBackend::new(width, height)).expect("test terminal");
-                let mut views = ScreenViews::default();
+                let mut views = SessionViews::default();
                 let mut before = String::new();
                 for &code in opening.iter().chain(&[KeyCode::Char('?')]) {
                     before = press_and_draw(&mut state, &mut terminal, &mut views, code, now);
@@ -2187,7 +2059,7 @@ mod tests {
             let mut state = applyable_review_state();
             let mut wide = Terminal::new(TestBackend::new(100, 30)).expect("test terminal");
             let mut narrow = Terminal::new(TestBackend::new(20, 5)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             press_and_draw(&mut state, &mut wide, &mut views, KeyCode::Char('a'), now);
             let expected = state
                 .apply_confirmation()
@@ -2228,7 +2100,7 @@ mod tests {
             );
             let mut state = SessionState::Review(Box::new(ReviewSessionState::new(plan)));
             let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             let review = state.review().expect("review state");
             let layout = plan_review::layout(
                 Rect::new(0, 0, 80, 24),
@@ -2246,12 +2118,12 @@ mod tests {
             let position = views.review.scroll();
 
             let open = views
-                .handle_key(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
                 .expect("apply key should be handled")
                 .expect("apply key should open confirmation");
             update_session(&mut state, open, &mut views.execution, now);
             let cancel = views
-                .handle_key(&terminal, &state, KeyCode::Esc, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Esc, KeyModifiers::NONE)
                 .expect("escape confirmation should be handled")
                 .expect("escape should cancel");
             update_session(&mut state, cancel, &mut views.execution, now);
@@ -2281,35 +2153,35 @@ mod tests {
             plan.set_search_query("worker".to_owned());
             let mut state = SessionState::Review(Box::new(ReviewSessionState::new(plan)));
             let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
 
             assert!(matches!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
                     .expect("apply key should be handled"),
                 Some(Action::OpenApplyConfirmation)
             ));
             assert!(matches!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
                     .expect("copy key should be handled"),
                 Some(Action::Copy(CopyTarget::Plan))
             ));
             assert!(matches!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('q'), KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Char('q'), KeyModifiers::NONE)
                     .expect("quit key should be handled"),
                 Some(Action::Quit)
             ));
             assert_eq!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('c'), KeyModifiers::CONTROL)
+                    .press(&terminal, &state, KeyCode::Char('c'), KeyModifiers::CONTROL)
                     .expect("control-c should be handled"),
                 Some(Action::Quit)
             );
 
             let clear = views
-                .handle_key(&terminal, &state, KeyCode::Esc, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Esc, KeyModifiers::NONE)
                 .expect("clear filter key should be handled")
                 .expect("clear filter should update the review");
             update_session(&mut state, clear, &mut views.execution, now);
@@ -2324,7 +2196,7 @@ mod tests {
 
             assert!(matches!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Char('y'), KeyModifiers::NONE)
                     .expect("copy key should be handled"),
                 Some(Action::Copy(CopyTarget::Plan))
             ));
@@ -2346,48 +2218,33 @@ mod tests {
                 },
                 now,
             );
-            let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
-
-            let action = views
-                .handle_key(&terminal, &state, KeyCode::Char('q'), KeyModifiers::NONE)
-                .expect("overview quit input should be handled");
-            assert_eq!(action, Some(Action::Quit));
-
-            let mut quit_confirmation = false;
-            assert_eq!(
-                action_after_quit_confirmation(
-                    action.expect("quit should produce an action"),
-                    false,
-                    &mut quit_confirmation,
-                ),
-                None
-            );
-            assert!(quit_confirmation);
-
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            draw_with_quit_confirmation(
-                &state,
-                &mut terminal,
-                views.execution,
-                &views.review,
-                &views.confirmation,
-                now,
-                quit_confirmation,
-            )
-            .expect("overview confirmation should render");
+            let mut views = SessionViews::default();
+            let press = |views: &mut SessionViews, terminal: &Terminal<TestBackend>, code| {
+                views
+                    .handle_key(terminal, &state, KeyEvent::new(code, KeyModifiers::NONE))
+                    .expect("quit input should be handled")
+            };
+
+            assert_eq!(press(&mut views, &terminal, KeyCode::Char('q')), None);
+            assert!(views.quit_confirmation);
+            draw_with_quit_confirmation(&state, &mut terminal, &views, now)
+                .expect("overview confirmation should render");
             let text = terminal_text(&terminal);
             assert!(text.contains("Quit Terraleph?"), "{text}");
             assert!(!text.contains("Copied."), "{text}");
             assert!(!text.contains("q quit"), "{text}");
 
-            quit_confirmation = false;
-            assert!(state.overview().is_some());
-
-            assert!(matches!(
-                action_after_quit_confirmation(Action::Quit, true, &mut quit_confirmation),
+            assert_eq!(press(&mut views, &terminal, KeyCode::Char('q')), None);
+            assert!(views.quit_confirmation);
+            assert_eq!(press(&mut views, &terminal, KeyCode::Esc), None);
+            assert!(!views.quit_confirmation);
+            assert_eq!(press(&mut views, &terminal, KeyCode::Char('q')), None);
+            assert_eq!(
+                press(&mut views, &terminal, KeyCode::Enter),
                 Some(Action::Quit)
-            ));
+            );
+            assert!(!views.quit_confirmation);
             assert!(matches!(
                 session::update(&mut state, Action::Quit, now),
                 Some(Effect::Finish(SessionOutcome::Reviewed { .. }))
@@ -2398,30 +2255,23 @@ mod tests {
         fn forwarded_quit_confirmation_key_reaches_the_current_screen_once() {
             let state = confirmation_state();
             let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut execution_view = execution::ExecutionViewState::default();
-            let mut review_view = plan_review::PlanReviewViewState::default();
-            let mut confirmation_view = plan_review::ApplyConfirmationViewState::default();
-            let raw_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::SHIFT);
-
-            let QuitConfirmationInput::Forward(key) = quit_confirmation_key_to_input(raw_key)
-            else {
-                panic!("the screen input should be forwarded");
+            let mut views = SessionViews {
+                quit_confirmation: true,
+                ..SessionViews::default()
             };
-            assert_eq!(key, raw_key);
 
             assert_eq!(
-                handle_key_event(
-                    &terminal,
-                    &state,
-                    &mut execution_view,
-                    &mut review_view,
-                    &mut confirmation_view,
-                    key,
-                )
-                .expect("forwarded screen input should be handled"),
+                views
+                    .handle_key(
+                        &terminal,
+                        &state,
+                        KeyEvent::new(KeyCode::Char('y'), KeyModifiers::SHIFT),
+                    )
+                    .expect("forwarded screen input should be handled"),
                 None
             );
-            assert_eq!(confirmation_view.input(), "y");
+            assert!(!views.quit_confirmation);
+            assert_eq!(views.confirmation.input(), "y");
         }
 
         fn overview_state() -> SessionState {
@@ -2445,10 +2295,10 @@ mod tests {
                 Vec::new(),
             ))));
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             let shrunk = resize(&mut terminal, &state, &mut views.review, 60, 16);
             views
-                .handle_key(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
                 .expect("review end should be handled");
             let shrunk_max = plan_review::layout(
                 shrunk,
@@ -2493,10 +2343,10 @@ mod tests {
                 )),
             ));
             let mut terminal = Terminal::new(TestBackend::new(100, 30)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             resize(&mut terminal, &state, &mut views.review, 60, 16);
             views
-                .handle_key(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
                 .expect("overview end should be handled");
             assert_eq!(views.review.overview().selected(), Some(29));
             let shrunk_scroll = views.review.overview().scroll();
@@ -2509,9 +2359,7 @@ mod tests {
             draw_if_needed(
                 &mut state,
                 &mut terminal,
-                views.execution,
-                &views.review,
-                &views.confirmation,
+                &mut views,
                 &mut dirty,
                 Instant::now(),
             )
@@ -2555,9 +2403,9 @@ mod tests {
             let started_at = Instant::now();
             let mut state = long_apply_state(started_at, Some(status));
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             let action = views
-                .handle_key(&terminal, &state, code, modifiers)
+                .press(&terminal, &state, code, modifiers)
                 .expect("end key should be handled");
 
             assert_eq!(action, None);
@@ -2566,9 +2414,7 @@ mod tests {
                 draw_if_needed(
                     &mut state,
                     &mut terminal,
-                    views.execution,
-                    &views.review,
-                    &views.confirmation,
+                    &mut views,
                     &mut dirty,
                     started_at,
                 )
@@ -2582,10 +2428,10 @@ mod tests {
             let started_at = Instant::now();
             let mut state = long_apply_state(started_at, None);
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             assert_eq!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Char('v'), KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Char('v'), KeyModifiers::NONE)
                     .expect("log viewer key should be handled"),
                 None
             );
@@ -2593,7 +2439,7 @@ mod tests {
 
             assert_eq!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::Down, KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::Down, KeyModifiers::NONE)
                     .expect("scroll key should be handled"),
                 None
             );
@@ -2613,7 +2459,7 @@ mod tests {
 
             assert_eq!(
                 views
-                    .handle_key(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
+                    .press(&terminal, &state, KeyCode::End, KeyModifiers::NONE)
                     .expect("end key should be handled"),
                 None
             );
@@ -2623,9 +2469,7 @@ mod tests {
             draw_if_needed(
                 &mut state,
                 &mut terminal,
-                views.execution,
-                &views.review,
-                &views.confirmation,
+                &mut views,
                 &mut dirty,
                 started_at + Duration::from_secs(1),
             )
@@ -2643,12 +2487,12 @@ mod tests {
         fn assert_apply_log_view_can_close_and_reopen(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
-            views: &mut ScreenViews,
+            views: &mut SessionViews,
             now: Instant,
         ) {
             assert_eq!(
                 views
-                    .handle_key(terminal, state, KeyCode::Esc, KeyModifiers::NONE)
+                    .press(terminal, state, KeyCode::Esc, KeyModifiers::NONE)
                     .expect("escape should close the log viewer"),
                 None
             );
@@ -2658,7 +2502,7 @@ mod tests {
 
             assert_eq!(
                 views
-                    .handle_key(terminal, state, KeyCode::Char('v'), KeyModifiers::NONE)
+                    .press(terminal, state, KeyCode::Char('v'), KeyModifiers::NONE)
                     .expect("v should reopen the log viewer"),
                 None
             );
@@ -2673,7 +2517,7 @@ mod tests {
             let now = Instant::now();
             let mut state = applyable_review_state();
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
-            let mut views = ScreenViews::default();
+            let mut views = SessionViews::default();
             views
                 .execution
                 .apply_scroll(execution::ExecutionScroll::Down, 10, 20, 10);
@@ -2682,7 +2526,7 @@ mod tests {
                 .apply_horizontal_scroll(execution::ExecutionScroll::Right, 2, 5, 10);
 
             let apply_action = views
-                .handle_key(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Char('a'), KeyModifiers::NONE)
                 .expect("apply key should be handled");
             assert!(
                 update_session(
@@ -2699,7 +2543,7 @@ mod tests {
             for character in "yes".chars() {
                 assert!(
                     views
-                        .handle_key(
+                        .press(
                             &terminal,
                             &state,
                             KeyCode::Char(character),
@@ -2710,7 +2554,7 @@ mod tests {
                 );
             }
             let confirm_action = views
-                .handle_key(&terminal, &state, KeyCode::Enter, KeyModifiers::NONE)
+                .press(&terminal, &state, KeyCode::Enter, KeyModifiers::NONE)
                 .expect("confirmation should be handled");
             assert!(matches!(
                 update_session(
@@ -2780,7 +2624,7 @@ mod tests {
         fn assert_apply_start_path(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
-            views: &mut ScreenViews,
+            views: &mut SessionViews,
             now: Instant,
         ) {
             views.execution.open_logs();
@@ -2809,7 +2653,7 @@ mod tests {
             for code in [KeyCode::Up, KeyCode::Right] {
                 assert!(
                     views
-                        .handle_key(terminal, state, code, KeyModifiers::NONE)
+                        .press(terminal, state, code, KeyModifiers::NONE)
                         .expect("manual execution key should be handled")
                         .is_none()
                 );
@@ -2821,7 +2665,7 @@ mod tests {
         fn assert_apply_completion_and_copy_path(
             state: &mut SessionState,
             terminal: &mut Terminal<TestBackend>,
-            views: &mut ScreenViews,
+            views: &mut SessionViews,
             now: Instant,
         ) {
             let _ = update_session(
@@ -2841,14 +2685,14 @@ mod tests {
 
             assert_eq!(
                 views
-                    .handle_key(terminal, state, KeyCode::Tab, KeyModifiers::NONE)
+                    .press(terminal, state, KeyCode::Tab, KeyModifiers::NONE)
                     .expect("tab should focus logs after result"),
                 None
             );
             for code in [KeyCode::Up, KeyCode::Right] {
                 assert!(
                     views
-                        .handle_key(terminal, state, code, KeyModifiers::NONE)
+                        .press(terminal, state, code, KeyModifiers::NONE)
                         .expect("post-result execution key should be handled")
                         .is_none()
                 );
@@ -2872,7 +2716,7 @@ mod tests {
                 global_arguments: &[],
                 apply_arguments: &[],
                 sender: &sender,
-                plan_path: Path::new("/project/review.tfplan"),
+                plan_path: Some(Path::new("/project/review.tfplan")),
                 cancellation: &cancellation,
                 clipboard: &mut clipboard,
                 apply_worker: &mut apply_worker,
@@ -2959,28 +2803,6 @@ mod tests {
         }
     }
 
-    fn draw_if_needed<B: Backend>(
-        state: &mut SessionState,
-        terminal: &mut Terminal<B>,
-        execution_view: execution::ExecutionViewState,
-        review_view: &plan_review::PlanReviewViewState,
-        confirmation_view: &plan_review::ApplyConfirmationViewState,
-        dirty: &mut bool,
-        now: Instant,
-    ) -> Result<bool, B::Error> {
-        draw_if_needed_with_quit_confirmation(
-            state,
-            terminal,
-            execution_view,
-            review_view,
-            confirmation_view,
-            dirty,
-            &mut None,
-            now,
-            false,
-        )
-    }
-
     struct TestClipboard;
 
     impl ClipboardWriter for TestClipboard {
@@ -3009,7 +2831,7 @@ mod tests {
             global_arguments: &[],
             apply_arguments: &[],
             sender,
-            plan_path: Path::new("/project/review.tfplan"),
+            plan_path: Some(Path::new("/project/review.tfplan")),
             cancellation,
             clipboard,
             apply_worker,
@@ -3017,15 +2839,10 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct ScreenViews {
-        execution: execution::ExecutionViewState,
-        review: plan_review::PlanReviewViewState,
-        confirmation: plan_review::ApplyConfirmationViewState,
-    }
-
-    impl ScreenViews {
-        fn handle_key(
+    impl SessionViews {
+        // Sends the key to the current screen as `handle_key` does outside the quit confirmation,
+        // returning a screen quit instead of opening the confirmation.
+        fn press(
             &mut self,
             terminal: &Terminal<TestBackend>,
             state: &SessionState,
@@ -3046,21 +2863,12 @@ mod tests {
     fn render_apply_to_text(
         state: &mut SessionState,
         terminal: &mut Terminal<TestBackend>,
-        views: &ScreenViews,
+        views: &mut SessionViews,
         now: Instant,
     ) -> String {
         let mut dirty = true;
         assert!(
-            draw_if_needed(
-                state,
-                terminal,
-                views.execution,
-                &views.review,
-                &views.confirmation,
-                &mut dirty,
-                now,
-            )
-            .expect("apply should render")
+            draw_if_needed(state, terminal, views, &mut dirty, now,).expect("apply should render")
         );
         terminal_text(terminal)
     }

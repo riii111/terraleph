@@ -213,7 +213,7 @@ fn run_saved_plan_review(
         global_arguments,
         apply_arguments,
         sender: &sender,
-        plan_path: saved_plan.path(),
+        plan_path: Some(saved_plan.path()),
         cancellation: &cancellation,
         clipboard: &mut clipboard,
         apply_worker: &mut apply_worker,
