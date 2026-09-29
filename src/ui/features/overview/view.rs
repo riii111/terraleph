@@ -592,8 +592,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         };
         review_with_changes(vec![
             update_change("aws_instance.web[0]"),
@@ -621,8 +621,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 

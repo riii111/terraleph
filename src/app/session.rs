@@ -1206,7 +1206,7 @@ mod tests {
                 resource_changes: vec![
                     resource_change("terraform_data.api", ResourceChangeKind::Update),
                     ResourceChange {
-                        previous_address: Some("terraform_data.previous".to_owned()),
+                        has_previous_address: true,
                         ..resource_change("terraform_data.moved", ResourceChangeKind::Move)
                     },
                     resource_change("terraform_data.worker", ResourceChangeKind::Create),

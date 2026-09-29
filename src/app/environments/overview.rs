@@ -504,8 +504,7 @@ mod tests {
     };
 
     fn environment_overview(plans: &[EnvironmentPlan]) -> EnvironmentOverview {
-        let selection = EnvironmentSelection::new(None, plans.len())
-            .expect("all environment indexes form a valid selection");
+        let selection = EnvironmentSelection::new(None, plans.len());
         environment_overview_for_selection(plans, &selection)
     }
 
@@ -584,7 +583,7 @@ mod tests {
         assert_eq!(member_counts(group), counts);
         assert!(group.has_unknown);
 
-        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(None, session.plans().len());
         let with_relations =
             environment_overview_with_relations_for_selection(session.plans(), &selection);
         for relation in with_relations.relations.values() {
@@ -603,7 +602,7 @@ mod tests {
     fn selected_environments_group_only_their_common_changes() {
         let session = ready_session([changes(2, "excluded"), changes(2, "new"), changes(3, "new")]);
         let all = environment_overview(session.plans());
-        let selection = EnvironmentSelection::new(Some(vec![2, 1]), session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(Some(vec![2, 1]), session.plans().len());
 
         let overview = environment_overview_for_selection(session.plans(), &selection);
 
@@ -742,7 +741,7 @@ mod tests {
             [r#"module.app["prod"].test_resource.item[9]"#]
         );
 
-        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(None, session.plans().len());
         let result = environment_overview_with_relations_for_selection(session.plans(), &selection);
         for (environment, module_key, address_count) in [(0, "dev", 2), (1, "prod", 1)] {
             let graph = result.relations[&environment]
@@ -933,7 +932,7 @@ mod tests {
     #[test]
     fn relation_graphs_use_each_compared_groups_changed_addresses() {
         let session = ready_session([changes(2, "new"), changes(3, "new")]);
-        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(None, session.plans().len());
 
         let result = environment_overview_with_relations_for_selection(session.plans(), &selection);
 
@@ -963,7 +962,7 @@ mod tests {
     #[test]
     fn excluded_environment_gets_its_plan_groups_without_comparison_highlights() {
         let session = ready_session([changes(2, "new"), changes(3, "other")]);
-        let selection = EnvironmentSelection::new(Some(vec![0]), session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(Some(vec![0]), session.plans().len());
 
         let result = environment_overview_with_relations_for_selection(session.plans(), &selection);
 
@@ -991,7 +990,7 @@ mod tests {
     fn partial_ready_and_retry_rebuild_only_available_environment_graphs() {
         let mut session = pending_session(2);
         complete_next(&mut session, review(changes(2, "new")));
-        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(None, session.plans().len());
 
         let partial =
             environment_overview_with_relations_for_selection(session.plans(), &selection);
@@ -1076,7 +1075,7 @@ mod tests {
     }
 
     fn assert_partition(session: &EnvironmentSession, overview: &EnvironmentOverview) {
-        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(None, session.plans().len());
         let comparison = compare_environments_for_selection(session.plans(), &selection);
         assert_eq!(overview.scope, comparison.scope);
         let mut expanded = Vec::new();
@@ -1217,8 +1216,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 }

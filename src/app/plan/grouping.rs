@@ -405,8 +405,8 @@ mod tests {
             before_sensitive: Some(PlanValue::Bool(false)),
             after_sensitive: Some(PlanValue::Bool(false)),
             after_unknown: Some(PlanValue::Bool(false)),
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 

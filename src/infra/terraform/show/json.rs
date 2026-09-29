@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::app::plan::{
     OutputChange, Plan, PlanAction, PlanRelations, PlanValue, ResourceChange, ResourceChangeKind,
-    ResourceMode, UnsupportedChange, UnsupportedChangeKind, UnsupportedChangeScope,
+    ResourceMode,
 };
 use crate::app::review::PlanMetadata;
 
@@ -63,14 +63,17 @@ pub(super) fn parse_plan_document(document: &Value) -> Result<Plan, PlanParseErr
     let resources = optional_array(root, "resource_changes")?;
 
     let mut resource_changes = Vec::new();
-    let mut unsupported_changes = Vec::new();
 
     for resource in resources {
-        parse_resource_change(resource, &mut resource_changes, &mut unsupported_changes)?;
+        parse_resource_change(resource, &mut resource_changes)?;
     }
+    let mut unsupported_change_count = resource_changes
+        .iter()
+        .filter(|change| is_unsupported_kind(change.kind))
+        .count();
 
     if let Some(deferred_changes) = root.get("deferred_changes") {
-        parse_deferred_changes(deferred_changes, &mut unsupported_changes)?;
+        unsupported_change_count += parse_deferred_changes(deferred_changes)?;
     }
 
     let output_changes = if let Some(output_changes) = root.get("output_changes") {
@@ -80,11 +83,11 @@ pub(super) fn parse_plan_document(document: &Value) -> Result<Plan, PlanParseErr
     };
 
     if let Some(action_invocations) = root.get("action_invocations") {
-        parse_action_invocations(action_invocations, &mut unsupported_changes)?;
+        unsupported_change_count += parse_action_invocations(action_invocations)?;
     }
 
     if let Some(deferred_action_invocations) = root.get("deferred_action_invocations") {
-        parse_deferred_action_invocations(deferred_action_invocations, &mut unsupported_changes)?;
+        unsupported_change_count += parse_deferred_action_invocations(deferred_action_invocations)?;
     }
 
     let drifted_resources = match root.get("resource_drift") {
@@ -95,7 +98,7 @@ pub(super) fn parse_plan_document(document: &Value) -> Result<Plan, PlanParseErr
     Ok(Plan {
         resource_changes,
         value_addresses: parse_value_addresses(root, true)?,
-        unsupported_changes,
+        unsupported_change_count,
         output_changes,
         drifted_resources,
     })
@@ -179,47 +182,20 @@ fn parse_format_version(root: &Map<String, Value>) -> Result<(), PlanParseError>
     Ok(())
 }
 
-enum ActionClassification {
-    NoOp,
-    Supported(ResourceChangeKind),
-    Unsupported(UnsupportedChangeKind),
-}
-
-fn classify_resource_kind(actions: &[PlanAction]) -> ResourceChangeKind {
-    match classify_actions(actions) {
-        ActionClassification::NoOp => ResourceChangeKind::NoOp,
-        ActionClassification::Supported(kind) => kind,
-        ActionClassification::Unsupported(UnsupportedChangeKind::Read) => ResourceChangeKind::Read,
-        ActionClassification::Unsupported(UnsupportedChangeKind::Move) => ResourceChangeKind::Move,
-        ActionClassification::Unsupported(UnsupportedChangeKind::Import) => {
-            ResourceChangeKind::Import
-        }
-        ActionClassification::Unsupported(UnsupportedChangeKind::UnknownAction) => {
-            ResourceChangeKind::Unknown
-        }
-        ActionClassification::Unsupported(_) => ResourceChangeKind::Unsupported,
-    }
-}
-
-const fn unsupported_kind(kind: ResourceChangeKind) -> Option<UnsupportedChangeKind> {
-    match kind {
-        ResourceChangeKind::Read => Some(UnsupportedChangeKind::Read),
-        ResourceChangeKind::Move => Some(UnsupportedChangeKind::Move),
-        ResourceChangeKind::Import => Some(UnsupportedChangeKind::Import),
-        ResourceChangeKind::Unknown => Some(UnsupportedChangeKind::UnknownAction),
-        ResourceChangeKind::Unsupported => Some(UnsupportedChangeKind::UnsupportedActions),
-        ResourceChangeKind::Create
-        | ResourceChangeKind::Update
-        | ResourceChangeKind::Replace
-        | ResourceChangeKind::Delete
-        | ResourceChangeKind::NoOp => None,
-    }
+const fn is_unsupported_kind(kind: ResourceChangeKind) -> bool {
+    matches!(
+        kind,
+        ResourceChangeKind::Read
+            | ResourceChangeKind::Move
+            | ResourceChangeKind::Import
+            | ResourceChangeKind::Unknown
+            | ResourceChangeKind::Unsupported
+    )
 }
 
 fn parse_resource_change(
     resource: &Value,
     resource_changes: &mut Vec<ResourceChange>,
-    unsupported_changes: &mut Vec<UnsupportedChange>,
 ) -> Result<(), PlanParseError> {
     let resource = resource
         .as_object()
@@ -228,54 +204,38 @@ fn parse_resource_change(
     let mode = parse_resource_mode(resource)?;
     let change = required_object(resource, "change")?;
     let actions = parse_actions(change, "resource change actions")?;
-    let previous_address = parse_optional_string(resource, "previous_address")?;
+    let has_previous_address = parse_optional_str(resource, "previous_address")?.is_some();
     let importing = parse_importing(change)?;
-    let kind = if importing
-        .as_ref()
-        .is_some_and(|value| matches!(value, PlanValue::Object(_)))
-    {
+    let kind = if importing.is_some_and(Value::is_object) {
         ResourceChangeKind::Import
-    } else if previous_address.is_some() {
+    } else if has_previous_address {
         ResourceChangeKind::Move
     } else {
-        classify_resource_kind(&actions)
+        classify_actions(&actions)
     };
-    let resource_change = ResourceChange {
+
+    resource_changes.push(ResourceChange {
         address,
-        provider: parse_optional_string(resource, "provider_name")?,
-        resource_type: parse_optional_string(resource, "type")?,
+        provider: parse_optional_str(resource, "provider_name")?.map(str::to_owned),
+        resource_type: parse_optional_str(resource, "type")?.map(str::to_owned),
         mode,
-        actions: actions.clone(),
+        actions,
         kind,
         before: optional_plan_value(change, "before"),
         after: optional_plan_value(change, "after"),
         before_sensitive: optional_plan_value(change, "before_sensitive"),
         after_sensitive: optional_plan_value(change, "after_sensitive"),
         after_unknown: optional_plan_value(change, "after_unknown"),
-        previous_address,
-        importing,
-    };
-
-    resource_changes.push(resource_change);
-    if let Some(kind) = unsupported_kind(kind) {
-        unsupported_changes.push(UnsupportedChange {
-            scope: UnsupportedChangeScope::Resource,
-            address: required_string(resource, "address")?.to_owned(),
-            actions,
-            kind,
-            reason: None,
-            action_type: None,
-        });
-    }
+        has_previous_address,
+        has_importing: importing.is_some(),
+    });
     Ok(())
 }
 
-fn parse_deferred_changes(
-    deferred_changes: &Value,
-    unsupported_changes: &mut Vec<UnsupportedChange>,
-) -> Result<(), PlanParseError> {
+/// Returns how many deferred changes the document lists. Their fields are validated but not kept.
+fn parse_deferred_changes(deferred_changes: &Value) -> Result<usize, PlanParseError> {
     if deferred_changes.is_null() {
-        return Ok(());
+        return Ok(0);
     }
 
     let deferred_changes = deferred_changes
@@ -286,24 +246,15 @@ fn parse_deferred_changes(
         let deferred_change = deferred_change
             .as_object()
             .ok_or(PlanParseError::InvalidField("deferred change"))?;
-        let reason = required_string(deferred_change, "reason")?.to_owned();
+        required_string(deferred_change, "reason")?;
         let resource = required_object(deferred_change, "resource_change")?;
-        let address = required_string(resource, "address")?.to_owned();
+        required_string(resource, "address")?;
         parse_resource_mode(resource)?;
         let change = required_object(resource, "change")?;
-        let actions = parse_actions(change, "deferred resource change actions")?;
-
-        unsupported_changes.push(UnsupportedChange {
-            scope: UnsupportedChangeScope::DeferredResource,
-            address,
-            actions,
-            kind: UnsupportedChangeKind::Deferred,
-            reason: Some(reason),
-            action_type: None,
-        });
+        parse_actions(change, "deferred resource change actions")?;
     }
 
-    Ok(())
+    Ok(deferred_changes.len())
 }
 
 fn parse_resource_drift(resource_drift: &Value) -> Result<Vec<String>, PlanParseError> {
@@ -325,7 +276,7 @@ fn parse_resource_drift(resource_drift: &Value) -> Result<Vec<String>, PlanParse
         let change = required_object(resource, "change")?;
         let actions = parse_actions(change, "resource drift actions")?;
 
-        if !matches!(classify_actions(&actions), ActionClassification::NoOp) {
+        if classify_actions(&actions) != ResourceChangeKind::NoOp {
             addresses.push(address);
         }
     }
@@ -364,12 +315,10 @@ fn parse_output_changes(output_changes: &Value) -> Result<Vec<OutputChange>, Pla
     Ok(changes)
 }
 
-fn parse_action_invocations(
-    action_invocations: &Value,
-    unsupported_changes: &mut Vec<UnsupportedChange>,
-) -> Result<(), PlanParseError> {
+/// Returns how many action invocations the document lists. Their fields are validated but not kept.
+fn parse_action_invocations(action_invocations: &Value) -> Result<usize, PlanParseError> {
     if action_invocations.is_null() {
-        return Ok(());
+        return Ok(0);
     }
 
     let action_invocations = action_invocations
@@ -380,27 +329,18 @@ fn parse_action_invocations(
         let action_invocation = action_invocation
             .as_object()
             .ok_or(PlanParseError::InvalidField("action invocation"))?;
-        let (address, action_type) = parse_action_invocation_metadata(action_invocation)?;
-
-        unsupported_changes.push(UnsupportedChange {
-            scope: UnsupportedChangeScope::ActionInvocation,
-            address,
-            actions: Vec::new(),
-            kind: UnsupportedChangeKind::ActionInvocation,
-            reason: None,
-            action_type: Some(action_type),
-        });
+        validate_action_invocation(action_invocation)?;
     }
 
-    Ok(())
+    Ok(action_invocations.len())
 }
 
+/// Returns how many deferred action invocations the document lists.
 fn parse_deferred_action_invocations(
     deferred_action_invocations: &Value,
-    unsupported_changes: &mut Vec<UnsupportedChange>,
-) -> Result<(), PlanParseError> {
+) -> Result<usize, PlanParseError> {
     if deferred_action_invocations.is_null() {
-        return Ok(());
+        return Ok(0);
     }
 
     let deferred_action_invocations = deferred_action_invocations
@@ -411,30 +351,20 @@ fn parse_deferred_action_invocations(
         let deferred_action_invocation = deferred_action_invocation
             .as_object()
             .ok_or(PlanParseError::InvalidField("deferred action invocation"))?;
-        let reason = required_string(deferred_action_invocation, "reason")?.to_owned();
+        required_string(deferred_action_invocation, "reason")?;
         let action_invocation = required_object(deferred_action_invocation, "action_invocation")?;
-        let (address, action_type) = parse_action_invocation_metadata(action_invocation)?;
-
-        unsupported_changes.push(UnsupportedChange {
-            scope: UnsupportedChangeScope::ActionInvocation,
-            address,
-            actions: Vec::new(),
-            kind: UnsupportedChangeKind::DeferredActionInvocation,
-            reason: Some(reason),
-            action_type: Some(action_type),
-        });
+        validate_action_invocation(action_invocation)?;
     }
 
-    Ok(())
+    Ok(deferred_action_invocations.len())
 }
 
-fn parse_action_invocation_metadata(
+fn validate_action_invocation(
     action_invocation: &Map<String, Value>,
-) -> Result<(String, String), PlanParseError> {
-    let address = required_string(action_invocation, "address")?.to_owned();
-    let action_type = required_string(action_invocation, "type")?.to_owned();
-
-    Ok((address, action_type))
+) -> Result<(), PlanParseError> {
+    required_string(action_invocation, "address")?;
+    required_string(action_invocation, "type")?;
+    Ok(())
 }
 
 fn parse_resource_mode(resource: &Map<String, Value>) -> Result<ResourceMode, PlanParseError> {
@@ -481,30 +411,26 @@ pub(super) fn parse_actions(
         .collect()
 }
 
-fn classify_actions(actions: &[PlanAction]) -> ActionClassification {
+fn classify_actions(actions: &[PlanAction]) -> ResourceChangeKind {
     match actions {
-        [PlanAction::NoOp] => ActionClassification::NoOp,
-        [PlanAction::Create] => ActionClassification::Supported(ResourceChangeKind::Create),
-        [PlanAction::Update] => ActionClassification::Supported(ResourceChangeKind::Update),
-        [PlanAction::Delete] => ActionClassification::Supported(ResourceChangeKind::Delete),
+        [PlanAction::NoOp] => ResourceChangeKind::NoOp,
+        [PlanAction::Create] => ResourceChangeKind::Create,
+        [PlanAction::Update] => ResourceChangeKind::Update,
+        [PlanAction::Delete] => ResourceChangeKind::Delete,
         [PlanAction::Create, PlanAction::Delete] | [PlanAction::Delete, PlanAction::Create] => {
-            ActionClassification::Supported(ResourceChangeKind::Replace)
+            ResourceChangeKind::Replace
         }
-        [PlanAction::Read] => ActionClassification::Unsupported(UnsupportedChangeKind::Read),
-        [PlanAction::Unknown(action)] if action == "move" => {
-            ActionClassification::Unsupported(UnsupportedChangeKind::Move)
-        }
-        [PlanAction::Unknown(action)] if action == "import" => {
-            ActionClassification::Unsupported(UnsupportedChangeKind::Import)
-        }
+        [PlanAction::Read] => ResourceChangeKind::Read,
+        [PlanAction::Unknown(action)] if action == "move" => ResourceChangeKind::Move,
+        [PlanAction::Unknown(action)] if action == "import" => ResourceChangeKind::Import,
         actions
             if actions
                 .iter()
                 .any(|action| matches!(action, PlanAction::Unknown(_))) =>
         {
-            ActionClassification::Unsupported(UnsupportedChangeKind::UnknownAction)
+            ResourceChangeKind::Unknown
         }
-        _ => ActionClassification::Unsupported(UnsupportedChangeKind::UnsupportedActions),
+        _ => ResourceChangeKind::Unsupported,
     }
 }
 
@@ -546,10 +472,10 @@ fn optional_plan_value(object: &Map<String, Value>, field: &str) -> Option<PlanV
     object.get(field).map(plan_value)
 }
 
-fn parse_importing(object: &Map<String, Value>) -> Result<Option<PlanValue>, PlanParseError> {
+fn parse_importing(object: &Map<String, Value>) -> Result<Option<&Value>, PlanParseError> {
     match object.get("importing") {
         None => Ok(None),
-        Some(value @ (Value::Null | Value::Object(_))) => Ok(Some(plan_value(value))),
+        Some(value @ (Value::Null | Value::Object(_))) => Ok(Some(value)),
         Some(_) => Err(PlanParseError::InvalidField("importing")),
     }
 }
@@ -570,15 +496,14 @@ fn plan_value(value: &Value) -> PlanValue {
     }
 }
 
-fn parse_optional_string(
-    object: &Map<String, Value>,
+fn parse_optional_str<'a>(
+    object: &'a Map<String, Value>,
     field: &'static str,
-) -> Result<Option<String>, PlanParseError> {
+) -> Result<Option<&'a str>, PlanParseError> {
     match object.get(field) {
         None | Some(Value::Null) => Ok(None),
         Some(value) => value
             .as_str()
-            .map(str::to_owned)
             .ok_or(PlanParseError::InvalidField(field))
             .map(Some),
     }
@@ -728,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn retains_move_and_import_markers_as_unsupported_changes() {
+    fn counts_move_and_import_markers_as_unsupported_changes() {
         let mut moved = resource("aws_instance.renamed", "managed", json!(["no-op"]));
         moved["previous_address"] = json!("aws_instance.old_name");
 
@@ -747,28 +672,13 @@ mod tests {
                 .iter()
                 .any(|change| change.kind.is_standard_change())
         );
-        assert_eq!(plan.unsupported_changes.len(), 3);
-        assert_eq!(
-            plan.unsupported_changes[0].kind,
-            UnsupportedChangeKind::Move
-        );
-        assert_eq!(
-            plan.unsupported_changes[1].kind,
-            UnsupportedChangeKind::Import
-        );
-        assert_eq!(
-            plan.unsupported_changes[2].kind,
-            UnsupportedChangeKind::Import
-        );
+        assert_eq!(plan.unsupported_change_count, 3);
         assert_eq!(plan.resource_changes.len(), 3);
         assert_eq!(plan.resource_changes[0].kind, ResourceChangeKind::Move);
         assert_eq!(plan.resource_changes[1].kind, ResourceChangeKind::Import);
         assert_eq!(plan.resource_changes[2].kind, ResourceChangeKind::Import);
-        assert_eq!(
-            plan.resource_changes[0].previous_address.as_deref(),
-            Some("aws_instance.old_name")
-        );
-        assert!(plan.resource_changes[1].importing.is_some());
+        assert!(plan.resource_changes[0].has_previous_address);
+        assert!(plan.resource_changes[1].has_importing);
     }
 
     #[test]
@@ -880,29 +790,13 @@ mod tests {
                 ResourceChangeKind::Unknown,
             ]
         );
-        assert_eq!(plan.unsupported_changes.len(), 4);
-        assert_eq!(
-            plan.unsupported_changes[0].kind,
-            UnsupportedChangeKind::Read
-        );
-        assert_eq!(
-            plan.unsupported_changes[1].kind,
-            UnsupportedChangeKind::Move
-        );
-        assert_eq!(
-            plan.unsupported_changes[2].kind,
-            UnsupportedChangeKind::Import
-        );
-        assert_eq!(
-            plan.unsupported_changes[3].kind,
-            UnsupportedChangeKind::UnknownAction
-        );
+        assert_eq!(plan.unsupported_change_count, 4);
         assert_eq!(plan.output_changes.len(), 1);
         assert_eq!(plan.output_changes[0].address, "public_ip");
     }
 
     #[test]
-    fn retains_deferred_resources_and_action_invocations_as_unsupported_changes() {
+    fn counts_deferred_resources_and_action_invocations_as_unsupported_changes() {
         let input = json!({
             "format_version": "1.2",
             "resource_changes": [],
@@ -932,32 +826,7 @@ mod tests {
         let plan = parse_plan_json(&input.to_string()).expect("extended plan should parse");
 
         assert!(plan.resource_changes.is_empty());
-        assert_eq!(plan.unsupported_changes.len(), 3);
-
-        let deferred = &plan.unsupported_changes[0];
-        assert_eq!(deferred.scope, UnsupportedChangeScope::DeferredResource);
-        assert_eq!(deferred.kind, UnsupportedChangeKind::Deferred);
-        assert_eq!(deferred.address, "aws_instance.deferred");
-        assert_eq!(deferred.actions, vec![PlanAction::Create]);
-        assert_eq!(deferred.reason.as_deref(), Some("resource_config_unknown"));
-        assert_eq!(deferred.action_type, None);
-
-        let action = &plan.unsupported_changes[1];
-        assert_eq!(action.scope, UnsupportedChangeScope::ActionInvocation);
-        assert_eq!(action.kind, UnsupportedChangeKind::ActionInvocation);
-        assert_eq!(action.address, "aws_instance.api.action");
-        assert!(action.actions.is_empty());
-        assert_eq!(action.reason, None);
-        assert_eq!(action.action_type.as_deref(), Some("notify"));
-
-        let deferred_action = &plan.unsupported_changes[2];
-        assert_eq!(
-            deferred_action.kind,
-            UnsupportedChangeKind::DeferredActionInvocation
-        );
-        assert_eq!(deferred_action.address, "aws_instance.deferred_action");
-        assert_eq!(deferred_action.reason.as_deref(), Some("deferred_prereq"));
-        assert_eq!(deferred_action.action_type.as_deref(), Some("notify"));
+        assert_eq!(plan.unsupported_change_count, 3);
     }
 
     #[test]
@@ -972,7 +841,7 @@ mod tests {
         let plan = parse_plan_json(&input.to_string()).expect("output-only plan should parse");
 
         assert!(plan.resource_changes.is_empty());
-        assert!(plan.unsupported_changes.is_empty());
+        assert_eq!(plan.unsupported_change_count, 0);
         assert_eq!(plan.output_changes.len(), 1);
         assert_eq!(plan.output_changes[0].actions, vec![PlanAction::Update]);
     }
@@ -996,7 +865,7 @@ mod tests {
             plan.drifted_resources,
             ["aws_instance.drifted", "aws_instance.deleted"]
         );
-        assert!(plan.unsupported_changes.is_empty());
+        assert_eq!(plan.unsupported_change_count, 0);
     }
 
     #[test]
@@ -1038,7 +907,7 @@ mod tests {
         let empty =
             parse_plan_json(&plan_with_resources(json!([]))).expect("empty plan should parse");
         assert!(empty.resource_changes.is_empty());
-        assert!(empty.unsupported_changes.is_empty());
+        assert_eq!(empty.unsupported_change_count, 0);
         assert!(empty.output_changes.is_empty());
 
         let noops = parse_plan_json(&plan_with_resources(json!([resource(
@@ -1054,7 +923,7 @@ mod tests {
                 .iter()
                 .all(|change| !change.kind.is_standard_change())
         );
-        assert!(noops.unsupported_changes.is_empty());
+        assert_eq!(noops.unsupported_change_count, 0);
     }
 
     #[test]
@@ -1070,7 +939,7 @@ mod tests {
         let plan = parse_plan_json(&input.to_string()).expect("Terraform plan should parse");
 
         assert_eq!(plan.resource_changes.len(), 1);
-        assert!(plan.unsupported_changes.is_empty());
+        assert_eq!(plan.unsupported_change_count, 0);
     }
 
     #[test]
@@ -1103,7 +972,7 @@ mod tests {
         let empty = parse_plan_json(r#"{"format_version":"1.0"}"#)
             .expect("resource_changes may be omitted for an empty plan");
         assert!(empty.resource_changes.is_empty());
-        assert!(empty.unsupported_changes.is_empty());
+        assert_eq!(empty.unsupported_change_count, 0);
         assert!(empty.output_changes.is_empty());
         assert_eq!(
             parse_plan_json(r#"{"resource_changes":[]}"#),

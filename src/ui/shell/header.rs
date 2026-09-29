@@ -435,8 +435,7 @@ fn header_line(path: &Path, workspace: Option<&str>, width: u16) -> Line<'static
 mod tests {
     use super::*;
     use crate::app::plan::{
-        Plan, PlanAction, ResourceChangeKind, UnsupportedChange, UnsupportedChangeKind,
-        UnsupportedChangeScope,
+        Plan, PlanAction, ResourceChangeKind,
         test_support::{output_change, resource_change},
     };
     use crate::app::review::{PlanDocument, PlanMetadata};
@@ -454,14 +453,7 @@ mod tests {
                 "data.terraform_data.read",
                 ResourceChangeKind::Read,
             )],
-            unsupported_changes: vec![UnsupportedChange {
-                scope: UnsupportedChangeScope::Resource,
-                address: "data.terraform_data.read".to_owned(),
-                actions: vec![PlanAction::Read],
-                kind: UnsupportedChangeKind::Read,
-                reason: None,
-                action_type: None,
-            }],
+            unsupported_change_count: 1,
             ..Plan::empty()
         };
         let outputs = |actions: [PlanAction; 2]| {

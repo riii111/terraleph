@@ -458,7 +458,7 @@ impl PlanReview {
         } else {
             0
         };
-        self.plan.unsupported_changes.len() + planned_drift
+        self.plan.unsupported_change_count + planned_drift
     }
 
     /// Terraform lists every output in a plan, including unchanged ones.
@@ -498,7 +498,7 @@ impl PlanReview {
             .resource_changes
             .iter()
             .any(|change| change.kind.is_standard_change())
-            || !self.plan.unsupported_changes.is_empty()
+            || self.plan.unsupported_change_count > 0
             || self.changed_outputs() > 0
     }
 
@@ -510,8 +510,8 @@ impl PlanReview {
             .iter()
             .filter(|change| {
                 change.kind.is_standard_change()
-                    && change.previous_address.is_none()
-                    && change.importing.is_none()
+                    && !change.has_previous_address
+                    && !change.has_importing
             })
             .map(|change| ExecutionTargetSpec {
                 address: change.address.clone(),
@@ -743,8 +743,7 @@ mod tests {
     mod projection {
         use super::*;
         use crate::app::plan::{
-            PlanValue, ResourceChange, UnsupportedChange, UnsupportedChangeKind,
-            UnsupportedChangeScope,
+            ResourceChange,
             test_support::{output_change, resource_change},
         };
 
@@ -757,17 +756,6 @@ mod tests {
                 metadata,
                 Vec::new(),
             )
-        }
-
-        fn unsupported_resource(address: &str, kind: UnsupportedChangeKind) -> UnsupportedChange {
-            UnsupportedChange {
-                scope: UnsupportedChangeScope::Resource,
-                address: address.to_owned(),
-                actions: vec![PlanAction::NoOp],
-                kind,
-                reason: None,
-                action_type: None,
-            }
         }
 
         #[test]
@@ -794,13 +782,10 @@ mod tests {
                     name: "moved_resource",
                     plan: Plan {
                         resource_changes: vec![ResourceChange {
-                            previous_address: Some("terraform_data.previous".to_owned()),
+                            has_previous_address: true,
                             ..resource_change("terraform_data.moved", ResourceChangeKind::Move)
                         }],
-                        unsupported_changes: vec![unsupported_resource(
-                            "terraform_data.moved",
-                            UnsupportedChangeKind::Move,
-                        )],
+                        unsupported_change_count: 1,
                         ..Plan::empty()
                     },
                     expected: true,
@@ -809,13 +794,10 @@ mod tests {
                     name: "imported_resource",
                     plan: Plan {
                         resource_changes: vec![ResourceChange {
-                            importing: Some(PlanValue::Object(BTreeMap::new())),
+                            has_importing: true,
                             ..resource_change("terraform_data.imported", ResourceChangeKind::Import)
                         }],
-                        unsupported_changes: vec![unsupported_resource(
-                            "terraform_data.imported",
-                            UnsupportedChangeKind::Import,
-                        )],
+                        unsupported_change_count: 1,
                         ..Plan::empty()
                     },
                     expected: true,
@@ -827,10 +809,7 @@ mod tests {
                             "data.terraform_data.read",
                             ResourceChangeKind::Read,
                         )],
-                        unsupported_changes: vec![unsupported_resource(
-                            "data.terraform_data.read",
-                            UnsupportedChangeKind::Read,
-                        )],
+                        unsupported_change_count: 1,
                         ..Plan::empty()
                     },
                     expected: true,
@@ -977,11 +956,11 @@ mod tests {
                     resource_changes: vec![
                         resource_change("terraform_data.update", ResourceChangeKind::Update),
                         ResourceChange {
-                            previous_address: Some("terraform_data.previous".to_owned()),
+                            has_previous_address: true,
                             ..resource_change("terraform_data.moved", ResourceChangeKind::Create)
                         },
                         ResourceChange {
-                            importing: Some(PlanValue::Null),
+                            has_importing: true,
                             ..resource_change("terraform_data.imported", ResourceChangeKind::Create)
                         },
                         resource_change("terraform_data.unchanged", ResourceChangeKind::NoOp),
@@ -1022,7 +1001,7 @@ mod tests {
                         resource_change("terraform_data.update", ResourceChangeKind::Update),
                         resource_change("terraform_data.destroy", ResourceChangeKind::Delete),
                         ResourceChange {
-                            previous_address: Some("terraform_data.previous".to_owned()),
+                            has_previous_address: true,
                             ..resource_change("terraform_data.moved", ResourceChangeKind::Move)
                         },
                     ],
