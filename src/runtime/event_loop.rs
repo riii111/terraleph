@@ -224,10 +224,22 @@ fn dispatch_finished_workers<C: ClipboardWriter>(
     {
         return dispatch(state, Action::WorkerDisconnected, execution_view, effects);
     }
-    if finished_workers.apply && state.apply().is_some_and(|apply| apply.result().is_none()) {
-        return dispatch(state, Action::WorkerDisconnected, execution_view, effects);
+    dispatch_apply_disconnect(state, execution_view, finished_workers.apply, effects).0
+}
+
+// The flag tells the caller whether a disconnect was reported, so it can redraw only then.
+pub(super) fn dispatch_apply_disconnect<C: ClipboardWriter>(
+    state: &mut SessionState,
+    execution_view: &mut execution::ExecutionViewState,
+    apply_worker_finished: bool,
+    effects: &mut RuntimeEffects<'_, C>,
+) -> (Option<SessionOutcome>, bool) {
+    let apply_unfinished = state.apply().is_some_and(|apply| apply.result().is_none());
+    if !apply_worker_finished || !apply_unfinished {
+        return (None, false);
     }
-    None
+    let outcome = dispatch(state, Action::WorkerDisconnected, execution_view, effects);
+    (outcome, true)
 }
 
 fn should_draw(state: &SessionState, dirty: bool) -> bool {
@@ -773,16 +785,17 @@ fn apply_effect<C: ClipboardWriter>(
             }
         }
         Some(Effect::WriteClipboard(effect)) => {
-            let target = effect.target();
-            let result = effects.clipboard.execute(&effect);
-            dispatch(
-                state,
-                Action::CopyCompleted { target, result },
-                execution_view,
-                effects,
-            )
+            let action = complete_copy(effects.clipboard, &effect);
+            dispatch(state, action, execution_view, effects)
         }
         Some(Effect::Finish(outcome)) => Some(outcome),
+    }
+}
+
+pub(super) fn complete_copy(clipboard: &mut impl ClipboardWriter, effect: &CopyEffect) -> Action {
+    Action::CopyCompleted {
+        target: effect.target(),
+        result: clipboard.execute(effect),
     }
 }
 
