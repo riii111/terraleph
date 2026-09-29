@@ -12,7 +12,7 @@ expression: buffer_text(buffer)
 
  ┌Failed──────────────────────────────────────────────────────────────────────┐
  │Terraform failed: Exited(1)                                                 │
- │Waiting 0s    Follow: On                                                    │
+ │Waiting 0s                                                                  │
  │Elapsed 2.0s                                                                │
  │reading output                                                              │
  │synthetic plan failure                                                      │

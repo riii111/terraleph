@@ -277,7 +277,7 @@ fn render_log_view(
     content: &PreparedContent<'_>,
     notice: Option<CopyNotice>,
 ) {
-    let status = status_lines(state, view, now);
+    let status = status_lines(state, now);
     frame.render_widget(status_paragraph(status, false), layout.status());
 
     let line_count = content.line_count();
@@ -1049,11 +1049,7 @@ fn apply_status_lines(state: &ExecutionState, now: Instant) -> Vec<Line<'static>
     lines
 }
 
-fn status_lines(
-    state: &ExecutionState,
-    view: ExecutionViewState,
-    now: Instant,
-) -> Vec<Line<'static>> {
+fn status_lines(state: &ExecutionState, now: Instant) -> Vec<Line<'static>> {
     let status = if state.is_cancelling() {
         Line::from("Stopping...")
     } else {
@@ -1073,11 +1069,7 @@ fn status_lines(
     };
     vec![
         status,
-        Line::from(format!(
-            "Waiting {}s    Follow: {}",
-            state.waiting_at(now).as_secs(),
-            if view.follows_latest() { "On" } else { "Off" }
-        )),
+        Line::from(format!("Waiting {}s", state.waiting_at(now).as_secs())),
         Line::from(format!("Elapsed {}", format_elapsed(state.elapsed_at(now)))),
     ]
 }
@@ -1124,10 +1116,7 @@ fn footer_lines(state: &ExecutionState, width: u16, notice: Option<&str>) -> Vec
             footer::hint(&["y"], "copy diagnostic"),
         ]
     } else {
-        vec![
-            footer::hint(&["Ctrl-C"], "cancel"),
-            footer::hint(&["End"], "follow latest"),
-        ]
+        vec![footer::hint(&["Ctrl-C"], "cancel")]
     };
     footer::layout_with_notice(items, width, notice)
 }
@@ -2464,7 +2453,7 @@ mod tests {
                 expected_rows(after_first_beyond_u16..after_first_beyond_u16 + height)
             );
             view.apply_scroll(ExecutionScroll::Up, max, max, layout.body().height);
-            assert!(!view.follows_latest());
+            assert_eq!(view.vertical_offset(0, max + 1), max - 1);
             assert_eq!(
                 body_rows(area, &state, view, now),
                 expected_rows(max - 1..ENTRY_COUNT - 1)
@@ -3007,11 +2996,14 @@ mod tests {
             view.open_logs();
 
             assert!(view.logs_open());
-            assert!(view.follows_latest());
             let layout = execution_layout_with_view(Rect::new(0, 0, 80, 24), &state, view);
             assert_eq!(
                 view.vertical_offset(0, layout.max_vertical()),
                 layout.max_vertical()
+            );
+            assert_eq!(
+                view.vertical_offset(0, layout.max_vertical() + 1),
+                layout.max_vertical() + 1
             );
         }
 
@@ -3461,30 +3453,6 @@ mod tests {
         }
 
         #[test]
-        fn running_plan_follows_the_newest_line_until_scrolled_up() {
-            let lines = long_plan_lines();
-            let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (state, now) = plan_state(&lines);
-            let layout = execution_layout(Rect::new(0, 0, 80, 24), &state);
-
-            let following =
-                render_text((80, 24), &state, ExecutionViewState::default(), now, false);
-            let mut view = ExecutionViewState::default();
-            view.apply_scroll(
-                ExecutionScroll::Up,
-                layout.max_vertical(),
-                layout.max_vertical(),
-                layout.body().height,
-            );
-            let scrolled = render_text((80, 24), &state, view, now, false);
-
-            assert!(following.contains("tail marker"));
-            assert!(following.contains("Follow: On"));
-            assert!(!scrolled.contains("tail marker"));
-            assert!(scrolled.contains("Follow: Off"));
-        }
-
-        #[test]
         fn failed_plan_starts_at_the_first_error_until_end_is_pressed() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
@@ -3674,22 +3642,15 @@ mod tests {
         }
 
         #[test]
-        fn running_status_keeps_fixed_height_when_following_is_off() {
+        fn running_status_keeps_fixed_height_at_the_narrowest_width() {
             let started_at = Instant::now();
             let now = started_at + Duration::from_secs(10_000);
             let state =
                 ExecutionState::with_context(started_at, ExecutionContext::loading("/project"));
             let area = Rect::new(0, 0, 32, 24);
             let layout = execution_layout(area, &state);
-            let mut view = ExecutionViewState::default();
-            view.apply_scroll(
-                ExecutionScroll::Down,
-                0,
-                layout.max_vertical(),
-                layout.body().height,
-            );
             let buffer = render_to_buffer((area.width, area.height), |frame| {
-                render_execution_with_view(frame, &state, view, now);
+                render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
             });
 
             assert_eq!(layout.status().height, STATUS_HEIGHT);
@@ -3709,7 +3670,6 @@ mod tests {
             for (index, frame) in frames.into_iter().enumerate() {
                 let status = status_lines(
                     &state,
-                    ExecutionViewState::default(),
                     started_at + Duration::from_millis(u64::try_from(index).unwrap() * 100),
                 );
                 assert_eq!(status[0].to_string(), format!("{frame} Reading plan..."));

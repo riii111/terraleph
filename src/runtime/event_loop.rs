@@ -548,8 +548,8 @@ fn update_session(
             );
         }
     }
-    if let Some(execution) = state.execution().or_else(|| state.apply()) {
-        execution_view.measure_log(execution.progress());
+    if let Some(apply) = state.apply() {
+        execution_view.measure_log(apply.progress());
     }
     effect
 }
@@ -2221,7 +2221,7 @@ mod tests {
                     .expect("scroll key should be handled"),
                 None
             );
-            assert!(!views.execution.follows_latest());
+            assert_ne!(views.execution.vertical_offset(0, usize::MAX), usize::MAX);
 
             let new_log = ExecutionEvent {
                 received_at: started_at + Duration::from_secs(1),
@@ -2233,7 +2233,7 @@ mod tests {
                 &mut views.execution,
                 started_at + Duration::from_secs(1),
             );
-            assert!(!views.execution.follows_latest());
+            assert_ne!(views.execution.vertical_offset(0, usize::MAX), usize::MAX);
 
             assert_eq!(
                 views
@@ -2241,7 +2241,7 @@ mod tests {
                     .expect("end key should be handled"),
                 None
             );
-            assert!(views.execution.follows_latest());
+            assert_eq!(views.execution.vertical_offset(0, usize::MAX), usize::MAX);
 
             let mut dirty = true;
             draw_if_needed(
@@ -2285,7 +2285,7 @@ mod tests {
                 None
             );
             assert!(views.execution.logs_open());
-            assert!(views.execution.follows_latest());
+            assert_eq!(views.execution.vertical_offset(0, usize::MAX), usize::MAX);
             let reopened_text = render_apply_to_text(state, terminal, views, now);
             assert!(reopened_text.contains("new tail marker"));
         }
@@ -2316,7 +2316,7 @@ mod tests {
                 .is_none()
             );
             assert_eq!(views.execution.horizontal(), 3);
-            assert!(!views.execution.follows_latest());
+            assert_ne!(views.execution.vertical_offset(0, usize::MAX), usize::MAX);
 
             for character in "yes".chars() {
                 assert!(
