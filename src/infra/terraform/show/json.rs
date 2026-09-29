@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::app::plan::{
-    OutputChange, Plan, PlanAction, PlanValue, ReplacePathSegment, ResourceChange,
+    OutputChange, Plan, PlanAction, PlanRelations, PlanValue, ReplacePathSegment, ResourceChange,
     ResourceChangeKind, ResourceMode, UnsupportedChange, UnsupportedChangeKind,
     UnsupportedChangeScope,
 };
@@ -36,7 +36,7 @@ pub(crate) fn parse_plan_json_bytes(input: &[u8]) -> Result<Plan, PlanParseError
 pub(super) fn parse_plan_json_with_metadata(
     input: &[u8],
     detailed_exit_has_changes: bool,
-) -> Result<(Plan, PlanMetadata, super::relations::ConfigurationAnalysis), PlanParseError> {
+) -> Result<(Plan, PlanMetadata, PlanRelations), PlanParseError> {
     let document =
         serde_json::from_slice::<Value>(input).map_err(|_| PlanParseError::InvalidJson)?;
     let root = document
