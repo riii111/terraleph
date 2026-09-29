@@ -1018,7 +1018,7 @@ mod tests {
             assert!(!drained);
             assert!(matches!(
                 dispatch_finished_workers(&mut state, &mut execution_view, finished, &mut effects,),
-                Some(SessionOutcome::Failed(ExecutionStage::Initializing))
+                Some(SessionOutcome::Failed(ExecutionStage::Reading))
             ));
         }
 
@@ -1301,10 +1301,7 @@ mod tests {
             let (outcome, drained) =
                 receive_messages(&receiver, &mut state, &mut execution_view, &mut effects);
             assert!(drained);
-            assert_eq!(
-                outcome,
-                Some(SessionOutcome::Interrupted(ExecutionStage::Initializing))
-            );
+            assert_eq!(outcome, Some(SessionOutcome::Interrupted));
             assert!(finished.plan);
             assert_eq!(
                 reap_workers(&mut plan_worker, &mut effects)

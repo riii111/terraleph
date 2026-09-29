@@ -6,7 +6,7 @@ use std::{
 
 use crate::app::{
     attribution::{AnalysisIssue, SourceFileAnalysis, attribute_changes, mark_analysis_incomplete},
-    execution::{ExecutionEvent, ExecutionPhase, Tool},
+    execution::{ExecutionEvent, Tool},
     review::git::{PlanReview, ReviewComparison, ReviewComparisonBasis, ReviewComparisonStatus},
 };
 use crate::infra::CancellationToken;
@@ -68,7 +68,6 @@ fn run_review(
     compare_ref: Option<&str>,
     cancellation: &CancellationToken,
     event_sink: &mut dyn FnMut(ReviewEvent),
-    phase_sink: &mut dyn FnMut(ExecutionPhase),
 ) -> Result<PlanReview, ReviewError> {
     run_review_with_dependencies(
         root,
@@ -77,7 +76,6 @@ fn run_review(
         &terraform::SystemProcessRunner,
         None,
         event_sink,
-        phase_sink,
     )
 }
 
@@ -92,7 +90,6 @@ fn run_review_with_dependencies(
     runner: &dyn terraform::test_support::ProcessRunner,
     after_git_diff: Option<&mut dyn FnMut()>,
     event_sink: &mut dyn FnMut(ReviewEvent),
-    phase_sink: &mut dyn FnMut(ExecutionPhase),
 ) -> Result<PlanReview, ReviewError> {
     let git_diff = collect_git_diff(root, compare_ref, cancellation)?;
     if cancellation.is_cancelled() {
@@ -141,7 +138,6 @@ fn run_review_with_dependencies(
         cancellation,
         runner,
         &mut terraform_event_sink,
-        phase_sink,
     )?;
     if cancellation.is_cancelled() {
         return Err(ReviewError::Interrupted);
@@ -500,7 +496,6 @@ mod tests {
             &runner,
             None,
             &mut |_| {},
-            &mut |_| {},
         )
         .expect("fake Terraform review should succeed")
     }
@@ -523,7 +518,6 @@ mod tests {
             &CancellationToken::new(),
             &runner,
             Some(&mut after_git_diff),
-            &mut |_| {},
             &mut |_| {},
         )
         .expect("fake Terraform review should succeed")
@@ -551,7 +545,6 @@ mod tests {
             &cancellation,
             &runner,
             Some(&mut cancel_after_git_diff),
-            &mut |_| {},
             &mut |_| {},
         );
 
@@ -581,7 +574,6 @@ mod tests {
             &FakeRunner::new(plan_output(None), None),
             None,
             &mut |event| events.push(event),
-            &mut |_| {},
         )
         .expect("fake Terraform review should succeed");
 
@@ -614,7 +606,6 @@ mod tests {
             &FakeRunner::new(plan_output(None), None),
             None,
             &mut |event| events.push(event),
-            &mut |_| {},
         )
         .expect("review should preserve plan data outside Git");
 
@@ -649,13 +640,11 @@ mod tests {
         );
 
         let mut ignore_event = |_| {};
-        let mut ignore_phase = |_| {};
         let result = run_review(
             &directory,
             None,
             &CancellationToken::new(),
             &mut ignore_event,
-            &mut ignore_phase,
         );
         let cleanup = Command::new("python3")
             .args([
