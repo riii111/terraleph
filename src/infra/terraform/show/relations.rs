@@ -12,16 +12,11 @@ use super::super::address::{
     parse_reference, parse_resource_address,
 };
 
-pub(super) struct ConfigurationAnalysis {
-    pub(super) relations: PlanRelations,
-    pub(super) has_prior_state: bool,
-}
-
 pub(super) fn parse_configuration(
     document: &Value,
     planned_addresses: &BTreeSet<String>,
     deleted_addresses: &BTreeSet<String>,
-) -> ConfigurationAnalysis {
+) -> PlanRelations {
     let has_prior_state = document
         .get("prior_state")
         .is_some_and(|state| !state.is_null());
@@ -31,14 +26,11 @@ pub(super) fn parse_configuration(
         .and_then(Value::as_object)
         .and_then(|configuration| configuration.get("root_module"))
     else {
-        return ConfigurationAnalysis {
-            relations: PlanRelations::from_saved_plan(
-                ConfigurationRelationStatus::Unavailable,
-                Vec::new(),
-                has_prior_state,
-            ),
+        return PlanRelations::from_saved_plan(
+            ConfigurationRelationStatus::Unavailable,
+            Vec::new(),
             has_prior_state,
-        };
+        );
     };
 
     let mut tree = ConfigurationTree::default();
@@ -71,10 +63,7 @@ pub(super) fn parse_configuration(
     } else {
         ConfigurationRelationStatus::Available
     };
-    ConfigurationAnalysis {
-        relations: PlanRelations::from_saved_plan(status, evidence, has_prior_state),
-        has_prior_state,
-    }
+    PlanRelations::from_saved_plan(status, evidence, has_prior_state)
 }
 
 fn append_evidence(
@@ -959,7 +948,7 @@ mod tests {
         clippy::needless_pass_by_value,
         reason = "JSON fixture values are borrowed to build parser assertions"
     )]
-    fn parse(document: Value, addresses: &[&str]) -> ConfigurationAnalysis {
+    fn parse(document: Value, addresses: &[&str]) -> PlanRelations {
         parse_configuration(
             &document,
             &addresses
@@ -986,7 +975,7 @@ mod tests {
     }
 
     fn evidence(document: Value, addresses: &[&str]) -> PlanRelations {
-        parse(document, addresses).relations
+        parse(document, addresses)
     }
 
     #[test]
@@ -1199,10 +1188,10 @@ mod tests {
         .expect("malformed relationship data should not reject the plan");
 
         assert_eq!(
-            analysis.relations.configuration_status,
+            analysis.configuration_status,
             ConfigurationRelationStatus::Partial
         );
-        assert!(analysis.relations.configuration.iter().any(|edge| {
+        assert!(analysis.configuration.iter().any(|edge| {
             edge.unresolved == Some(RelationUnresolvedReason::InvalidConfiguration)
         }));
     }
@@ -1232,10 +1221,10 @@ mod tests {
         .expect("malformed relationship data should not reject the plan");
 
         assert_eq!(
-            analysis.relations.configuration_status,
+            analysis.configuration_status,
             ConfigurationRelationStatus::Partial
         );
-        assert!(analysis.relations.configuration.iter().any(|edge| {
+        assert!(analysis.configuration.iter().any(|edge| {
             edge.dependent.address() == "terraform_data.consumer"
                 && edge.unresolved == Some(RelationUnresolvedReason::InvalidConfiguration)
         }));
@@ -1256,16 +1245,12 @@ mod tests {
         );
 
         assert_eq!(
-            without_state.relations.state_status,
+            without_state.state_status,
             StateRelationStatus::NoPriorState
         );
-        assert_eq!(
-            with_state.relations.state_status,
-            StateRelationStatus::NotCollected
-        );
+        assert_eq!(with_state.state_status, StateRelationStatus::NotCollected);
         assert_eq!(
             with_state
-                .relations
                 .with_state(StateRelationStatus::Unavailable, Vec::new())
                 .state_status,
             StateRelationStatus::Unavailable
@@ -1368,9 +1353,7 @@ mod tests {
                 .any(|edge| { edge.unresolved == Some(RelationUnresolvedReason::AmbiguousModule) })
         );
         assert_eq!(
-            parse(json!({"format_version": "1.0"}), &[])
-                .relations
-                .configuration_status,
+            parse(json!({"format_version": "1.0"}), &[]).configuration_status,
             ConfigurationRelationStatus::Unavailable
         );
     }
@@ -1407,7 +1390,7 @@ mod tests {
         )
         .expect("plan with a deleted count instance should parse");
 
-        assert!(analysis.relations.configuration.iter().any(|edge| {
+        assert!(analysis.configuration.iter().any(|edge| {
             edge.dependent.address() == "terraform_data.counted[0]"
                 && edge
                     .referenced
@@ -1416,7 +1399,6 @@ mod tests {
         }));
         assert!(
             !analysis
-                .relations
                 .configuration
                 .iter()
                 .any(|edge| { edge.dependent.address() == "terraform_data.counted[1]" })
@@ -1453,7 +1435,7 @@ mod tests {
         )
         .expect("zero-count plan should parse");
 
-        assert!(!analysis.relations.configuration.iter().any(|edge| {
+        assert!(!analysis.configuration.iter().any(|edge| {
             matches!(
                 edge.dependent.address(),
                 "terraform_data.counted" | "terraform_data.counted[0]"

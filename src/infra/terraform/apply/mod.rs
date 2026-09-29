@@ -5,8 +5,7 @@ use crate::app::execution::{ApplyStatus, ExecutionEvent, ExecutionEventKind, Too
 use crate::infra::CancellationToken;
 
 use super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, interrupted_error,
-    run_command_with_events,
+    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, run_command,
 };
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApplyResult {
@@ -55,7 +54,7 @@ pub(crate) fn run_apply_with_arguments(
         }
         event_sink(event);
     };
-    let output = run_command_with_events(
+    let output = run_command(
         tool,
         root,
         TerraformCommand::Apply,
@@ -70,11 +69,7 @@ pub(crate) fn run_apply_with_arguments(
             summary_line: None,
         });
     }
-
-    let Some(status) = output.status else {
-        return Err(interrupted_error(tool, TerraformCommand::Apply, output));
-    };
-    if !matches!(status, ProcessStatus::Exited(0)) {
+    if !matches!(output.status, ProcessStatus::Exited(0)) {
         return Ok(ApplyResult {
             status: ApplyStatus::Failed,
             summary_line: None,

@@ -7,8 +7,7 @@ use crate::app::plan::{AttributeType, ProviderSchema, ProviderSchemas, ResourceS
 use crate::infra::CancellationToken;
 
 use super::super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, interrupted_error,
-    run_command,
+    ProcessRunner, TerraformCommand, TerraformExecutionError, interrupted_error, run_command,
 };
 
 const SUPPORTED_FORMAT_MAJOR: u64 = 1;
@@ -33,19 +32,16 @@ pub(crate) fn read_provider_schema_with_arguments(
         &arguments,
         cancellation,
         runner,
+        None,
     ) {
         Ok(output) => output,
         Err(_error) if !cancellation.is_cancelled() => return Ok(None),
         Err(error) => return Err(error),
     };
     if output.interrupted {
-        return Err(interrupted_error(
-            tool,
-            TerraformCommand::ProvidersSchema,
-            output,
-        ));
+        return Err(interrupted_error(tool, TerraformCommand::ProvidersSchema));
     }
-    if !output.status.is_some_and(ProcessStatus::is_success) {
+    if !output.status.is_success() {
         return Ok(None);
     }
     Ok(parse_provider_schemas(&output.output.stdout))

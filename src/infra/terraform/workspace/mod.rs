@@ -4,8 +4,7 @@ use crate::app::execution::Tool;
 use crate::infra::CancellationToken;
 
 use super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError,
-    TerraformExecutionErrorKind, interrupted_error, non_zero_error, run_command,
+    ProcessRunner, TerraformCommand, TerraformExecutionError, invalid_output, run_successful,
 };
 
 pub(crate) fn read_workspace_with_arguments(
@@ -17,43 +16,23 @@ pub(crate) fn read_workspace_with_arguments(
 ) -> Result<String, TerraformExecutionError> {
     let mut arguments = global_arguments.to_vec();
     arguments.extend([OsString::from("workspace"), OsString::from("show")]);
-    let output = run_command(
+    let output = run_successful(
         tool,
         root,
         TerraformCommand::WorkspaceShow,
         &arguments,
         cancellation,
         runner,
+        None,
     )?;
-    if output.interrupted {
-        return Err(interrupted_error(
-            tool,
-            TerraformCommand::WorkspaceShow,
-            output,
-        ));
-    }
-    if !output.status.is_some_and(ProcessStatus::is_success) {
-        return Err(non_zero_error(
-            tool,
-            TerraformCommand::WorkspaceShow,
-            output,
-        ));
-    }
-    let workspace = String::from_utf8(output.output.stdout).map_err(|error| {
-        TerraformExecutionError::new_for_tool(
-            tool,
-            TerraformExecutionErrorKind::InvalidWorkspace {
-                message: error.to_string(),
-            },
-        )
-    })?;
+    let workspace = String::from_utf8(output.stdout)
+        .map_err(|error| invalid_output(tool, TerraformCommand::WorkspaceShow, error))?;
     let workspace = workspace.trim();
     if workspace.is_empty() {
-        return Err(TerraformExecutionError::new_for_tool(
+        return Err(invalid_output(
             tool,
-            TerraformExecutionErrorKind::InvalidWorkspace {
-                message: "workspace name is empty".to_owned(),
-            },
+            TerraformCommand::WorkspaceShow,
+            "workspace name is empty",
         ));
     }
     Ok(workspace.to_owned())

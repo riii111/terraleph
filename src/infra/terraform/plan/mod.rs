@@ -16,13 +16,11 @@ use crate::infra::CancellationToken;
 
 use super::{
     command::{
-        ProcessOutput as EmptyProcessOutput, ProcessRunner, ProcessStatus, TerraformCommand,
-        TerraformExecutionError, TerraformExecutionErrorKind as ExecutionErrorKind,
-        run_passthrough,
+        ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, run_passthrough,
     },
     read_provider_schema_with_arguments,
     show::read_review_with_arguments,
-    state::{StateReadError, read_state_with_arguments},
+    state::read_state_with_arguments,
     workspace::read_workspace_with_arguments,
 };
 
@@ -78,30 +76,16 @@ impl SavedPlan {
     }
 }
 
-pub(crate) struct PlanRun {
-    pub(crate) saved_plan: SavedPlan,
-    pub(crate) changed: bool,
-}
-
 pub(crate) fn run_passthrough_plan(
     executable: &Path,
     launch_root: &Path,
     global_arguments: &[OsString],
     plan_arguments: &[OsString],
-    saved_plan: SavedPlan,
-) -> io::Result<(PlanRun, ProcessStatus)> {
+) -> io::Result<ProcessStatus> {
     let mut arguments = global_arguments.to_vec();
     arguments.push(OsString::from(TerraformCommand::Plan.to_string()));
     arguments.extend(plan_arguments.iter().cloned());
-    let status = run_passthrough(executable, launch_root, &arguments)?;
-    let changed = status == ProcessStatus::Exited(2);
-    Ok((
-        PlanRun {
-            saved_plan,
-            changed,
-        },
-        status,
-    ))
+    run_passthrough(executable, launch_root, &arguments)
 }
 
 pub(crate) fn run_environment_plan(
@@ -112,7 +96,7 @@ pub(crate) fn run_environment_plan(
     runner: &dyn ProcessRunner,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<bool, TerraformExecutionError> {
-    use super::command::{interrupted_error, non_zero_error, run_command_with_events};
+    use super::command::{interrupted_error, non_zero_error, run_command};
     let mut initialized = super::init::needed(root);
     if initialized {
         initialize_environment(tool, root, cancellation, runner, diagnostics)?;
@@ -122,7 +106,7 @@ pub(crate) fn run_environment_plan(
     arguments.extend(["-json", "-input=false", "-detailed-exitcode"].map(OsString::from));
     loop {
         let mut attempt_diagnostics = Vec::new();
-        let process = run_command_with_events(
+        let process = run_command(
             tool,
             root,
             TerraformCommand::Plan,
@@ -138,18 +122,18 @@ pub(crate) fn run_environment_plan(
         let reinit = attempt_diagnostics.iter().any(requires_init);
         if process.interrupted {
             diagnostics.extend(attempt_diagnostics);
-            return Err(interrupted_error(tool, TerraformCommand::Plan, process));
+            return Err(interrupted_error(tool, TerraformCommand::Plan));
         }
-        if process.status.is_some_and(ProcessStatus::is_plan_success) {
+        if process.status.is_plan_success() {
             diagnostics.extend(attempt_diagnostics);
-            return Ok(process.status == Some(ProcessStatus::Exited(2)));
+            return Ok(process.status == ProcessStatus::Exited(2));
         }
         if !initialized && reinit {
             initialized = true;
             initialize_environment(tool, root, cancellation, runner, diagnostics)?;
         } else {
             diagnostics.extend(attempt_diagnostics);
-            return Err(non_zero_error(tool, TerraformCommand::Plan, process));
+            return Err(non_zero_error(tool, TerraformCommand::Plan, process.status));
         }
     }
 }
@@ -244,7 +228,7 @@ pub(crate) fn read_saved_plan_review(
         received_at: std::time::Instant::now(),
         kind: ExecutionEventKind::Workspace(workspace.clone()),
     });
-    let (document, metadata, plan, mut relations, has_prior_state) = read_review_with_arguments(
+    let (document, metadata, plan, mut relations) = read_review_with_arguments(
         tool,
         launch_root,
         global_arguments,
@@ -253,7 +237,7 @@ pub(crate) fn read_saved_plan_review(
         cancellation,
         runner,
     )?;
-    if has_prior_state {
+    if relations.state_status == StateRelationStatus::NotCollected {
         relations = match read_state_with_arguments(
             tool,
             launch_root,
@@ -261,18 +245,10 @@ pub(crate) fn read_saved_plan_review(
             cancellation,
             runner,
         ) {
-            Ok(state) => relations.with_state(StateRelationStatus::Available, state),
-            Err(StateReadError::Execution(error)) if error.is_interrupted() => {
-                return Err(error);
-            }
-            Err(_) if cancellation.is_cancelled() => {
-                return Err(cancelled_state_read_error(tool));
-            }
-            Err(_) => relations.with_state(StateRelationStatus::Unavailable, Vec::new()),
+            Ok(Some(state)) => relations.with_state(StateRelationStatus::Available, state),
+            Err(error) if error.is_interrupted() => return Err(error),
+            Ok(None) | Err(_) => relations.with_state(StateRelationStatus::Unavailable, Vec::new()),
         };
-    }
-    if cancellation.is_cancelled() {
-        return Err(cancelled_state_read_error(tool));
     }
     let provider_schemas = read_provider_schema_with_arguments(
         tool,
@@ -297,17 +273,6 @@ pub(crate) fn read_saved_plan_review(
     .with_context(context)
     .with_apply_entry(apply_entry);
     Ok(review)
-}
-
-fn cancelled_state_read_error(tool: Tool) -> TerraformExecutionError {
-    TerraformExecutionError::new_for_tool(
-        tool,
-        ExecutionErrorKind::Interrupted {
-            command: TerraformCommand::StatePull,
-            output: Box::new(EmptyProcessOutput::empty()),
-            interrupt_error: None,
-        },
-    )
 }
 
 fn initialize_environment(
@@ -354,13 +319,10 @@ pub(crate) mod test_support {
     use crate::app::execution::Tool;
     use crate::app::plan::Plan;
 
-    use super::super::command::{
-        TerraformCommand, TerraformExecutionErrorKind, interrupted_error, non_zero_error,
-        run_command_with_events,
-    };
+    use super::super::command::{TerraformCommand, TerraformExecutionErrorKind, run_successful};
     use super::{
         CancellationToken, ExecutionEvent, ExecutionPhase, OsString, Path, ProcessRunner,
-        ProcessStatus, SavedPlan, TerraformExecutionError,
+        SavedPlan, TerraformExecutionError,
     };
 
     #[derive(Debug)]
@@ -405,13 +367,6 @@ pub(crate) mod test_support {
                 }
             }
         }
-
-        pub(crate) fn cleanup_error(&self) -> Option<&str> {
-            match self {
-                Self::Terraform(error) => error.cleanup_error(),
-                Self::TemporaryPlan { .. } | Self::Cleanup { .. } => None,
-            }
-        }
     }
 
     pub(crate) fn run_plan(
@@ -444,30 +399,15 @@ pub(crate) mod test_support {
         event_sink: &mut dyn FnMut(ExecutionEvent),
         phase_sink: &mut dyn FnMut(ExecutionPhase),
     ) -> Result<Plan, TerraformExecutionError> {
-        let plan_arguments = plan_arguments(plan_path);
-        let plan_output = run_command_with_events(
+        run_successful(
             Tool::Terraform,
             root,
             TerraformCommand::Plan,
-            &plan_arguments,
+            &plan_arguments(plan_path),
             cancellation,
             runner,
             Some(event_sink),
         )?;
-        if plan_output.interrupted {
-            return Err(interrupted_error(
-                Tool::Terraform,
-                TerraformCommand::Plan,
-                plan_output,
-            ));
-        }
-        if !plan_output.status.is_some_and(ProcessStatus::is_success) {
-            return Err(non_zero_error(
-                Tool::Terraform,
-                TerraformCommand::Plan,
-                plan_output,
-            ));
-        }
 
         phase_sink(ExecutionPhase::Reading);
         super::super::show::test_support::read_plan(root, plan_path, cancellation, runner)
@@ -477,16 +417,12 @@ pub(crate) mod test_support {
         saved_plan: SavedPlan,
         result: Result<Plan, TerraformExecutionError>,
     ) -> Result<Plan, PlanTestError> {
-        match saved_plan.cleanup() {
-            Ok(()) => result.map_err(PlanTestError::from),
-            Err(error) => match result {
-                Ok(_) => Err(PlanTestError::Cleanup {
-                    message: error.to_string(),
-                }),
-                Err(execution_error) => Err(PlanTestError::Terraform(
-                    execution_error.with_cleanup_error(&error),
-                )),
-            },
+        match (saved_plan.cleanup(), result) {
+            (_, Err(error)) => Err(PlanTestError::Terraform(error)),
+            (Err(error), Ok(_)) => Err(PlanTestError::Cleanup {
+                message: error.to_string(),
+            }),
+            (Ok(()), Ok(plan)) => Ok(plan),
         }
     }
 
@@ -1017,7 +953,6 @@ mod tests {
             }
         ));
         assert_eq!(runner.invocations.borrow().len(), 1);
-        assert!(error.cleanup_error().is_none());
         fs::remove_dir(directory).expect("test directory should be empty");
     }
 
@@ -1036,11 +971,10 @@ mod tests {
         let error =
             run_fake(&runner, saved_plan, &cancellation).expect_err("non-zero plan should fail");
 
-        let TerraformExecutionErrorKind::NonZero { output, .. } = error.kind() else {
-            panic!("expected a non-zero process error");
-        };
-        assert_eq!(output.stdout(), b"secret plan value");
-        assert_eq!(output.stderr, b"secret diagnostic");
+        assert!(matches!(
+            error.kind(),
+            TerraformExecutionErrorKind::NonZero { .. }
+        ));
         assert!(!error.to_string().contains("secret"));
         assert!(!format!("{error:?}").contains("secret"));
         assert_eq!(runner.invocations.borrow().len(), 1);
@@ -1123,7 +1057,6 @@ mod tests {
             "interrupt should be requested once"
         );
         assert_eq!(runner.invocations.borrow().len(), 1);
-        assert!(error.cleanup_error().is_none());
         fs::remove_dir(directory).expect("test directory should be empty");
     }
 
@@ -1201,7 +1134,10 @@ mod tests {
 
         assert!(matches!(
             error.kind(),
-            TerraformExecutionErrorKind::InvalidPlan { .. }
+            TerraformExecutionErrorKind::InvalidOutput {
+                command: TerraformCommand::Show,
+                ..
+            }
         ));
         fs::remove_dir(directory).expect("test directory should be empty");
     }
