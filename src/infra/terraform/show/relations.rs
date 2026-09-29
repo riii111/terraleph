@@ -1022,7 +1022,7 @@ mod tests {
     }
 
     #[test]
-    fn suppresses_only_the_same_expressions_containing_block_reference() {
+    fn keeps_the_block_reference_of_a_separate_expression() {
         let document = json!({
             "configuration": {"root_module": {"resources": [
                 resource("terraform_data.source", "source", json!({}), json!([])),

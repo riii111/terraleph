@@ -1772,8 +1772,7 @@ mod tests {
             }
 
             // Only the widest panel has room for the whole address.
-            let texts = long_address_texts;
-            for text in &texts[..2] {
+            for text in &long_address_texts[..2] {
                 assert!(!text.contains(LONG_ADDRESS), "{text}");
                 let row = text
                     .lines()
@@ -1781,8 +1780,12 @@ mod tests {
                     .expect("long address row should be visible");
                 assert!(row.contains("...") && row.contains("onfiguration"), "{row}");
             }
-            assert!(texts[2].contains(LONG_ADDRESS), "{}", texts[2]);
-            assert!(texts[2].contains("terraform_data.api"));
+            assert!(
+                long_address_texts[2].contains(LONG_ADDRESS),
+                "{}",
+                long_address_texts[2]
+            );
+            assert!(long_address_texts[2].contains("terraform_data.api"));
         }
 
         #[test]
@@ -2474,8 +2477,8 @@ mod tests {
                 body_rows(area, &state, view, now),
                 expected_rows(height..height * 2)
             );
-            let beyond_u16 = FIRST_BEYOND_U16 + 1;
-            assert!(max > beyond_u16);
+            let after_first_beyond_u16 = FIRST_BEYOND_U16 + 1;
+            assert!(max > after_first_beyond_u16);
             view.apply_scroll(
                 ExecutionScroll::Down,
                 FIRST_BEYOND_U16,
@@ -2484,11 +2487,11 @@ mod tests {
             );
             assert_eq!(
                 execution_scroll_position_with_view(&state, view, &layout),
-                (beyond_u16, max)
+                (after_first_beyond_u16, max)
             );
             assert_eq!(
                 body_rows(area, &state, view, now),
-                expected_rows(beyond_u16..beyond_u16 + height)
+                expected_rows(after_first_beyond_u16..after_first_beyond_u16 + height)
             );
             view.apply_scroll(ExecutionScroll::Up, max, max, layout.body().height);
             assert!(!view.follows_latest());
