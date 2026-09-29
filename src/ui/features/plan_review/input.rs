@@ -151,7 +151,7 @@ pub(crate) enum ApplyConfirmationInput {
     Cancel,
 }
 
-pub(crate) fn apply_confirmation_key_to_input(key: KeyEvent) -> Option<ApplyConfirmationInput> {
+pub(super) fn apply_confirmation_key_to_input(key: KeyEvent) -> Option<ApplyConfirmationInput> {
     let key = normalize_key(key);
     match (key.code, key.modifiers) {
         (KeyCode::Enter, _) => Some(ApplyConfirmationInput::Confirm),
