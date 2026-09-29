@@ -136,19 +136,16 @@ pub(crate) fn run_connected(
     }
 }
 
-// The view state one session's screens keep between frames, the quit confirmation that covers
-// whichever screen is showing, and when the drawn screen next goes stale.
 #[derive(Default)]
 pub(super) struct SessionViews {
     pub(super) execution: execution::ExecutionViewState,
     review: plan_review::PlanReviewViewState,
     pub(super) confirmation: plan_review::ApplyConfirmationViewState,
-    pub(super) quit_confirmation: bool,
+    quit_confirmation: bool,
     pub(super) scheduled_draw: Option<Instant>,
 }
 
 impl SessionViews {
-    // A quit from the screen opens the confirmation; only a confirmed quit reaches the session.
     pub(super) fn handle_key<B: Backend>(
         &mut self,
         terminal: &Terminal<B>,
