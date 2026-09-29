@@ -93,15 +93,10 @@ pub(crate) fn compare_environments_for_selection(
         .iter()
         .map(|index| plans[*index].review().map(ReviewSessionState::review))
         .collect();
-    let compared: Vec<_> = selection
-        .indexes()
-        .iter()
-        .zip(&reviews)
-        .filter_map(|(index, review)| review.as_ref().map(|_| *index))
-        .collect();
-    let scope = if compared.is_empty() {
+    let compared = reviews.iter().flatten().count();
+    let scope = if compared == 0 {
         ComparisonScope::Waiting
-    } else if compared.len() == selection.indexes().len() {
+    } else if compared == reviews.len() {
         ComparisonScope::All
     } else {
         ComparisonScope::Partial

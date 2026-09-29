@@ -22,30 +22,6 @@ impl RelationNodeId {
     }
 }
 
-impl RelationNode {
-    #[must_use]
-    pub(crate) fn new(
-        full_addresses: impl IntoIterator<Item = String>,
-        display_address: String,
-        operation: ResourceChangeKind,
-        change_count: usize,
-        breadcrumbs: Vec<String>,
-        differs: bool,
-        has_unknown: bool,
-    ) -> Option<Self> {
-        Some(Self {
-            id: RelationNodeId::from_addresses(full_addresses)?,
-            display_address,
-            operation,
-            change_count,
-            breadcrumbs,
-            differs,
-            has_unknown,
-            unresolved: BTreeSet::new(),
-        })
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum RelationGraphLinkKind {
     Dotted,
@@ -70,6 +46,30 @@ pub(crate) struct RelationNode {
     pub(crate) differs: bool,
     pub(crate) has_unknown: bool,
     pub(crate) unresolved: BTreeSet<RelationUnresolvedReason>,
+}
+
+impl RelationNode {
+    #[must_use]
+    pub(in crate::app) fn new(
+        full_addresses: impl IntoIterator<Item = String>,
+        display_address: String,
+        operation: ResourceChangeKind,
+        change_count: usize,
+        breadcrumbs: Vec<String>,
+        differs: bool,
+        has_unknown: bool,
+    ) -> Option<Self> {
+        Some(Self {
+            id: RelationNodeId::from_addresses(full_addresses)?,
+            display_address,
+            operation,
+            change_count,
+            breadcrumbs,
+            differs,
+            has_unknown,
+            unresolved: BTreeSet::new(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

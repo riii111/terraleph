@@ -31,7 +31,7 @@ pub(crate) enum PlanValue {
 
 impl PlanValue {
     /// Whether a sensitivity or unknown marker marks this value or any value nested in it.
-    pub(crate) fn marks_any(&self) -> bool {
+    fn marks_any(&self) -> bool {
         match self {
             Self::Bool(value) => *value,
             Self::Array(values) => values.iter().any(Self::marks_any),
@@ -231,7 +231,7 @@ pub(crate) struct ProviderSchemas {
 }
 
 impl ProviderSchemas {
-    pub(crate) fn resource(&self, change: &ResourceChange) -> Option<&ResourceSchema> {
+    fn resource(&self, change: &ResourceChange) -> Option<&ResourceSchema> {
         self.providers
             .get(change.provider.as_ref()?)?
             .resources
