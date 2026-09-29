@@ -12,8 +12,8 @@ use crate::app::{
 use crate::infra::CancellationToken;
 
 use super::command::{
-    ProcessOutput, ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError,
-    TerraformExecutionErrorKind, interrupted_error, non_zero_error, run_command,
+    ProcessOutput, ProcessRunner, TerraformCommand, TerraformExecutionError, invalid_output,
+    run_successful,
 };
 
 mod json;
@@ -63,7 +63,7 @@ pub(super) fn read_review_with_arguments(
     plan_changed: bool,
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
-) -> Result<(PlanDocument, PlanMetadata, Plan, PlanRelations, bool), TerraformExecutionError> {
+) -> Result<(PlanDocument, PlanMetadata, Plan, PlanRelations), TerraformExecutionError> {
     let text = run_show(
         tool,
         root,
@@ -82,8 +82,8 @@ pub(super) fn read_review_with_arguments(
         cancellation,
         runner,
     )?;
-    let (plan, metadata, relation_analysis) =
-        json::parse_plan_json_with_metadata(&json.output.stdout, plan_changed)
+    let (plan, metadata, relations) =
+        json::parse_plan_json_with_metadata(&json.stdout, plan_changed)
             .map_err(|error| invalid_plan(tool, error))?;
     let resource_addresses = plan
         .resource_changes
@@ -95,15 +95,9 @@ pub(super) fn read_review_with_arguments(
         .iter()
         .map(|output| output.address.clone())
         .collect::<Vec<_>>();
-    let document = parse_document(text.output.stdout, &resource_addresses, &output_names)
+    let document = parse_document(text.stdout, &resource_addresses, &output_names)
         .map_err(|error| invalid_plan(tool, error))?;
-    Ok((
-        document,
-        metadata,
-        plan,
-        relation_analysis.relations,
-        relation_analysis.has_prior_state,
-    ))
+    Ok((document, metadata, plan, relations))
 }
 
 fn run_show(
@@ -114,38 +108,22 @@ fn run_show(
     json: bool,
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
-) -> Result<super::command::ProcessResult, TerraformExecutionError> {
-    if cancellation.is_cancelled() {
-        return Err(TerraformExecutionError::new_for_tool(
-            tool,
-            TerraformExecutionErrorKind::Interrupted {
-                command: TerraformCommand::Show,
-                output: Box::new(ProcessOutput::empty()),
-                interrupt_error: None,
-            },
-        ));
-    }
+) -> Result<ProcessOutput, TerraformExecutionError> {
     let mut arguments = global_arguments.to_vec();
     arguments.extend(show_arguments(plan_path, json));
-    let output = run_command(
+    run_successful(
         tool,
         root,
         TerraformCommand::Show,
         &arguments,
         cancellation,
         runner,
-    )?;
-    if output.interrupted {
-        return Err(interrupted_error(tool, TerraformCommand::Show, output));
-    }
-    if !output.status.is_some_and(ProcessStatus::is_success) {
-        return Err(non_zero_error(tool, TerraformCommand::Show, output));
-    }
-    Ok(output)
+        None,
+    )
 }
 
-const fn invalid_plan(tool: Tool, source: PlanParseError) -> TerraformExecutionError {
-    TerraformExecutionError::new_for_tool(tool, TerraformExecutionErrorKind::InvalidPlan { source })
+fn invalid_plan(tool: Tool, source: PlanParseError) -> TerraformExecutionError {
+    invalid_output(tool, TerraformCommand::Show, source)
 }
 
 fn show_arguments(plan_path: &Path, json: bool) -> Vec<OsString> {
@@ -179,7 +157,7 @@ pub(crate) mod test_support {
             cancellation,
             runner,
         )?;
-        super::json::parse_plan_json_bytes(&output.output.stdout)
+        super::json::parse_plan_json_bytes(&output.stdout)
             .map_err(|error| invalid_plan(Tool::Terraform, error))
     }
 }

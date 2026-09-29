@@ -1,7 +1,7 @@
 use std::{
     env,
     ffi::{OsStr, OsString},
-    fmt::{Debug, Display, Formatter},
+    fmt::{Display, Formatter},
     io::{self, Read},
     ops::Range,
     path::Path,
@@ -16,7 +16,7 @@ use crate::app::execution::{
 };
 use crate::infra::CancellationToken;
 
-use super::{events::TerraformEventParser, show::PlanParseError};
+use super::events::TerraformEventParser;
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -64,6 +64,12 @@ impl ProcessStatus {
         matches!(self, Self::Exited(0 | 2))
     }
 
+    /// `-detailed-exitcode` reports a plan with changes as exit status 2.
+    #[must_use]
+    pub(crate) const fn has_plan_changes(self) -> bool {
+        matches!(self, Self::Exited(2))
+    }
+
     #[must_use]
     pub(crate) const fn code(self) -> Option<i32> {
         match self {
@@ -82,6 +88,7 @@ impl Display for ProcessStatus {
     }
 }
 
+// No Debug: the output is raw Terraform text that can include sensitive values.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ProcessOutput {
     pub(super) stdout: Vec<u8>,
@@ -125,16 +132,6 @@ impl ProcessOutput {
     }
 }
 
-impl Debug for ProcessOutput {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ProcessOutput")
-            .field("stdout", &"<redacted>")
-            .field("stderr", &"<redacted>")
-            .finish()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TerraformExecutionErrorKind {
     Launch {
@@ -148,20 +145,12 @@ pub(crate) enum TerraformExecutionErrorKind {
     NonZero {
         command: TerraformCommand,
         status: ProcessStatus,
-        output: Box<ProcessOutput>,
     },
     Interrupted {
         command: TerraformCommand,
-        output: Box<ProcessOutput>,
-        interrupt_error: Option<String>,
     },
-    InvalidPlan {
-        source: PlanParseError,
-    },
-    InvalidWorkspace {
-        message: String,
-    },
-    InvalidVersion {
+    InvalidOutput {
+        command: TerraformCommand,
         message: String,
     },
 }
@@ -170,7 +159,6 @@ pub(crate) enum TerraformExecutionErrorKind {
 pub(crate) struct TerraformExecutionError {
     tool: Tool,
     kind: TerraformExecutionErrorKind,
-    cleanup_error: Option<String>,
 }
 
 impl TerraformExecutionError {
@@ -185,97 +173,46 @@ impl TerraformExecutionError {
         )
     }
 
-    pub(super) const fn new_for_tool(tool: Tool, kind: TerraformExecutionErrorKind) -> Self {
-        Self {
-            tool,
-            kind,
-            cleanup_error: None,
-        }
+    const fn new_for_tool(tool: Tool, kind: TerraformExecutionErrorKind) -> Self {
+        Self { tool, kind }
     }
 }
 
 impl Display for TerraformExecutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let tool = self.tool.display_name();
         match &self.kind {
             TerraformExecutionErrorKind::Launch { command, message } => {
-                write!(
-                    formatter,
-                    "failed to start {} {command}: {message}",
-                    self.tool.display_name()
-                )
+                write!(formatter, "failed to start {tool} {command}: {message}")
             }
             TerraformExecutionErrorKind::Process { command, message } => {
                 write!(
                     formatter,
-                    "failed while running {} {command}: {message}",
-                    self.tool.display_name()
+                    "failed while running {tool} {command}: {message}"
                 )
             }
-            TerraformExecutionErrorKind::NonZero {
-                command, status, ..
-            } => {
+            TerraformExecutionErrorKind::NonZero { command, status } => {
+                write!(formatter, "{tool} {command} failed with {status}")
+            }
+            TerraformExecutionErrorKind::Interrupted { command } => {
+                write!(formatter, "{tool} {command} was interrupted")
+            }
+            TerraformExecutionErrorKind::InvalidOutput { command, message } => {
                 write!(
                     formatter,
-                    "{} {command} failed with {status}",
-                    self.tool.display_name()
+                    "{tool} {command} output could not be parsed: {message}"
                 )
             }
-            TerraformExecutionErrorKind::Interrupted { command, .. } => {
-                write!(
-                    formatter,
-                    "{} {command} was interrupted",
-                    self.tool.display_name()
-                )
-            }
-            TerraformExecutionErrorKind::InvalidPlan { source } => {
-                write!(
-                    formatter,
-                    "{} show output could not be parsed: {source}",
-                    self.tool.display_name()
-                )
-            }
-            TerraformExecutionErrorKind::InvalidWorkspace { message } => {
-                write!(
-                    formatter,
-                    "{} workspace output could not be parsed: {message}",
-                    self.tool.display_name()
-                )
-            }
-            TerraformExecutionErrorKind::InvalidVersion { message } => {
-                write!(
-                    formatter,
-                    "{} version output could not be parsed: {message}",
-                    self.tool.display_name()
-                )
-            }
-        }?;
-
-        if let Some(error) = &self.cleanup_error {
-            write!(formatter, "; plan cleanup also failed: {error}")?;
         }
-
-        Ok(())
     }
 }
 
 impl std::error::Error for TerraformExecutionError {}
 
 pub(super) struct ProcessResult {
-    pub(super) status: Option<ProcessStatus>,
+    pub(super) status: ProcessStatus,
     pub(super) output: ProcessOutput,
     pub(super) interrupted: bool,
-    interrupt_error: Option<String>,
-}
-
-impl ProcessResult {
-    const fn interrupted(output: ProcessOutput, interrupt_error: Option<String>) -> Self {
-        Self {
-            status: None,
-            output,
-            interrupted: true,
-            interrupt_error,
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -305,13 +242,6 @@ pub(crate) trait RunningProcess {
 }
 
 pub(crate) struct SystemProcessRunner;
-
-#[derive(Default)]
-struct ObservedOutput {
-    stdout: usize,
-    stderr: usize,
-    chunks: usize,
-}
 
 pub(crate) fn resolve_executable(tool: Tool) -> io::Result<std::path::PathBuf> {
     let current = std::env::current_exe()?;
@@ -453,14 +383,7 @@ fn run_passthrough_unix(mut command: Command) -> io::Result<ProcessStatus> {
             return Err(error);
         }
     };
-    let result = (|| {
-        loop {
-            if let Some(status) = child.try_wait()? {
-                break Ok(process_status(status));
-            }
-            thread::sleep(PROCESS_POLL_INTERVAL);
-        }
-    })();
+    let result = child.wait().map(process_status);
     restore_interrupt(previous);
     result
 }
@@ -526,26 +449,19 @@ pub(super) fn run_command(
     arguments: &[OsString],
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
-) -> Result<ProcessResult, TerraformExecutionError> {
-    run_command_with_events(tool, root, command, arguments, cancellation, runner, None)
-}
-
-pub(super) fn run_command_with_events(
-    tool: Tool,
-    root: &Path,
-    command: TerraformCommand,
-    arguments: &[OsString],
-    cancellation: &CancellationToken,
-    runner: &dyn ProcessRunner,
     mut event_sink: Option<&mut dyn FnMut(ExecutionEvent)>,
 ) -> Result<ProcessResult, TerraformExecutionError> {
     let mut parser = event_sink.is_some().then(TerraformEventParser::new);
-    let mut observed = ObservedOutput::default();
+    let mut observed_chunks = 0;
     if cancellation.is_cancelled() {
         if let Some(event_sink) = event_sink {
-            emit_termination(event_sink, None, true);
+            emit_termination(event_sink, ProcessStatus::Signaled, true);
         }
-        return Ok(ProcessResult::interrupted(ProcessOutput::empty(), None));
+        return Ok(ProcessResult {
+            status: ProcessStatus::Signaled,
+            output: ProcessOutput::empty(),
+            interrupted: true,
+        });
     }
 
     let mut process = runner.start(tool, root, arguments).map_err(|error| {
@@ -557,109 +473,82 @@ pub(super) fn run_command_with_events(
             },
         )
     })?;
+    let process_error = |error: io::Error| {
+        TerraformExecutionError::new_for_tool(
+            tool,
+            TerraformExecutionErrorKind::Process {
+                command,
+                message: error.to_string(),
+            },
+        )
+    };
 
     loop {
-        let chunks = process.poll_output().map_err(|error| {
-            TerraformExecutionError::new_for_tool(
-                tool,
-                TerraformExecutionErrorKind::Process {
-                    command,
-                    message: error.to_string(),
-                },
-            )
-        })?;
+        let chunks = process.poll_output().map_err(process_error)?;
         if let (Some(parser), Some(event_sink)) = (parser.as_mut(), event_sink.as_deref_mut()) {
-            emit_chunks(parser, &mut observed, chunks, event_sink);
+            emit_chunks(parser, &mut observed_chunks, chunks, event_sink);
         }
-
-        let status = process.try_wait().map_err(|error| {
-            TerraformExecutionError::new_for_tool(
-                tool,
-                TerraformExecutionErrorKind::Process {
-                    command,
-                    message: error.to_string(),
-                },
-            )
-        })?;
-        if let Some(status) = status {
-            let output = process.collect_output().map_err(|error| {
-                TerraformExecutionError::new_for_tool(
-                    tool,
-                    TerraformExecutionErrorKind::Process {
-                        command,
-                        message: error.to_string(),
-                    },
-                )
-            })?;
-            if let (Some(parser), Some(event_sink)) = (parser.as_mut(), event_sink.as_deref_mut()) {
-                emit_unobserved_output(parser, &mut observed, &output, event_sink);
-                emit_parser_remainders(parser, event_sink);
-                emit_termination(event_sink, Some(status), false);
+        let (status, interrupted) = match process.try_wait().map_err(process_error)? {
+            Some(status) => (status, false),
+            None if cancellation.is_cancelled() => {
+                let _ = process.request_interrupt();
+                (process.wait().map_err(process_error)?, true)
             }
-            return Ok(ProcessResult {
-                status: Some(status),
-                output,
-                interrupted: false,
-                interrupt_error: None,
-            });
-        }
-
-        if cancellation.is_cancelled() {
-            let interrupt_error = process
-                .request_interrupt()
-                .err()
-                .map(|error| error.to_string());
-            let status = process.wait().map_err(|error| {
-                TerraformExecutionError::new_for_tool(
-                    tool,
-                    TerraformExecutionErrorKind::Process {
-                        command,
-                        message: error.to_string(),
-                    },
-                )
-            })?;
-            let output = process.collect_output().map_err(|error| {
-                TerraformExecutionError::new_for_tool(
-                    tool,
-                    TerraformExecutionErrorKind::Process {
-                        command,
-                        message: error.to_string(),
-                    },
-                )
-            })?;
-            if let (Some(parser), Some(event_sink)) = (parser.as_mut(), event_sink.as_deref_mut()) {
-                emit_unobserved_output(parser, &mut observed, &output, event_sink);
-                emit_parser_remainders(parser, event_sink);
-                emit_termination(event_sink, Some(status), true);
+            None => {
+                thread::sleep(PROCESS_POLL_INTERVAL);
+                continue;
             }
-            return Ok(ProcessResult {
-                status: Some(status),
-                output,
-                interrupted: true,
-                interrupt_error,
-            });
+        };
+        let output = process.collect_output().map_err(process_error)?;
+        if let (Some(parser), Some(event_sink)) = (parser.as_mut(), event_sink.as_deref_mut()) {
+            emit_unobserved_output(parser, observed_chunks, &output, event_sink);
+            emit_parser_remainders(parser, event_sink);
+            emit_termination(event_sink, status, interrupted);
         }
-
-        thread::sleep(PROCESS_POLL_INTERVAL);
+        return Ok(ProcessResult {
+            status,
+            output,
+            interrupted,
+        });
     }
+}
+
+pub(super) fn run_successful(
+    tool: Tool,
+    root: &Path,
+    command: TerraformCommand,
+    arguments: &[OsString],
+    cancellation: &CancellationToken,
+    runner: &dyn ProcessRunner,
+    event_sink: Option<&mut dyn FnMut(ExecutionEvent)>,
+) -> Result<ProcessOutput, TerraformExecutionError> {
+    let process = run_command(
+        tool,
+        root,
+        command,
+        arguments,
+        cancellation,
+        runner,
+        event_sink,
+    )?;
+    if process.interrupted {
+        return Err(interrupted_error(tool, command));
+    }
+    if !process.status.is_success() {
+        return Err(non_zero_error(tool, command, process.status));
+    }
+    Ok(process.output)
 }
 
 fn emit_chunks(
     parser: &mut TerraformEventParser,
-    observed: &mut ObservedOutput,
+    observed_chunks: &mut usize,
     chunks: Vec<ProcessOutputChunk>,
     event_sink: &mut dyn FnMut(ExecutionEvent),
 ) {
     for chunk in chunks {
-        let received_at = Instant::now();
-        let length = chunk.bytes.len();
-        let events = parser.push(chunk.stream, &chunk.bytes, received_at);
-        match chunk.stream {
-            EventStream::Stdout => observed.stdout += length,
-            EventStream::Stderr => observed.stderr += length,
-        }
-        observed.chunks += 1;
-        for event in events {
+        *observed_chunks += 1;
+        for event in parser.push(chunk.stream, &chunk.bytes, Instant::now()) {
             event_sink(event);
         }
     }
@@ -667,53 +556,16 @@ fn emit_chunks(
 
 fn emit_unobserved_output(
     parser: &mut TerraformEventParser,
-    observed: &mut ObservedOutput,
+    observed_chunks: usize,
     output: &ProcessOutput,
     event_sink: &mut dyn FnMut(ExecutionEvent),
 ) {
-    if !output.ordered.is_empty() {
-        for record in output.ordered.iter().skip(observed.chunks) {
-            let bytes = match record.stream {
-                EventStream::Stdout => &output.stdout[record.range.clone()],
-                EventStream::Stderr => &output.stderr[record.range.clone()],
-            };
-            for event in parser.push(record.stream, bytes, Instant::now()) {
-                event_sink(event);
-            }
-        }
-        observed.chunks = output.ordered.len();
-        observed.stdout = output.stdout.len();
-        observed.stderr = output.stderr.len();
-        return;
-    }
-    emit_remaining_stream(
-        parser,
-        observed.stdout,
-        EventStream::Stdout,
-        &output.stdout,
-        event_sink,
-    );
-    emit_remaining_stream(
-        parser,
-        observed.stderr,
-        EventStream::Stderr,
-        &output.stderr,
-        event_sink,
-    );
-    observed.stdout = output.stdout.len();
-    observed.stderr = output.stderr.len();
-}
-
-fn emit_remaining_stream(
-    parser: &mut TerraformEventParser,
-    observed: usize,
-    stream: EventStream,
-    output: &[u8],
-    event_sink: &mut dyn FnMut(ExecutionEvent),
-) {
-    if let Some(remaining) = output.get(observed..) {
-        let events = parser.push(stream, remaining, Instant::now());
-        for event in events {
+    for record in output.ordered.iter().skip(observed_chunks) {
+        let bytes = match record.stream {
+            EventStream::Stdout => &output.stdout[record.range.clone()],
+            EventStream::Stderr => &output.stderr[record.range.clone()],
+        };
+        for event in parser.push(record.stream, bytes, Instant::now()) {
             event_sink(event);
         }
     }
@@ -732,13 +584,13 @@ fn emit_parser_remainders(
 
 fn emit_termination(
     event_sink: &mut dyn FnMut(ExecutionEvent),
-    status: Option<ProcessStatus>,
+    status: ProcessStatus,
     interrupted: bool,
 ) {
-    let status = status.map_or(ProcessExitStatus::Signaled, |status| match status {
+    let status = match status {
         ProcessStatus::Exited(code) => ProcessExitStatus::Exited(code),
         ProcessStatus::Signaled => ProcessExitStatus::Signaled,
-    });
+    };
     event_sink(ExecutionEvent {
         received_at: Instant::now(),
         kind: ExecutionEventKind::Terminated(ProcessTermination {
@@ -748,32 +600,37 @@ fn emit_termination(
     });
 }
 
-pub(super) fn interrupted_error(
+pub(super) const fn interrupted_error(
     tool: Tool,
     command: TerraformCommand,
-    process: ProcessResult,
 ) -> TerraformExecutionError {
     TerraformExecutionError::new_for_tool(
         tool,
-        TerraformExecutionErrorKind::Interrupted {
-            command,
-            output: Box::new(process.output),
-            interrupt_error: process.interrupt_error,
-        },
+        TerraformExecutionErrorKind::Interrupted { command },
     )
 }
 
-pub(super) fn non_zero_error(
+pub(super) const fn non_zero_error(
     tool: Tool,
     command: TerraformCommand,
-    process: ProcessResult,
+    status: ProcessStatus,
 ) -> TerraformExecutionError {
     TerraformExecutionError::new_for_tool(
         tool,
-        TerraformExecutionErrorKind::NonZero {
+        TerraformExecutionErrorKind::NonZero { command, status },
+    )
+}
+
+pub(super) fn invalid_output(
+    tool: Tool,
+    command: TerraformCommand,
+    message: impl Display,
+) -> TerraformExecutionError {
+    TerraformExecutionError::new_for_tool(
+        tool,
+        TerraformExecutionErrorKind::InvalidOutput {
             command,
-            status: process.status.unwrap_or(ProcessStatus::Signaled),
-            output: Box::new(process.output),
+            message: message.to_string(),
         },
     )
 }
@@ -980,12 +837,24 @@ mod tests {
     use super::*;
 
     impl ProcessOutput {
-        pub(crate) const fn new(stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
-            Self {
-                stdout,
-                stderr,
-                ordered: Vec::new(),
+        pub(crate) fn new(stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
+            let mut output = Self::empty();
+            for (stream, bytes) in [(EventStream::Stdout, stdout), (EventStream::Stderr, stderr)] {
+                if !bytes.is_empty() {
+                    output.append(&ProcessOutputChunk { stream, bytes });
+                }
             }
+            output
+        }
+
+        pub(crate) fn from_chunks<'a>(
+            chunks: impl IntoIterator<Item = &'a ProcessOutputChunk>,
+        ) -> Self {
+            let mut output = Self::empty();
+            for chunk in chunks {
+                output.append(chunk);
+            }
+            output
         }
 
         #[must_use]
@@ -995,17 +864,8 @@ mod tests {
     }
 
     impl TerraformExecutionError {
-        pub(crate) fn with_cleanup_error(mut self, error: &io::Error) -> Self {
-            self.cleanup_error = Some(error.to_string());
-            self
-        }
-
         pub(crate) const fn kind(&self) -> &TerraformExecutionErrorKind {
             &self.kind
-        }
-
-        pub(crate) fn cleanup_error(&self) -> Option<&str> {
-            self.cleanup_error.as_deref()
         }
     }
 
@@ -1049,7 +909,7 @@ mod tests {
         }
 
         let mut parser = TerraformEventParser::new();
-        let mut observed = ObservedOutput::default();
+        let mut observed = 0;
         let mut events = Vec::new();
         emit_chunks(
             &mut parser,
@@ -1058,16 +918,14 @@ mod tests {
             &mut |event| events.push(event),
         );
 
-        emit_unobserved_output(&mut parser, &mut observed, &output, &mut |event| {
+        emit_unobserved_output(&mut parser, observed, &output, &mut |event| {
             events.push(event);
         });
         emit_parser_remainders(&mut parser, &mut |event| events.push(event));
 
         assert_eq!(output.stdout(), [message, b"final line"].concat());
         assert_eq!(output.stderr, b"warning\n");
-        assert_eq!(observed.stdout, output.stdout().len());
-        assert_eq!(observed.stderr, output.stderr.len());
-        assert_eq!(observed.chunks, 4);
+        assert_eq!(observed, 1);
         assert_eq!(
             events.iter().map(non_json_text).collect::<Vec<_>>(),
             [

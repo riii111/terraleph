@@ -27,8 +27,8 @@ pub(crate) enum CopyResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CopyNotice {
-    Copied { target: CopyTarget },
-    SentToTerminal { target: CopyTarget },
+    Copied,
+    SentToTerminal,
     Failed,
 }
 
@@ -36,8 +36,8 @@ impl CopyNotice {
     #[must_use]
     pub(crate) const fn message(self) -> &'static str {
         match self {
-            Self::Copied { .. } => "Copied.",
-            Self::SentToTerminal { .. } => "Sent to terminal clipboard.",
+            Self::Copied => "Copied.",
+            Self::SentToTerminal => "Sent to terminal clipboard.",
             Self::Failed => "Copy failed.",
         }
     }
@@ -45,7 +45,7 @@ impl CopyNotice {
     #[must_use]
     const fn duration(self) -> Duration {
         match self {
-            Self::Copied { .. } | Self::SentToTerminal { .. } => Duration::from_secs(3),
+            Self::Copied | Self::SentToTerminal => Duration::from_secs(3),
             Self::Failed => Duration::from_secs(5),
         }
     }
@@ -82,16 +82,10 @@ impl CopyFeedback {
         self.notice_until.is_some() || self.flash_until.is_some()
     }
 
-    pub(crate) fn record(
-        &mut self,
-        target: CopyTarget,
-        result: CopyResult,
-        now: Instant,
-        flash: bool,
-    ) {
+    pub(crate) fn record(&mut self, result: CopyResult, now: Instant, flash: bool) {
         let notice = match result {
-            CopyResult::Written => CopyNotice::Copied { target },
-            CopyResult::SentToTerminal => CopyNotice::SentToTerminal { target },
+            CopyResult::Written => CopyNotice::Copied,
+            CopyResult::SentToTerminal => CopyNotice::SentToTerminal,
             CopyResult::Failed => CopyNotice::Failed,
         };
         self.notice = Some(notice);
@@ -472,7 +466,7 @@ mod tests {
     fn clearing_feedback_reports_flash_and_notice_expiration() {
         let started_at = Instant::now();
         let mut feedback = CopyFeedback::default();
-        feedback.record(CopyTarget::Execution, CopyResult::Written, started_at, true);
+        feedback.record(CopyResult::Written, started_at, true);
 
         let flash_expired_at = started_at + FLASH_DURATION;
         assert!(feedback.clear_expired(flash_expired_at));
@@ -480,11 +474,7 @@ mod tests {
         assert!(!feedback.flash_active(flash_expired_at));
         assert!(!feedback.clear_expired(flash_expired_at));
 
-        let notice_expired_at = started_at
-            + CopyNotice::Copied {
-                target: CopyTarget::Execution,
-            }
-            .duration();
+        let notice_expired_at = started_at + CopyNotice::Copied.duration();
         assert!(feedback.clear_expired(notice_expired_at));
         assert!(!feedback.pending());
         assert!(!feedback.clear_expired(notice_expired_at));
@@ -494,12 +484,7 @@ mod tests {
     fn terminal_copy_keeps_the_flash_with_its_own_notice() {
         let started_at = Instant::now();
         let mut feedback = CopyFeedback::default();
-        feedback.record(
-            CopyTarget::Plan,
-            CopyResult::SentToTerminal,
-            started_at,
-            true,
-        );
+        feedback.record(CopyResult::SentToTerminal, started_at, true);
 
         assert!(feedback.flash_active(started_at));
         assert_eq!(

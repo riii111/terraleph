@@ -451,7 +451,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions,
             kind,
@@ -460,8 +459,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

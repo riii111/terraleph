@@ -491,7 +491,7 @@ fn renders_long_target_header_and_preserves_position_for_overlays() {
     assert!(context_text.contains("Execution directory"));
     assert!(compact_context.contains("/repo/secrets/production.tfvars"));
     assert!(context_text.contains("TF_VAR_region"));
-    view.overlay_bottom();
+    view.overlay_scroll_mut().bottom();
     let scrolled_context = render_to_buffer((80, 24), |frame| {
         render(frame, &state, &view, Instant::now());
     });
@@ -548,7 +548,7 @@ fn renders_plan_help_with_overview_navigation_and_scrollable_sections() {
         snapshot(&format!("preview_{width}x{height}_help"), &help);
     }
 
-    view.overlay_bottom();
+    view.overlay_scroll_mut().bottom();
     let bottom = render_to_buffer((80, 24), |frame| {
         render(frame, &state, &view, Instant::now());
     });
@@ -602,11 +602,7 @@ fn confirmation_opened_from_the_overview_detail_draws_the_same_background() {
         },
         now,
     );
-    session::update(
-        &mut session,
-        Action::OpenReviewFromOverview { address: None },
-        now,
-    );
+    session::update(&mut session, Action::OpenReviewFromOverview, now);
     session::update(
         &mut session,
         Action::ReviewSearchChanged("worker".to_owned()),
@@ -665,11 +661,7 @@ fn overview_detail_layout_matches_the_raw_review_opened_from_the_overview() {
     let predicted =
         overview_detail_layout(area, &PlanReviewViewState::default(), overview.review());
 
-    session::update(
-        &mut session,
-        Action::OpenReviewFromOverview { address: None },
-        now,
-    );
+    session::update(&mut session, Action::OpenReviewFromOverview, now);
     let raw = layout(
         area,
         &PlanReviewViewState::default(),
@@ -743,7 +735,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         }
 
         if width == 40 {
-            view.overlay_bottom();
+            view.overlay_scroll_mut().bottom();
             let bottom = render_to_buffer((width, height), |frame| {
                 render_apply_confirmation(
                     frame,
@@ -2805,10 +2797,10 @@ mod overlay {
                 };
                 let mut view = PlanReviewViewState::default();
                 view.apply_with_matches(input, Rect::default(), 0, 0, "", &[]);
-                view.overlay_bottom();
+                view.overlay_scroll_mut().bottom();
                 let end = rows(&view);
 
-                view.scroll_overlay(delta);
+                view.overlay_scroll_mut().scroll_by(delta);
                 let scrolled = rows(&view);
 
                 assert_dialog_scrolled_up(&format!("{overlay} {name}"), &end, &scrolled, lines);
@@ -2846,10 +2838,10 @@ mod overlay {
                 };
                 let mut view = ApplyConfirmationViewState::default();
                 view.apply(input, "yes", 0);
-                view.overlay_bottom();
+                view.overlay_scroll_mut().bottom();
                 let end = rows(&view);
 
-                view.scroll_overlay(delta);
+                view.overlay_scroll_mut().scroll_by(delta);
                 let scrolled = rows(&view);
 
                 assert_dialog_scrolled_up(&format!("{overlay} {name}"), &end, &scrolled, lines);

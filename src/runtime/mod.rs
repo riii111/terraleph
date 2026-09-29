@@ -87,12 +87,11 @@ fn run_managed_invocation(
                 return ExitCode::from(EXECUTION_FAILURE);
             }
         };
-    let (plan_run, status) = match terraform::run_passthrough_plan(
+    let status = match terraform::run_passthrough_plan(
         executable,
         launch_root,
         global_arguments,
         &plan_arguments,
-        saved_plan,
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -109,7 +108,7 @@ fn run_managed_invocation(
     // whether the plan failed from that same signal or finished despite a signal sent only to
     // Terraleph.
     if let Some(signal) = termination::requested() {
-        let _ = plan_run.saved_plan.cleanup();
+        let _ = saved_plan.cleanup();
         report_terminated(signal);
         return ExitCode::from(signal.exit_code());
     }
@@ -121,7 +120,7 @@ fn run_managed_invocation(
         } else {
             EXECUTION_FAILURE
         };
-        let _ = plan_run.saved_plan.cleanup();
+        let _ = saved_plan.cleanup();
         return ExitCode::from(exit);
     }
     run_saved_plan_review(
@@ -131,7 +130,8 @@ fn run_managed_invocation(
         global_arguments,
         apply_arguments,
         apply_entry,
-        plan_run,
+        saved_plan,
+        status,
         planned_at,
         detailed_exitcode,
         initial_overview,
@@ -150,14 +150,14 @@ fn run_saved_plan_review(
     global_arguments: &[OsString],
     apply_arguments: &[OsString],
     apply_entry: bool,
-    plan_run: terraform::PlanRun,
+    saved_plan: terraform::SavedPlan,
+    plan_status: terraform::ProcessStatus,
     planned_at: Instant,
     detailed_exitcode: bool,
     initial_overview: bool,
     variable_sources: VariableSources,
 ) -> ExitCode {
-    let changed = plan_run.changed;
-    let saved_plan = plan_run.saved_plan;
+    let changed = plan_status.has_plan_changes();
     let review_root = match fs::canonicalize(display_root) {
         Ok(root) => root,
         Err(error) => {

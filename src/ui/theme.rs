@@ -1,9 +1,5 @@
 use ratatui::style::{Color, Modifier, Style};
 
-pub(crate) fn footer_key_style() -> Style {
-    body_style()
-}
-
 pub(crate) fn footer_key_separator_style() -> Style {
     Style::default().fg(Color::Rgb(0x90, 0x90, 0x90))
 }
@@ -20,12 +16,8 @@ pub(crate) fn body_style() -> Style {
     Style::default().fg(Color::Rgb(0xe9, 0xdb, 0xdb))
 }
 
-pub(crate) fn overview_background_style() -> Style {
-    Style::default().fg(Color::Reset).bg(Color::Reset)
-}
-
 pub(crate) fn overview_text_style() -> Style {
-    overview_background_style()
+    Style::default().fg(Color::Reset).bg(Color::Reset)
 }
 
 pub(crate) fn overview_muted_style() -> Style {
@@ -40,16 +32,8 @@ pub(crate) fn overview_section_heading_style() -> Style {
     overview_text_style().add_modifier(Modifier::BOLD)
 }
 
-pub(crate) fn overview_header_style() -> Style {
-    Style::default().fg(Color::Reset).bg(Color::Reset)
-}
-
-pub(crate) fn overview_header_muted_style() -> Style {
-    overview_muted_style()
-}
-
 pub(crate) fn overview_pane_title_style() -> Style {
-    overview_header_style().add_modifier(Modifier::BOLD)
+    overview_text_style().add_modifier(Modifier::BOLD)
 }
 
 pub(crate) fn overview_header_selected_style() -> Style {
@@ -79,40 +63,12 @@ pub(crate) fn overview_warning_style() -> Style {
     Style::default().fg(Color::Yellow).bg(Color::Reset)
 }
 
-pub(crate) fn relation_text_style() -> Style {
-    overview_background_style()
-}
-
-pub(crate) fn relation_muted_style() -> Style {
-    overview_muted_style()
-}
-
-pub(crate) fn relation_section_style() -> Style {
-    overview_section_heading_style()
-}
-
 pub(crate) fn relation_warning_style() -> Style {
     overview_warning_style().add_modifier(Modifier::BOLD)
 }
 
 pub(crate) fn relation_difference_style() -> Style {
     overview_text_style().add_modifier(Modifier::BOLD)
-}
-
-pub(crate) fn relation_create_style() -> Style {
-    overview_total_add_style()
-}
-
-pub(crate) fn relation_update_style() -> Style {
-    overview_total_update_style()
-}
-
-pub(crate) fn relation_replace_style() -> Style {
-    overview_total_replace_style()
-}
-
-pub(crate) fn relation_delete_style() -> Style {
-    overview_total_destroy_style()
 }
 
 pub(crate) fn relation_frame_style(focused: bool) -> Style {
@@ -127,14 +83,6 @@ pub(crate) fn relation_frame_style(focused: bool) -> Style {
 
 pub(crate) fn overview_footer_key_style() -> Style {
     Style::default().fg(Color::Yellow).bg(Color::Reset)
-}
-
-pub(crate) fn overview_footer_text_style() -> Style {
-    overview_text_style()
-}
-
-pub(crate) fn overview_footer_separator_style() -> Style {
-    overview_muted_style()
 }
 
 pub(crate) fn secondary_style() -> Style {
@@ -232,8 +180,4 @@ pub(crate) const fn plan_hidden_value_style(line_style: Style) -> Style {
 
 pub(crate) const fn plan_change_arrow_style(line_style: Style) -> Style {
     line_style.add_modifier(Modifier::BOLD)
-}
-
-pub(crate) fn plan_note_style() -> Style {
-    secondary_style()
 }
