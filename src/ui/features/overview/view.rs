@@ -3,8 +3,7 @@ use std::{cell::Cell, collections::BTreeSet};
 use ratatui::layout::Rect;
 
 use crate::app::{
-    environments::overview::SingleOverviewMember,
-    plan::{PlanAction, RelationNodeId, ResourceChangeKind},
+    plan::{PlanAction, RelationNodeId, ResourceChangeKind, grouping::GroupMember},
     session::ReviewSessionState,
 };
 use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input};
@@ -541,7 +540,7 @@ impl OverviewViewState {
     }
 }
 
-fn action_text(change: &SingleOverviewMember) -> String {
+fn action_text(change: &GroupMember) -> String {
     let symbol = match change.kind {
         ResourceChangeKind::Create => "+",
         ResourceChangeKind::Update => "~",
@@ -585,7 +584,6 @@ mod tests {
             address: "terraform_data.unchanged".to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::NoOp],
             kind: ResourceChangeKind::NoOp,
@@ -594,8 +592,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         };
@@ -611,7 +607,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -626,8 +621,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

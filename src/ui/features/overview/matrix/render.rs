@@ -262,7 +262,7 @@ fn same_section_title(view: &MatrixView, state: &EnvironmentSession) -> &'static
     let partial = view
         .overview
         .as_ref()
-        .is_none_or(|overview| !matches!(overview.scope, ComparisonScope::All { .. }));
+        .is_none_or(|overview| !matches!(overview.scope, ComparisonScope::All));
     if view.environments.len() == 1 {
         "Changes"
     } else if filtered && partial {

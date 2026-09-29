@@ -711,7 +711,6 @@ mod tests {
             address,
             provider: None,
             resource_type: Some("terraform_data".to_owned()),
-            resource_name: Some("server".to_owned()),
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -726,8 +725,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         };
@@ -782,7 +779,6 @@ mod tests {
         let mut plan = server_plan();
         let mut network = plan.resource_changes[0].clone();
         network.address = "terraform_data.network".to_owned();
-        network.resource_name = Some("network".to_owned());
         plan.resource_changes.push(network);
         let relations = PlanRelations::from_saved_plan(
             ConfigurationRelationStatus::Available,

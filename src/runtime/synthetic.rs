@@ -350,7 +350,6 @@ fn synthetic_change(
         address: address.to_owned(),
         provider: None,
         resource_type: Some("terraform_data".to_owned()),
-        resource_name: Some(address.rsplit('.').next().unwrap_or(address).to_owned()),
         mode: ResourceMode::Managed,
         actions,
         kind,
@@ -365,8 +364,6 @@ fn synthetic_change(
         before_sensitive: None,
         after_sensitive: None,
         after_unknown: None,
-        replace_paths: None,
-        action_reason: None,
         previous_address: None,
         importing: None,
     }

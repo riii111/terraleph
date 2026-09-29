@@ -2085,12 +2085,9 @@ mod tests {
         #[test]
         fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
             let (mut state, now) = apply_state(ApplyStatus::Succeeded);
-            state.copy_feedback_mut().record(
-                CopyTarget::Execution,
-                CopyResult::SentToTerminal,
-                now,
-                true,
-            );
+            state
+                .copy_feedback_mut()
+                .record(CopyResult::SentToTerminal, now, true);
             let render_text = |quit_confirmation| {
                 buffer_text(&render_to_buffer((40, 24), |frame| {
                     render_execution_with_quit_confirmation(
@@ -3649,12 +3646,9 @@ mod tests {
         fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
             let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
-            state.copy_feedback_mut().record(
-                CopyTarget::Diagnostic,
-                CopyResult::SentToTerminal,
-                now,
-                false,
-            );
+            state
+                .copy_feedback_mut()
+                .record(CopyResult::SentToTerminal, now, false);
 
             let copied = render_text((40, 24), &state, ExecutionViewState::default(), now, false);
             let confirmation =

@@ -7,15 +7,18 @@ use super::{
     EnvironmentPlan,
     comparison::{
         CellState, ComparisonRow, ComparisonScope, DifferenceReason, EnvironmentSelection,
-        SourceReference, compare_environments_for_selection,
+        compare_environments_for_selection,
     },
 };
 use crate::app::{
     plan::{
-        PlanAction, RelationGraph, RelationNodeId, RelationNodeInput, ResourceChange,
-        ResourceChangeKind, build_relation_graph,
+        RelationGraph, RelationNode, RelationNodeId, ResourceChange, ResourceChangeKind,
+        build_relation_graph,
         comparison::resource_has_unknown,
-        grouping::{GroupingCandidate, GroupingKey, PlanGrouping, grouping_candidate},
+        grouping::{
+            ChangeGroup, GroupingCandidate, GroupingKey, PlanGrouping, group_resource_changes,
+            grouping_candidate,
+        },
         path::{module_breadcrumbs, normalize_resource_addresses, resource_display_address},
     },
     review::PlanReview,
@@ -37,7 +40,7 @@ pub(crate) struct EnvironmentOverviewWithRelations {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnvironmentRelationGraph {
     pub(crate) graph: Option<RelationGraph>,
-    pub(crate) row_node_ids: BTreeMap<OverviewRowId, Option<RelationNodeId>>,
+    pub(crate) row_node_ids: BTreeMap<OverviewRowId, RelationNodeId>,
 }
 
 /// Grouping, relation node mapping, and relation graph of one reviewed plan.
@@ -45,25 +48,9 @@ pub(crate) struct EnvironmentRelationGraph {
 /// from it while the user filters, selects, expands, or resizes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SingleEnvironmentOverview {
-    groups: Vec<SingleOverviewGroup>,
+    groups: Vec<ChangeGroup>,
     repeated: usize,
     relations: RelationGraph,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SingleOverviewGroup {
-    pub(crate) display_address: String,
-    pub(crate) has_unknown: bool,
-    pub(crate) members: Vec<SingleOverviewMember>,
-    /// The node every changed member maps to; expanded or filtered member rows keep it.
-    pub(crate) node_id: Option<RelationNodeId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SingleOverviewMember {
-    pub(crate) address: String,
-    pub(crate) kind: ResourceChangeKind,
-    pub(crate) actions: Vec<PlanAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,7 +81,6 @@ pub(crate) struct GroupId(GroupingKey);
 pub(crate) struct GroupCell {
     pub(crate) state: CellState,
     pub(crate) members: Vec<String>,
-    pub(crate) source: Option<SourceReference>,
 }
 
 pub(crate) fn environment_overview_for_selection(
@@ -172,7 +158,7 @@ pub(crate) fn environment_overview_with_relations_for_selection(
         .iter()
         .enumerate()
         .map(|(environment, plan)| {
-            let mut row_node_ids = empty_row_node_ids(&overview);
+            let mut row_node_ids = BTreeMap::new();
             let Some(state) = plan.review() else {
                 return (
                     environment,
@@ -189,7 +175,7 @@ pub(crate) fn environment_overview_with_relations_for_selection(
                     let review = state.review();
                     let node_inputs =
                         comparison_node_inputs(&overview, *column, review, &mut row_node_ids);
-                    build_relation_graph(review.relations(), &node_inputs)
+                    build_relation_graph(review.relations(), node_inputs)
                 },
             );
             (
@@ -211,35 +197,20 @@ pub(crate) fn environment_overview_with_relations_for_selection(
 impl SingleEnvironmentOverview {
     // Only the review session builds it, once per review, so screens cannot rebuild it per frame.
     pub(in crate::app) fn new(review: &PlanReview) -> Self {
-        let grouping = review.plan().grouped_changes(review.provider_schemas());
+        let mut grouping =
+            group_resource_changes(&review.plan().resource_changes, review.provider_schemas());
         let (node_inputs, group_node_ids) = grouped_plan_node_inputs(review, &grouping);
-        let groups = grouping
-            .groups
-            .into_iter()
-            .zip(group_node_ids)
-            .map(|(group, node_id)| SingleOverviewGroup {
-                display_address: group.display_address,
-                has_unknown: group.has_unknown,
-                members: group
-                    .members
-                    .into_iter()
-                    .map(|change| SingleOverviewMember {
-                        address: change.address,
-                        kind: change.kind,
-                        actions: change.actions,
-                    })
-                    .collect(),
-                node_id,
-            })
-            .collect();
+        for (group, node_id) in grouping.groups.iter_mut().zip(group_node_ids) {
+            group.node_id = node_id;
+        }
         Self {
-            groups,
+            groups: grouping.groups,
             repeated: grouping.repeated,
-            relations: build_relation_graph(review.relations(), &node_inputs),
+            relations: build_relation_graph(review.relations(), node_inputs),
         }
     }
 
-    pub(crate) fn groups(&self) -> &[SingleOverviewGroup] {
+    pub(crate) fn groups(&self) -> &[ChangeGroup] {
         &self.groups
     }
 
@@ -252,35 +223,12 @@ impl SingleEnvironmentOverview {
     }
 }
 
-impl SingleOverviewGroup {
-    pub(crate) const fn is_repeated(&self) -> bool {
-        self.members.len() >= 2
-    }
-}
-
-fn empty_row_node_ids(
-    overview: &EnvironmentOverview,
-) -> BTreeMap<OverviewRowId, Option<RelationNodeId>> {
-    let mut row_node_ids = BTreeMap::new();
-    for row in &overview.rows {
-        match row {
-            OverviewRow::Individual(row) => {
-                row_node_ids.insert(OverviewRowId::Individual(row.address.clone()), None);
-            }
-            OverviewRow::Group(group) => {
-                row_node_ids.insert(OverviewRowId::Group(group.id.clone()), None);
-            }
-        }
-    }
-    row_node_ids
-}
-
 fn comparison_node_inputs(
     overview: &EnvironmentOverview,
     column: usize,
     review: &PlanReview,
-    row_node_ids: &mut BTreeMap<OverviewRowId, Option<RelationNodeId>>,
-) -> Vec<RelationNodeInput> {
+    row_node_ids: &mut BTreeMap<OverviewRowId, RelationNodeId>,
+) -> Vec<RelationNode> {
     let changes: BTreeMap<_, _> = review
         .plan()
         .resource_changes
@@ -292,7 +240,7 @@ fn comparison_node_inputs(
     for row in &overview.rows {
         match row {
             OverviewRow::Individual(row) => {
-                if !matches!(row.cells[column].state, CellState::Change { .. }) {
+                if !matches!(row.cells[column], CellState::Change { .. }) {
                     continue;
                 }
                 let addresses = [row.address.clone()];
@@ -305,7 +253,7 @@ fn comparison_node_inputs(
                 );
                 record_node(
                     input,
-                    [OverviewRowId::Individual(row.address.clone())],
+                    OverviewRowId::Individual(row.address.clone()),
                     &mut node_inputs,
                     row_node_ids,
                 );
@@ -327,7 +275,7 @@ fn comparison_node_inputs(
                 );
                 record_node(
                     input,
-                    [OverviewRowId::Group(group.id.clone())],
+                    OverviewRowId::Group(group.id.clone()),
                     &mut node_inputs,
                     row_node_ids,
                 );
@@ -342,7 +290,7 @@ fn comparison_node_inputs(
 fn grouped_plan_node_inputs(
     review: &PlanReview,
     grouping: &PlanGrouping,
-) -> (Vec<RelationNodeInput>, Vec<Option<RelationNodeId>>) {
+) -> (Vec<RelationNode>, Vec<Option<RelationNodeId>>) {
     let changes: BTreeMap<_, _> = review
         .plan()
         .resource_changes
@@ -400,7 +348,7 @@ fn relation_node_input(
     display_address: &str,
     differs: bool,
     has_unknown: bool,
-) -> Option<RelationNodeInput> {
+) -> Option<RelationNode> {
     let operation = changes.get(addresses.first()?.as_str())?.kind;
     if operation == ResourceChangeKind::NoOp
         || addresses.iter().any(|address| {
@@ -412,7 +360,7 @@ fn relation_node_input(
         return None;
     }
 
-    RelationNodeInput::new(
+    RelationNode::new(
         addresses.iter().cloned(),
         resource_display_address(display_address).unwrap_or_else(|| display_address.to_owned()),
         operation,
@@ -457,22 +405,19 @@ fn relation_breadcrumbs(addresses: &[String], display_address: &str) -> Vec<Stri
 }
 
 fn record_node(
-    input: Option<RelationNodeInput>,
-    row_ids: impl IntoIterator<Item = OverviewRowId>,
-    node_inputs: &mut Vec<RelationNodeInput>,
-    row_node_ids: &mut BTreeMap<OverviewRowId, Option<RelationNodeId>>,
+    input: Option<RelationNode>,
+    row_id: OverviewRowId,
+    node_inputs: &mut Vec<RelationNode>,
+    row_node_ids: &mut BTreeMap<OverviewRowId, RelationNodeId>,
 ) {
-    let Some(node_id) = push_node(input, node_inputs) else {
-        return;
-    };
-    for row_id in row_ids {
-        row_node_ids.insert(row_id, Some(node_id.clone()));
+    if let Some(node_id) = push_node(input, node_inputs) {
+        row_node_ids.insert(row_id, node_id);
     }
 }
 
 fn push_node(
-    input: Option<RelationNodeInput>,
-    node_inputs: &mut Vec<RelationNodeInput>,
+    input: Option<RelationNode>,
+    node_inputs: &mut Vec<RelationNode>,
 ) -> Option<RelationNodeId> {
     let input = input?;
     let node_id = input.id.clone();
@@ -486,7 +431,7 @@ fn shared_candidate<'a>(
 ) -> Option<&'a GroupingCandidate> {
     let mut shared: Option<&GroupingCandidate> = None;
     for (cell, candidates) in row.cells.iter().zip(candidates) {
-        match &cell.state {
+        match cell {
             CellState::Change { .. } => {
                 let candidate = candidates.get(row.address.as_str())?;
                 if shared.is_some_and(|shared| shared.key != candidate.key) {
@@ -506,12 +451,11 @@ fn group_cells(children: &[ComparisonRow], environment_count: usize) -> Vec<Grou
         .map(|environment| {
             let members: Vec<_> = children
                 .iter()
-                .filter(|row| matches!(row.cells[environment].state, CellState::Change { .. }))
+                .filter(|row| matches!(row.cells[environment], CellState::Change { .. }))
                 .collect();
             let cell = &members.first().copied().unwrap_or(&children[0]).cells[environment];
             GroupCell {
-                state: cell.state.clone(),
-                source: cell.source.clone(),
+                state: cell.clone(),
                 members: members.iter().map(|row| row.address.clone()).collect(),
             }
         })
@@ -553,8 +497,8 @@ mod tests {
         },
         execution::Tool,
         plan::{
-            AttributeType, Plan, PlanValue, ProviderSchema, ProviderSchemas, ResourceMode,
-            ResourceSchema,
+            AttributeType, Plan, PlanAction, PlanValue, ProviderSchema, ProviderSchemas,
+            ResourceMode, ResourceSchema,
         },
         review::{PlanBlock, PlanBlockKind, PlanDocument, PlanMetadata},
     };
@@ -581,7 +525,7 @@ mod tests {
             .find(|row| row.address == "test_resource.item[199]")
             .unwrap();
         assert_eq!(extra.difference, Some(DifferenceReason::Missing));
-        assert_eq!(extra.cells[0].state, CellState::Missing);
+        assert_eq!(extra.cells[0], CellState::Missing);
         assert_partition(&session, &overview);
     }
 
@@ -657,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_environments_group_only_their_common_changes_and_keep_original_sources() {
+    fn selected_environments_group_only_their_common_changes() {
         let session = ready_session([changes(2, "excluded"), changes(2, "new"), changes(3, "new")]);
         let all = environment_overview(session.plans());
         let selection = EnvironmentSelection::new(Some(vec![2, 1]), session.plans().len()).unwrap();
@@ -672,27 +616,6 @@ mod tests {
         let group = only_group(&overview);
         assert_eq!(member_counts(group), [2, 3]);
         assert_eq!(group.children.len(), 3);
-        assert_eq!(
-            group
-                .cells
-                .iter()
-                .map(|cell| cell.source.as_ref().unwrap().environment)
-                .collect::<Vec<_>>(),
-            [1, 2]
-        );
-        let child = group
-            .children
-            .iter()
-            .find(|row| row.address == "test_resource.item[0]")
-            .unwrap();
-        assert_eq!(
-            child
-                .cells
-                .iter()
-                .map(|cell| cell.source.as_ref().unwrap().environment)
-                .collect::<Vec<_>>(),
-            [1, 2]
-        );
     }
 
     #[test]
@@ -790,7 +713,7 @@ mod tests {
         let overview = environment_overview(session.plans());
 
         assert!(matches!(&overview.rows[0], OverviewRow::Individual(row)
-            if row.cells[1].state == CellState::NoOp));
+            if row.cells[1] == CellState::NoOp));
         assert_partition(&session, &overview);
     }
 
@@ -818,13 +741,6 @@ mod tests {
         assert_eq!(
             group.cells[1].members,
             [r#"module.app["prod"].test_resource.item[9]"#]
-        );
-        assert_eq!(
-            group.cells[1].source,
-            Some(SourceReference {
-                environment: 1,
-                line: Some(0)
-            })
         );
 
         let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
@@ -985,12 +901,8 @@ mod tests {
         let group = only_group(&partial);
         assert_eq!(member_counts(group), vec![2, 0, 0]);
         assert_eq!(group.cells[1].state, CellState::Unavailable);
-        assert_eq!(group.cells[1].source, None);
         let original_id = group.id.clone();
-        assert_eq!(
-            partial.scope,
-            ComparisonScope::Partial { compared: vec![0] }
-        );
+        assert_eq!(partial.scope, ComparisonScope::Partial);
         let run = session.start_next().unwrap();
         assert_eq!(partial, environment_overview(session.plans()));
         session.complete(
@@ -1009,12 +921,7 @@ mod tests {
         complete_next(&mut session, review(changes(1, "different")));
         let complete = environment_overview(session.plans());
 
-        assert_eq!(
-            complete.scope,
-            ComparisonScope::All {
-                compared: vec![0, 1, 2]
-            }
-        );
+        assert_eq!(complete.scope, ComparisonScope::All);
         assert!(
             complete
                 .rows
@@ -1044,10 +951,7 @@ mod tests {
             assert_eq!(node.change_count, expected_count);
             assert_eq!(node.id.addresses().len(), expected_count);
             assert!(!node.differs);
-            assert_eq!(
-                relation.row_node_ids.get(&group_id),
-                Some(&Some(node.id.clone()))
-            );
+            assert_eq!(relation.row_node_ids.get(&group_id), Some(&node.id));
             assert_eq!(relation.row_node_ids.len(), 1);
             assert!(group.children.iter().all(|child| {
                 !relation
@@ -1064,7 +968,7 @@ mod tests {
 
         let result = environment_overview_with_relations_for_selection(session.plans(), &selection);
 
-        let group = only_group(&result.overview);
+        only_group(&result.overview);
         let included = result.relations[&0]
             .graph
             .as_ref()
@@ -1081,13 +985,7 @@ mod tests {
         assert_eq!(excluded.nodes.len(), 1);
         assert_eq!(excluded.nodes[0].id.addresses().len(), 3);
         assert!(!excluded.nodes[0].differs);
-        assert!(excluded_relation.row_node_ids.values().all(Option::is_none));
-        assert_eq!(
-            excluded_relation
-                .row_node_ids
-                .get(&OverviewRowId::Group(group.id.clone())),
-            Some(&None)
-        );
+        assert!(excluded_relation.row_node_ids.is_empty());
     }
 
     #[test]
@@ -1099,18 +997,10 @@ mod tests {
         let partial =
             environment_overview_with_relations_for_selection(session.plans(), &selection);
 
-        assert_eq!(
-            partial.overview.scope,
-            ComparisonScope::Partial { compared: vec![0] }
-        );
+        assert_eq!(partial.overview.scope, ComparisonScope::Partial);
         assert!(partial.relations[&0].graph.is_some());
         assert!(partial.relations[&1].graph.is_none());
-        assert!(
-            partial.relations[&1]
-                .row_node_ids
-                .values()
-                .all(Option::is_none)
-        );
+        assert!(partial.relations[&1].row_node_ids.is_empty());
 
         let run = session.start_next().unwrap();
         assert_eq!(run, 1);
@@ -1125,10 +1015,7 @@ mod tests {
         let retried =
             environment_overview_with_relations_for_selection(session.plans(), &selection);
 
-        assert!(matches!(
-            retried.overview.scope,
-            ComparisonScope::All { .. }
-        ));
+        assert!(matches!(retried.overview.scope, ComparisonScope::All));
         let graph = retried.relations[&1]
             .graph
             .as_ref()
@@ -1143,7 +1030,6 @@ mod tests {
             let node_id = retried.relations[&1]
                 .row_node_ids
                 .get(&OverviewRowId::Individual(address.to_owned()))
-                .and_then(Option::as_ref)
                 .expect("changed individual rows map to a graph node");
             assert_eq!(node_id.addresses(), [address]);
         }
@@ -1205,7 +1091,7 @@ mod tests {
                             .children
                             .iter()
                             .filter(|row| {
-                                matches!(row.cells[environment].state, CellState::Change { .. })
+                                matches!(row.cells[environment], CellState::Change { .. })
                             })
                             .collect();
                         assert_eq!(
@@ -1214,12 +1100,6 @@ mod tests {
                                 .iter()
                                 .map(|row| row.address.clone())
                                 .collect::<Vec<_>>()
-                        );
-                        assert_eq!(
-                            cell.source,
-                            changes
-                                .first()
-                                .and_then(|row| row.cells[environment].source.clone())
                         );
                     }
                 }
@@ -1325,7 +1205,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -1334,8 +1213,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

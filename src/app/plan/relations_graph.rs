@@ -22,40 +22,6 @@ impl RelationNodeId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RelationNodeInput {
-    pub(crate) id: RelationNodeId,
-    pub(crate) display_address: String,
-    pub(crate) operation: ResourceChangeKind,
-    pub(crate) change_count: usize,
-    pub(crate) breadcrumbs: Vec<String>,
-    pub(crate) differs: bool,
-    pub(crate) has_unknown: bool,
-}
-
-impl RelationNodeInput {
-    #[must_use]
-    pub(crate) fn new(
-        full_addresses: impl IntoIterator<Item = String>,
-        display_address: String,
-        operation: ResourceChangeKind,
-        change_count: usize,
-        breadcrumbs: Vec<String>,
-        differs: bool,
-        has_unknown: bool,
-    ) -> Option<Self> {
-        Some(Self {
-            id: RelationNodeId::from_addresses(full_addresses)?,
-            display_address,
-            operation,
-            change_count,
-            breadcrumbs,
-            differs,
-            has_unknown,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum RelationGraphLinkKind {
     Dotted,
@@ -82,6 +48,30 @@ pub(crate) struct RelationNode {
     pub(crate) unresolved: BTreeSet<RelationUnresolvedReason>,
 }
 
+impl RelationNode {
+    #[must_use]
+    pub(in crate::app) fn new(
+        full_addresses: impl IntoIterator<Item = String>,
+        display_address: String,
+        operation: ResourceChangeKind,
+        change_count: usize,
+        breadcrumbs: Vec<String>,
+        differs: bool,
+        has_unknown: bool,
+    ) -> Option<Self> {
+        Some(Self {
+            id: RelationNodeId::from_addresses(full_addresses)?,
+            display_address,
+            operation,
+            change_count,
+            breadcrumbs,
+            differs,
+            has_unknown,
+            unresolved: BTreeSet::new(),
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RelationGraphGroup {
     pub(crate) nodes: Vec<RelationNodeId>,
@@ -99,23 +89,11 @@ pub(crate) struct RelationGraph {
 
 pub(in crate::app) fn build_relation_graph(
     relations: &PlanRelations,
-    node_inputs: &[RelationNodeInput],
+    nodes: Vec<RelationNode>,
 ) -> RelationGraph {
-    let mut nodes = node_inputs
-        .iter()
-        .map(|input| {
-            let node = RelationNode {
-                id: input.id.clone(),
-                display_address: input.display_address.clone(),
-                operation: input.operation,
-                change_count: input.change_count,
-                breadcrumbs: input.breadcrumbs.clone(),
-                differs: input.differs,
-                has_unknown: input.has_unknown,
-                unresolved: BTreeSet::new(),
-            };
-            (node.id.clone(), node)
-        })
+    let mut nodes = nodes
+        .into_iter()
+        .map(|node| (node.id.clone(), node))
         .collect::<BTreeMap<_, _>>();
     let address_index = RelationAddressIndex::new(&nodes);
     let mut links = BTreeMap::<(RelationNodeId, RelationNodeId), RelationGraphLink>::new();
@@ -369,8 +347,8 @@ mod tests {
         addresses: &[&str],
         display_address: &str,
         operation: ResourceChangeKind,
-    ) -> RelationNodeInput {
-        RelationNodeInput::new(
+    ) -> RelationNode {
+        RelationNode::new(
             addresses.iter().map(|address| (*address).to_owned()),
             display_address.to_owned(),
             operation,
@@ -382,7 +360,7 @@ mod tests {
         .expect("non-empty addresses should create a node")
     }
 
-    fn individual_node(address: &str, operation: ResourceChangeKind) -> RelationNodeInput {
+    fn individual_node(address: &str, operation: ResourceChangeKind) -> RelationNode {
         node(&[address], address, operation)
     }
 
@@ -403,7 +381,7 @@ mod tests {
         configuration: Vec<RelationEvidence>,
         state_status: StateRelationStatus,
         state: Vec<RelationEvidence>,
-        nodes: &[RelationNodeInput],
+        nodes: &[RelationNode],
     ) -> RelationGraph {
         build_relation_graph(
             &PlanRelations {
@@ -412,13 +390,13 @@ mod tests {
                 state_status,
                 state,
             },
-            nodes,
+            nodes.to_vec(),
         )
     }
 
     #[test]
     fn node_input_sorts_and_deduplicates_addresses_and_rejects_empty_sets() {
-        let input = RelationNodeInput::new(
+        let input = RelationNode::new(
             [
                 "aws_instance.z[0]".to_owned(),
                 "aws_instance.a".to_owned(),
@@ -438,7 +416,7 @@ mod tests {
             &["aws_instance.a".to_owned(), "aws_instance.z[0]".to_owned()]
         );
         assert!(
-            RelationNodeInput::new(
+            RelationNode::new(
                 Vec::new(),
                 "aws_instance.empty".to_owned(),
                 ResourceChangeKind::Update,
@@ -535,7 +513,7 @@ mod tests {
 
     #[test]
     fn creates_a_link_when_any_member_of_an_aggregate_has_evidence() {
-        let aggregate = RelationNodeInput::new(
+        let aggregate = RelationNode::new(
             [
                 "aws_instance.web[1]".to_owned(),
                 "aws_instance.web[0]".to_owned(),

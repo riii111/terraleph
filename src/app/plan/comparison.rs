@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::number::{CanonicalNumber, canonical_number};
-use super::{
-    AttributeType, PlanValue, ProviderSchemas, ResourceChange, ResourceChangeKind, ResourceSchema,
-};
+use super::{AttributeType, PlanValue, ProviderSchemas, ResourceChange, ResourceChangeKind};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AttributeComparison {
@@ -65,16 +63,18 @@ enum Value {
 type Attributes = BTreeMap<Vec<String>, (Value, Value)>;
 
 fn changed_attributes(change: &ResourceChange, schemas: Option<&ProviderSchemas>) -> Attributes {
-    let schema = resource_schema(change, schemas).map(|schema| {
-        AttributeType::Object(
-            schema
-                .attributes
-                .iter()
-                .chain(&schema.block_types)
-                .map(|(name, kind)| (name.clone(), kind.clone()))
-                .collect(),
-        )
-    });
+    let schema = schemas
+        .and_then(|schemas| schemas.resource(change))
+        .map(|schema| {
+            AttributeType::Object(
+                schema
+                    .attributes
+                    .iter()
+                    .chain(&schema.block_types)
+                    .map(|(name, kind)| (name.clone(), kind.clone()))
+                    .collect(),
+            )
+        });
     let before = if change.kind == ResourceChangeKind::Create {
         Value::Object(BTreeMap::new())
     } else {
@@ -122,17 +122,6 @@ fn collect_changed_attributes(
     }
 }
 
-fn resource_schema<'a>(
-    change: &ResourceChange,
-    schemas: Option<&'a ProviderSchemas>,
-) -> Option<&'a ResourceSchema> {
-    schemas?
-        .providers
-        .get(change.provider.as_ref()?)?
-        .resources
-        .get(change.resource_type.as_ref()?)
-}
-
 fn comparison_value(
     value: Option<&PlanValue>,
     unknown: Option<&PlanValue>,
@@ -174,7 +163,7 @@ fn object_value(
             markers
                 .into_iter()
                 .flat_map(BTreeMap::iter)
-                .filter(|(_, marker)| marker_contains_unknown(Some(marker)))
+                .filter(|(_, marker)| marker.marks_any())
                 .map(|(key, _)| key),
         )
         .collect();
@@ -210,7 +199,7 @@ fn array_value(
     };
     let marker_length = markers
         .iter()
-        .rposition(|marker| marker_contains_unknown(Some(marker)))
+        .rposition(PlanValue::marks_any)
         .map_or(0, |index| index + 1);
     let mut elements: Vec<_> = (0..values.len().max(marker_length))
         .map(|index| {
@@ -378,14 +367,5 @@ impl Value {
 }
 
 fn marker_contains_unknown(marker: Option<&PlanValue>) -> bool {
-    match marker {
-        Some(PlanValue::Bool(true)) => true,
-        Some(PlanValue::Array(values)) => values
-            .iter()
-            .any(|value| marker_contains_unknown(Some(value))),
-        Some(PlanValue::Object(values)) => values
-            .values()
-            .any(|value| marker_contains_unknown(Some(value))),
-        _ => false,
-    }
+    marker.is_some_and(PlanValue::marks_any)
 }

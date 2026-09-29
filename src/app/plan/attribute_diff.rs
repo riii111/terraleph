@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::fmt::{Debug, Formatter};
 
 use super::number::{CanonicalNumber, canonical_number};
 use super::{PlanValue, ResourceChange, ResourceChangeKind};
@@ -18,27 +17,12 @@ pub(crate) enum AttributeValueKind {
     Known,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AttributeValue {
     kind: AttributeValueKind,
     original: Option<PlanValue>,
     unknown_marker: Option<PlanValue>,
     sensitive: bool,
-}
-
-impl Debug for AttributeValue {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("AttributeValue")
-            .field("kind", &self.kind)
-            .field("sensitive", &self.sensitive)
-            .field("original", &self.original.as_ref().map(|_| "<redacted>"))
-            .field(
-                "unknown_marker",
-                &self.unknown_marker.as_ref().map(|_| "<redacted>"),
-            )
-            .finish()
-    }
 }
 
 impl AttributeValue {
@@ -204,63 +188,16 @@ fn collect_diffs(
 ) {
     let before_is_sensitive = inherited_before_sensitive || marker_is_true(input.before_sensitive);
     let after_is_sensitive = inherited_after_sensitive || marker_is_true(input.after_sensitive);
-
-    if marker_is_true(input.before_sensitive) || marker_is_true(input.after_sensitive) {
-        push_diff(
-            attributes,
-            path,
-            input,
-            before_is_sensitive,
-            after_is_sensitive,
-        );
-        return;
-    }
-
-    if marker_is_true(input.after_unknown) {
-        push_diff(
-            attributes,
-            path,
-            input,
-            before_is_sensitive,
-            after_is_sensitive,
-        );
-        return;
-    }
-
-    if omitted_complex_unknown(input) {
-        push_diff(
-            attributes,
-            path,
-            input,
-            before_is_sensitive,
-            after_is_sensitive,
-        );
-        return;
-    }
-
-    if preserves_atomic_transition(input) {
-        push_diff(
-            attributes,
-            path,
-            input,
-            before_is_sensitive,
-            after_is_sensitive,
-        );
-        return;
-    }
-
-    let Some(container_kind) = container_kind(input) else {
-        push_diff(
-            attributes,
-            path,
-            input,
-            before_is_sensitive,
-            after_is_sensitive,
-        );
-        return;
+    let atomic = marker_is_true(input.before_sensitive)
+        || marker_is_true(input.after_sensitive)
+        || marker_is_true(input.after_unknown)
+        || omitted_complex_unknown(input)
+        || preserves_atomic_transition(input);
+    let children = match container_kind(input) {
+        Some(kind) if !atomic => child_segments(kind, input),
+        _ => Vec::new(),
     };
-
-    if child_segments(container_kind, input).is_empty() {
+    if children.is_empty() {
         push_diff(
             attributes,
             path,
@@ -270,27 +207,8 @@ fn collect_diffs(
         );
         return;
     }
-
-    collect_children(
-        attributes,
-        &path,
-        input,
-        container_kind,
-        before_is_sensitive,
-        after_is_sensitive,
-    );
-}
-
-fn collect_children(
-    attributes: &mut Vec<AttributeDiff>,
-    path: &[AttributePathSegment],
-    input: DiffInput<'_>,
-    container_kind: ContainerKind,
-    before_is_sensitive: bool,
-    after_is_sensitive: bool,
-) {
-    for segment in child_segments(container_kind, input) {
-        let mut child_path = path.to_vec();
+    for segment in children {
+        let mut child_path = path.clone();
         child_path.push(segment.clone());
         collect_diffs(
             attributes,
@@ -392,8 +310,7 @@ fn attribute_value(
     AttributeValue {
         kind,
         original: value.cloned(),
-        unknown_marker: unknown_marker
-            .and_then(|marker| marker_contains_true(Some(marker)).then(|| marker.clone())),
+        unknown_marker: unknown_marker.filter(|marker| marker.marks_any()).cloned(),
         sensitive: is_sensitive,
     }
 }
@@ -494,16 +411,7 @@ const fn marker_is_true(value: Option<&PlanValue>) -> bool {
 }
 
 fn marker_contains_true(value: Option<&PlanValue>) -> bool {
-    match value {
-        Some(PlanValue::Bool(value)) => *value,
-        Some(PlanValue::Array(values)) => values.iter().any(marker_contains_true_value),
-        Some(PlanValue::Object(values)) => values.values().any(marker_contains_true_value),
-        _ => false,
-    }
-}
-
-fn marker_contains_true_value(value: &PlanValue) -> bool {
-    marker_contains_true(Some(value))
+    value.is_some_and(PlanValue::marks_any)
 }
 
 const fn value_container_kind(value: &PlanValue) -> Option<ContainerKind> {
@@ -563,7 +471,6 @@ mod tests {
             address: "aws_instance.example".to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -572,8 +479,6 @@ mod tests {
             before_sensitive: Some(plan_value(fixture.before_sensitive)),
             after_sensitive: Some(plan_value(fixture.after_sensitive)),
             after_unknown: Some(plan_value(fixture.after_unknown)),
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

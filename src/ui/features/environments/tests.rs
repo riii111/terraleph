@@ -104,7 +104,6 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
             address: "terraform_data.api".to_owned(),
             provider: None,
             resource_type: Some("terraform_data".to_owned()),
-            resource_name: Some("api".to_owned()),
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -113,8 +112,6 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         });

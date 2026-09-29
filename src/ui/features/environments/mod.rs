@@ -288,8 +288,7 @@ impl EnvironmentView {
             .relations
             .get(&self.selection.column)?
             .row_node_ids
-            .get(row_id)?
-            .as_ref()
+            .get(row_id)
     }
 
     // A selected row that has no change in the shown environment must not highlight a node there,
@@ -786,23 +785,6 @@ impl EnvironmentView {
                     return None;
                 }
                 CellState::Change { .. } | CellState::NoOp => {}
-            }
-            if cell
-                .source
-                .as_ref()
-                .is_some_and(|source| source.environment != index)
-            {
-                self.notice = Some("The matrix source belongs to another environment.".to_owned());
-                return None;
-            }
-            if !grouped
-                && cell
-                    .source
-                    .as_ref()
-                    .is_none_or(|source| source.line.is_none())
-            {
-                self.notice = Some("The selected row has no source block.".to_owned());
-                return None;
             }
         }
         let Some(review) = plan.review() else {
