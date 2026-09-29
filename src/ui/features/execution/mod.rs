@@ -2,6 +2,7 @@ mod input;
 mod render;
 
 use crate::app::execution::ExecutionProgress;
+use crate::ui::primitives::atoms::scroll;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionScroll {
@@ -229,15 +230,9 @@ impl ExecutionViewState {
     }
 
     pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: usize) {
-        let height = usize::from(height.max(1));
         let current = self.target_vertical_offset(0, max);
-        let next = if position < current {
-            position
-        } else if position >= current.saturating_add(height) {
-            position.saturating_add(1).saturating_sub(height)
-        } else {
-            current
-        };
+        let next =
+            scroll::offset_showing_range(current, (position, position), usize::from(height.max(1)));
         self.target_vertical = VerticalScroll::Manual(next.min(max));
     }
 

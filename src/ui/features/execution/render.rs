@@ -14,7 +14,7 @@ use crate::app::{
     plan::PlanAction,
 };
 use crate::ui::display_text::{shown_width, visible_cells};
-use crate::ui::primitives::atoms::{scrollbar, separator};
+use crate::ui::primitives::atoms::{copy_flash, scrollbar, separator};
 use crate::ui::primitives::molecules::terminal_notice;
 use crate::ui::shell::{
     context::{display_width, truncate_middle},
@@ -252,7 +252,7 @@ fn render_log_panel(
     let horizontal = view.horizontal().min(layout.max_horizontal());
     let lines = content.visible_lines(scroll, horizontal, layout.body());
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(lines)
+        copy_flash::restyle_lines(lines)
     } else {
         lines
     };
@@ -289,7 +289,7 @@ fn render_log_view(
     // The log also fills the cells reserved for scrollbars; the bars are drawn over them.
     let lines = content.visible_lines(scroll, horizontal, layout.log_area());
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(lines)
+        copy_flash::restyle_lines(lines)
     } else {
         lines
     };
@@ -515,7 +515,7 @@ fn log_view_layout(
         .to_vec();
     let (status_area, available, separator_area) = (chunks[0], chunks[1], chunks[2]);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.line_count(), content.max_width(), available);
+        scrollbar::reservations(content.line_count(), content.max_width(), available);
     let body = Rect::new(
         available.x,
         available.y,
@@ -603,7 +603,7 @@ fn applying_layout(
     let target_max_vertical = layout_target_max(target_count, target_body.height);
     let log_inner = Block::new().borders(Borders::ALL).inner(log_panel);
     let (vertical_scrollbar, horizontal_scrollbar) =
-        scrollbar_reservations(content.line_count(), content.max_width(), log_inner);
+        scrollbar::reservations(content.line_count(), content.max_width(), log_inner);
     let body = Rect::new(
         log_inner.x,
         log_inner.y,
@@ -1188,29 +1188,6 @@ fn scroll_limits(line_count: usize, line_width: usize, body: Rect) -> (usize, us
     let vertical = line_count.saturating_sub(usize::from(body.height));
     let horizontal = line_width.saturating_sub(usize::from(body.width));
     (vertical, horizontal)
-}
-
-fn scrollbar_reservations(line_count: usize, line_width: usize, area: Rect) -> (bool, bool) {
-    let mut vertical = false;
-    let mut horizontal = false;
-    loop {
-        let next_vertical =
-            line_count > usize::from(area.height.saturating_sub(u16::from(horizontal)));
-        let next_horizontal =
-            line_width > usize::from(area.width.saturating_sub(u16::from(vertical)));
-        if next_vertical == vertical && next_horizontal == horizontal {
-            return (vertical, horizontal);
-        }
-        vertical = next_vertical;
-        horizontal = next_horizontal;
-    }
-}
-
-fn flash_lines(lines: Vec<Line<'_>>) -> Vec<Line<'static>> {
-    lines
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line.to_string(), theme::copy_flash_style())))
-        .collect()
 }
 
 fn initial_scroll(state: &ExecutionState, view: ExecutionViewState, max: usize) -> usize {
