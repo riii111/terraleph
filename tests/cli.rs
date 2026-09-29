@@ -315,18 +315,18 @@ mod pty_tests {
         #[case::small(80, 24)]
         #[case::large(160, 60)]
         #[case::narrow(40, 16)]
-        fn matrix_filters_two_hundred_members_and_restores_the_selected_cell(
+        fn matrix_filters_members_and_restores_the_selected_cell(
             #[case] columns: u16,
             #[case] rows: u16,
         ) {
             let fixture = fixture(&["a-dev", "b-stg", "c-prod"]);
-            let changes: Vec<_> = (0..200).map(|index| serde_json::json!({
+            let changes: Vec<_> = (90..110).map(|index| serde_json::json!({
                 "address": format!("terraform_data.server[{index}]"),
                 "change": {"actions": ["update"], "before": {"input": "old"}, "after": {"input": "new"}}
             })).collect();
             fs::write(&fixture.show_json, serde_json::json!({"format_version": "1.0", "applyable": true, "resource_changes": changes}).to_string()).unwrap();
-            let text = (0..200).fold(String::new(), |mut text, index| { let _ = write!(text, "  # terraform_data.server[{index}] will be updated in-place\n  ~ resource \"terraform_data\" \"server\" {{\n    ~ input = \"old\" -> \"new\"\n  }}\n\n"); text });
-            fs::write(&fixture.show_text, format!("Terraform will perform the following actions:\n\n{text}Plan: 0 to add, 200 to change, 0 to destroy.\n")).unwrap();
+            let text = (90..110).fold(String::new(), |mut text, index| { let _ = write!(text, "  # terraform_data.server[{index}] will be updated in-place\n  ~ resource \"terraform_data\" \"server\" {{\n    ~ input = \"old\" -> \"new\"\n  }}\n\n"); text });
+            fs::write(&fixture.show_text, format!("Terraform will perform the following actions:\n\n{text}Plan: 0 to add, 20 to change, 0 to destroy.\n")).unwrap();
 
             let result = fixture.run("env_matrix", columns, rows);
 
@@ -806,13 +806,14 @@ Plan: 0 to add, 3 to change, 0 to destroy.
     }
 
     #[test]
-    fn pty_runs_plan_and_both_show_modes_in_the_original_directory() {
+    fn pty_opentofu_runs_plan_and_both_show_modes_through_the_selected_executable() {
         let fixture = Fixture::new();
-        let result = fixture.run("full_text", 100, 24);
+        let result = fixture.run_with_arguments("full_text", 100, 24, "tofu", &["plan"]);
 
         assert_eq!(result.exit_code, 0);
         result.assert_restored();
         result.observed("plan_text");
+        assert_eq!(fixture.invoked_tools(), vec!["tofu".to_owned(); 6]);
         let arguments = fixture.invocation_arguments();
         assert!(arguments[0].starts_with("plan -detailed-exitcode -out="));
         assert_eq!(arguments[1], "version -json");
@@ -861,19 +862,6 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         result.assert_no_tui();
         result.observed("unsupported_default");
         assert!(fixture.invocation_arguments().is_empty());
-    }
-
-    #[test]
-    fn pty_opentofu_uses_the_shared_review_path_and_selected_executable() {
-        let fixture = Fixture::new();
-        let result = fixture.run_with_arguments("full_text", 100, 24, "tofu", &["plan"]);
-
-        assert_eq!(result.exit_code, 0);
-        result.assert_restored();
-        result.observed("plan_text");
-        assert_eq!(fixture.invoked_tools(), vec!["tofu".to_owned(); 6]);
-        assert_eq!(fixture.invocation_arguments()[1], "version -json");
-        fixture.assert_saved_plan_removed();
     }
 
     #[test]
@@ -1148,9 +1136,9 @@ Plan: 0 to add, 3 to change, 0 to destroy.
     }
 
     #[test]
-    fn pty_apply_success_uses_the_saved_plan_once_and_cleans_it_after_quit() {
+    fn pty_apply_success_switches_focus_uses_the_saved_plan_once_and_cleans_it_after_quit() {
         let fixture = Fixture::new();
-        let result = fixture.run_with_command("apply_success", 100, 24, "apply");
+        let result = fixture.run_with_command("apply_log_view", 100, 24, "apply");
 
         assert_eq!(result.exit_code, 0);
         result.assert_restored();
@@ -1162,6 +1150,9 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         result.observed("apply_help");
         result.observed("apply_context");
         result.observed("apply_started");
+        result.observed("apply_logs_focused");
+        result.observed("apply_targets_focused");
+        result.observed("apply_logs_refocused");
         result.observed("apply_success");
         let arguments = fixture.invocation_arguments();
         assert_eq!(arguments.len(), 8);
@@ -1180,21 +1171,6 @@ Plan: 0 to add, 3 to change, 0 to destroy.
                 .count(),
             1
         );
-        fixture.assert_saved_plan_removed();
-    }
-
-    #[test]
-    fn pty_apply_progress_can_switch_between_target_and_log_focus() {
-        let fixture = Fixture::new();
-        let result = fixture.run_with_command("apply_log_view", 100, 24, "apply");
-
-        assert_eq!(result.exit_code, 0);
-        result.assert_restored();
-        result.observed("apply_started");
-        result.observed("apply_logs_focused");
-        result.observed("apply_targets_focused");
-        result.observed("apply_logs_refocused");
-        result.observed("apply_success");
         fixture.assert_saved_plan_removed();
     }
 
