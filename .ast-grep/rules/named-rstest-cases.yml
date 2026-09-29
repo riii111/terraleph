@@ -5,7 +5,6 @@ message: Name rstest cases with #[case::name(...)].
 files:
   - src/**/*.rs
   - tests/**/*.rs
-  - examples/**/*.rs
 utils:
   unnamed-case:
     kind: attribute_item

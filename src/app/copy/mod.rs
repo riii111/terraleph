@@ -320,13 +320,12 @@ fn diagnostic_text(diagnostics: &[Diagnostic], sensitive_values: &[SensitiveValu
 
 #[cfg(test)]
 mod tests {
-    use crate::app::execution::test_support::log_event;
     use std::path::PathBuf;
 
     use crate::app::{
         execution::{
             ApplyStatus, DiagnosticSeverity, DiagnosticSource, EventStream, ExecutionContext,
-            ExecutionEvent,
+            ExecutionEvent, test_support::log_event,
         },
         plan::Plan,
         review::{

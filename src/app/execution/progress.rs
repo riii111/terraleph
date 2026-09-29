@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "execution target accessors are consumed by the SBI03-03 execution UI"
-    )
-)]
-
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
@@ -75,11 +67,6 @@ impl ExecutionTargetState {
     }
 
     #[must_use]
-    pub(crate) const fn completed_stages(&self) -> usize {
-        self.completed_stages
-    }
-
-    #[must_use]
     pub(crate) fn log_ids(&self) -> &[usize] {
         &self.log_ids
     }
@@ -92,11 +79,6 @@ impl ExecutionTargetState {
     #[must_use]
     pub(crate) const fn first_error_line(&self) -> Option<usize> {
         self.first_error_line
-    }
-
-    #[must_use]
-    pub(crate) const fn duration(&self) -> Option<Duration> {
-        self.duration
     }
 
     #[must_use]
@@ -535,6 +517,16 @@ const fn action_matches(action: &ResourceAction, expected: &PlanAction) -> bool 
 
 #[cfg(test)]
 mod tests {
+    impl super::ExecutionTargetState {
+        const fn completed_stages(&self) -> usize {
+            self.completed_stages
+        }
+
+        const fn duration(&self) -> Option<Duration> {
+            self.duration
+        }
+    }
+
     use super::super::event::{
         DiagnosticSeverity, DiagnosticSource, ExecutionSummary, ProcessExitStatus,
     };

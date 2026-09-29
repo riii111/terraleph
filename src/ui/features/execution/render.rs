@@ -1250,7 +1250,6 @@ fn format_elapsed(elapsed: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::execution::test_support::log_event;
     use std::borrow::Cow;
 
     use ratatui::{
@@ -1264,6 +1263,7 @@ mod tests {
         ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionAction,
         ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionPhase,
         ExecutionTargetSpec, ResourceAction, ResourceEvent, ResourceEventKind,
+        test_support::log_event,
     };
     use crate::app::session::{self, Action, SessionState};
     use crate::ui::features::execution::ExecutionScroll;
@@ -1551,7 +1551,7 @@ mod tests {
 
     #[test]
     fn renders_plan_progress_and_failure() {
-        let (running, now) = plan_state(Some(ExecutionPhase::Reading), &["planning output"]);
+        let (running, now) = plan_state(Some(ExecutionPhase::Reading), &["reading output"]);
         let mut failed = running.clone();
         failed.fail("synthetic plan failure".to_owned(), now);
 

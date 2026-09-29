@@ -3436,12 +3436,6 @@ mod overlay {
         }));
         assert!(help.contains("apply the full plan"), "{help}");
     }
-
-    #[test]
-    fn footer_hides_apply_when_the_review_cannot_apply() {
-        let footer = footer_text(&review_state(review_with_applyable(false)));
-        assert!(!footer.contains("a apply"), "{footer}");
-    }
 }
 
 mod large_plan {

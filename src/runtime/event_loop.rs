@@ -267,7 +267,7 @@ fn should_draw(state: &SessionState, dirty: bool) -> bool {
     clippy::too_many_arguments,
     reason = "the draw step receives the runtime-owned views and rendering state"
 )]
-pub(super) fn draw_if_needed_with_quit_confirmation<B: Backend>(
+fn draw_if_needed_with_quit_confirmation<B: Backend>(
     state: &mut SessionState,
     terminal: &mut Terminal<B>,
     execution_view: execution::ExecutionViewState,
@@ -315,7 +315,7 @@ fn clear_expired_copy_feedback(state: &mut SessionState, now: Instant) -> bool {
 
 // The apply confirmation body and the dialogs clamp against the current layout on their next
 // input or render, so only the review and Overview offsets need a resize correction.
-pub(super) fn reconcile_resize(
+fn reconcile_resize(
     state: &SessionState,
     review_view: &mut plan_review::PlanReviewViewState,
     area: Rect,
