@@ -12,6 +12,7 @@ use crate::{
         plan::PlanSummary,
     },
     ui::{
+        primitives::atoms::focus_mark,
         shell::{context::take_from_start, environments},
         theme,
     },
@@ -35,7 +36,7 @@ pub(crate) fn render(
 ) {
     let focus_style = theme::relation_frame_style(focused);
     let title = Line::from(vec![
-        Span::styled(if focused { "* " } else { "  " }, focus_style),
+        focus_mark::render(focused),
         Span::styled("[1] Envs", theme::overview_pane_title_style()),
     ]);
     let block = Block::new()

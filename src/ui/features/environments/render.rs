@@ -12,7 +12,10 @@ use crate::{
             },
             plan_review,
         },
-        primitives::molecules::{dialog_scroll::DialogScroll, help_dialog},
+        primitives::{
+            atoms::focus_mark,
+            molecules::{dialog_scroll::DialogScroll, help_dialog},
+        },
         shell::{environments, environments::EnvironmentPane, footer},
         theme,
     },
@@ -497,10 +500,9 @@ struct MatrixContentLayout {
 }
 
 fn pane_block(focused: bool, title: &str, border_style: Style) -> Block<'static> {
-    let mark = if focused { "* " } else { "  " };
     let (pane_name, context) = title.split_once(" · ").unwrap_or((title, ""));
     let mut title_spans = vec![
-        Span::styled(mark, theme::relation_frame_style(focused)),
+        focus_mark::render(focused),
         Span::styled(pane_name.to_owned(), theme::overview_pane_title_style()),
     ];
     if !context.is_empty() {
