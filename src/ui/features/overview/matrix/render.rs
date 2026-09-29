@@ -17,7 +17,7 @@ use crate::app::{
     },
     plan::{PlanAction, ResourceChangeKind},
 };
-use crate::ui::{primitives::atoms::scrollbar, shell::environments::name, theme};
+use crate::ui::{primitives::atoms::scrollbar, theme};
 
 const WHY_WIDTH: usize = 7;
 const MIN_CELL_WIDTH: usize = 9;
@@ -143,7 +143,7 @@ fn content_lines(
     let names = view
         .environments
         .iter()
-        .map(|environment| name(&state.plans()[*environment]))
+        .map(|environment| state.plans()[*environment].display_name())
         .collect::<Vec<_>>();
     let mut lines = Vec::new();
     let mut selected_lines = None;
@@ -295,7 +295,7 @@ fn render_column_headers(
     }
     for &(column, column_width) in columns {
         let environment = view.environments[column];
-        let label = name(&state.plans()[environment]);
+        let label = state.plans()[environment].display_name();
         let (label, padding) = fit_parts(&label, column_width.saturating_sub(COLUMN_GAP), false);
         header.push(Span::styled(
             format!("{label}{} ", " ".repeat(padding)),
@@ -377,7 +377,7 @@ fn column_widths(state: &EnvironmentSession, view: &MatrixView) -> Vec<usize> {
                 .map(|row| Line::from(cell_text(&row.cells[column], row.group.is_some())).width())
                 .max()
                 .unwrap_or(0);
-            (Line::from(name(plan).as_str()).width() + 2)
+            (Line::from(plan.display_name().as_str()).width() + 2)
                 .max(widest_cell)
                 .max(MIN_CELL_WIDTH)
                 + COLUMN_GAP * 3

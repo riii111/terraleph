@@ -74,7 +74,6 @@ pub(crate) struct EnvironmentSession {
     exploration_root: Option<PathBuf>,
     detailed_exitcode: bool,
     interrupted: bool,
-    overview: overview::EnvironmentOverview,
     revision: u64,
 }
 
@@ -97,7 +96,6 @@ impl EnvironmentSession {
                 .then_with(|| a.directory.cmp(&b.directory))
         });
         Self {
-            overview: overview::environment_overview(&plans),
             revision: 0,
             plans,
             exploration_root: None,
@@ -117,10 +115,6 @@ impl EnvironmentSession {
 
     pub(crate) fn exploration_root(&self) -> Option<&Path> {
         self.exploration_root.as_deref()
-    }
-
-    pub(crate) const fn overview(&self) -> &overview::EnvironmentOverview {
-        &self.overview
     }
 
     pub(crate) const fn revision(&self) -> u64 {
@@ -155,7 +149,7 @@ impl EnvironmentSession {
         plan.state = EnvironmentState::Pending;
         plan.diagnostics.clear();
         plan.failure = None;
-        self.refresh_overview();
+        self.revision += 1;
         true
     }
 
@@ -191,7 +185,7 @@ impl EnvironmentSession {
             }
             PlanResult::ExcludedHcp => EnvironmentState::ExcludedHcp,
         };
-        self.refresh_overview();
+        self.revision += 1;
         true
     }
 
@@ -284,10 +278,6 @@ impl EnvironmentSession {
         } else {
             0
         }
-    }
-    fn refresh_overview(&mut self) {
-        self.overview = overview::environment_overview(&self.plans);
-        self.revision += 1;
     }
 }
 

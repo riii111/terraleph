@@ -49,7 +49,7 @@ pub(crate) fn render(
     let block = Block::bordered()
         .title(title)
         .border_style(theme::relation_frame_style(view.focused))
-        .style(theme::relation_text_style());
+        .style(theme::overview_text_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height == 0 || inner.width == 0 {
@@ -107,7 +107,7 @@ pub(crate) fn render(
     let content_length = lines.len();
     frame.render_widget(
         Paragraph::new(lines)
-            .style(theme::relation_text_style())
+            .style(theme::overview_text_style())
             .scroll((scroll.vertical, scroll.horizontal)),
         text_area,
     );
@@ -122,7 +122,7 @@ pub(crate) fn render(
         frame.render_widget(
             Paragraph::new(legend)
                 .wrap(ratatui::widgets::Wrap { trim: false })
-                .style(theme::relation_text_style()),
+                .style(theme::overview_text_style()),
             legend_area,
         );
     }
@@ -133,26 +133,22 @@ pub(crate) fn title_line(title: RelationGraphTitle<'_>, focused: bool) -> Line<'
     let mut spans = vec![
         Span::styled(
             if focused { "* " } else { "  " },
-            if focused {
-                theme::relation_frame_style(true)
-            } else {
-                theme::relation_muted_style()
-            },
+            theme::relation_frame_style(focused),
         ),
         Span::styled(
             "[3] Relations",
-            theme::relation_text_style().add_modifier(Modifier::BOLD),
+            theme::overview_text_style().add_modifier(Modifier::BOLD),
         ),
     ];
     if let Some(environment) = title.environment {
         spans.push(Span::styled(
             format!(" · {environment}"),
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         ));
     }
     spans.push(Span::styled(
         format!(" · {}", title.scope),
-        theme::relation_muted_style(),
+        theme::overview_muted_style(),
     ));
     Line::from(spans)
 }
@@ -203,7 +199,7 @@ fn legend_lines(graph: &RelationGraph) -> Vec<Line<'static>> {
     if !graph.links.is_empty() {
         lines.push(Line::from(Span::styled(
             "A ──> B  B uses A",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         )));
         if graph
             .links
@@ -212,13 +208,13 @@ fn legend_lines(graph: &RelationGraph) -> Vec<Line<'static>> {
         {
             lines.push(Line::from(Span::styled(
                 "A ┄┄> B  block-level, may not apply",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
         if has_grouped_links(graph) {
             lines.push(Line::from(Span::styled(
                 "Grouped links may apply to only some members",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
         if graph
@@ -228,20 +224,20 @@ fn legend_lines(graph: &RelationGraph) -> Vec<Line<'static>> {
         {
             lines.push(Line::from(Span::styled(
                 "(state) from state; unmarked from configuration",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
     }
     if graph.nodes.iter().any(|node| node.differs) {
         lines.push(Line::from(Span::styled(
             "! differs across envs",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         )));
     }
     if graph.nodes.iter().any(|node| !node.unresolved.is_empty()) {
         lines.push(Line::from(Span::styled(
             "? unresolved means a relationship could not be determined",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         )));
     }
     lines
@@ -257,18 +253,18 @@ fn compact_legend_lines(graph: &RelationGraph) -> Vec<Line<'static>> {
         {
             lines.push(Line::from(Span::styled(
                 "A→B uses A; block-level may not apply",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         } else {
             lines.push(Line::from(Span::styled(
                 "A ──> B  B uses A",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
         if has_grouped_links(graph) {
             lines.push(Line::from(Span::styled(
                 "Grouped links may be partial",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
         if graph
@@ -278,20 +274,20 @@ fn compact_legend_lines(graph: &RelationGraph) -> Vec<Line<'static>> {
         {
             lines.push(Line::from(Span::styled(
                 "(state) from state",
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             )));
         }
     }
     if graph.nodes.iter().any(|node| node.differs) {
         lines.push(Line::from(Span::styled(
             "! differs across envs",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         )));
     }
     if graph.nodes.iter().any(|node| !node.unresolved.is_empty()) {
         lines.push(Line::from(Span::styled(
             "? unresolved: relationship unknown",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         )));
     }
     lines
@@ -328,7 +324,7 @@ fn graph_lines(
     if graph.nodes.is_empty() {
         return vec![Line::from(Span::styled(
             "No changes to show",
-            theme::relation_muted_style(),
+            theme::overview_muted_style(),
         ))];
     }
 
@@ -395,7 +391,7 @@ fn graph_lines(
                     .map(unresolved_label)
                     .collect::<Vec<_>>()
                     .join(", "),
-                theme::relation_text_style(),
+                theme::overview_text_style(),
             ));
             output_lines.push(row);
         }
@@ -463,13 +459,13 @@ fn merge_diagram_lines(
     ));
     first.push(Span::styled(
         edge_prefixes[0].clone(),
-        theme::relation_text_style(),
+        theme::overview_text_style(),
     ));
     first.push(Span::styled(
         edge_padding(sources[0], max_prefix_width - text_width(&edge_prefixes[0])),
-        theme::relation_text_style(),
+        theme::overview_text_style(),
     ));
-    first.push(Span::styled("┐", theme::relation_text_style()));
+    first.push(Span::styled("┐", theme::overview_text_style()));
 
     let mut second = source_lines[1].spans.clone();
     second.push(Span::raw(
@@ -477,13 +473,13 @@ fn merge_diagram_lines(
     ));
     second.push(Span::styled(
         edge_prefixes[1].clone(),
-        theme::relation_text_style(),
+        theme::overview_text_style(),
     ));
     second.push(Span::styled(
         edge_padding(sources[1], max_prefix_width - text_width(&edge_prefixes[1])),
-        theme::relation_text_style(),
+        theme::overview_text_style(),
     ));
-    second.push(Span::styled("┴─>", theme::relation_text_style()));
+    second.push(Span::styled("┴─>", theme::overview_text_style()));
     second.extend(node_line(node(node_index, target)?, selected_node, maximized).spans);
     Some(vec![Line::from(first), Line::from(second)])
 }
@@ -564,9 +560,9 @@ fn push_tree_children(
         let selected = context.selected_node == Some(&child.id);
         let connector = format!("{}{}", if last { "└" } else { "├" }, edge_segment(link));
         let mut spans = vec![
-            Span::styled(selection_marker(selected), theme::relation_text_style()),
-            Span::styled(prefix.to_owned(), theme::relation_text_style()),
-            Span::styled(connector.clone(), theme::relation_text_style()),
+            Span::styled(selection_marker(selected), theme::overview_text_style()),
+            Span::styled(prefix.to_owned(), theme::overview_text_style()),
+            Span::styled(connector.clone(), theme::overview_text_style()),
             Span::raw(" "),
         ];
         spans.extend(node_spans(child, selected, context.maximized));
@@ -576,7 +572,7 @@ fn push_tree_children(
         }
         lines.push(Line::from(vec![
             Span::raw(selection_marker(false)),
-            Span::styled(format!("{prefix}│"), theme::relation_text_style()),
+            Span::styled(format!("{prefix}│"), theme::overview_text_style()),
         ]));
         lines.push(child_line);
 
@@ -621,7 +617,7 @@ fn fallback_group_lines(
             if !uses.is_empty() {
                 row.spans.push(Span::styled(
                     format!("  uses: {}", uses.join(", ")),
-                    theme::relation_text_style(),
+                    theme::overview_text_style(),
                 ));
             }
             let has_grouped_link = incoming_links.into_iter().flatten().any(|link| {
@@ -632,7 +628,7 @@ fn fallback_group_lines(
             if has_grouped_link {
                 row.spans.push(Span::styled(
                     "  grouped links may be partial",
-                    theme::relation_muted_style(),
+                    theme::overview_muted_style(),
                 ));
             }
             Some(row)
@@ -689,7 +685,7 @@ fn node_line(
     let selected = selected_node == Some(&node.id);
     let mut spans = vec![Span::styled(
         selection_marker(selected),
-        theme::relation_text_style(),
+        theme::overview_text_style(),
     )];
     spans.extend(node_spans(node, selected, maximized));
     Line::from(spans)
@@ -705,17 +701,17 @@ fn node_spans(node: &RelationNode, selected: bool, maximized: bool) -> Vec<Span<
             operation_symbol(node.operation),
             operation_style(node.operation),
         ),
-        Span::styled(" ", theme::relation_text_style()),
+        Span::styled(" ", theme::overview_text_style()),
     ];
     let breadcrumbs = visible_breadcrumbs(&node.breadcrumbs, maximized);
     if !breadcrumbs.is_empty() {
         spans.push(Span::styled(
             breadcrumbs.join(" › "),
-            theme::relation_muted_style(),
+            theme::overview_muted_style(),
         ));
-        spans.push(Span::styled(" › ", theme::relation_muted_style()));
+        spans.push(Span::styled(" › ", theme::overview_muted_style()));
     }
-    let mut address_style = theme::relation_text_style();
+    let mut address_style = theme::overview_text_style();
     if selected {
         address_style = address_style.add_modifier(Modifier::UNDERLINED);
     }
@@ -726,20 +722,20 @@ fn node_spans(node: &RelationNode, selected: bool, maximized: bool) -> Vec<Span<
     if node.display_address.contains("[*]") && node.change_count > 0 {
         spans.push(Span::styled(
             format!(" ×{}", node.change_count),
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         ));
     }
     if node.has_unknown {
         spans.push(Span::styled(
             " [unknown values]",
-            theme::relation_text_style(),
+            theme::overview_text_style(),
         ));
     }
     if node.differs {
         spans.push(Span::styled(" !", theme::relation_difference_style()));
     }
     if !node.unresolved.is_empty() {
-        spans.push(Span::styled(" ?", theme::relation_muted_style()));
+        spans.push(Span::styled(" ?", theme::overview_muted_style()));
     }
     spans
 }
@@ -812,15 +808,17 @@ const fn operation_symbol(operation: ResourceChangeKind) -> &'static str {
 
 fn operation_style(operation: ResourceChangeKind) -> ratatui::style::Style {
     match operation {
-        ResourceChangeKind::Create | ResourceChangeKind::Import => theme::relation_create_style(),
-        ResourceChangeKind::Update => theme::relation_update_style(),
-        ResourceChangeKind::Replace => theme::relation_replace_style(),
-        ResourceChangeKind::Delete => theme::relation_delete_style(),
+        ResourceChangeKind::Create | ResourceChangeKind::Import => {
+            theme::overview_total_add_style()
+        }
+        ResourceChangeKind::Update => theme::overview_total_update_style(),
+        ResourceChangeKind::Replace => theme::overview_total_replace_style(),
+        ResourceChangeKind::Delete => theme::overview_total_destroy_style(),
         ResourceChangeKind::Unsupported => theme::relation_warning_style(),
         ResourceChangeKind::NoOp
         | ResourceChangeKind::Read
         | ResourceChangeKind::Move
-        | ResourceChangeKind::Unknown => theme::relation_text_style(),
+        | ResourceChangeKind::Unknown => theme::overview_text_style(),
     }
 }
 
@@ -870,7 +868,7 @@ fn push_section_heading(lines: &mut Vec<Line<'static>>, heading: &'static str) {
     }
     lines.push(Line::from(Span::styled(
         heading,
-        theme::relation_section_style(),
+        theme::overview_section_heading_style(),
     )));
 }
 
@@ -1644,11 +1642,14 @@ mod tests {
     #[test]
     fn focused_and_operation_styles_use_terminal_palette_colors() {
         assert_eq!(theme::relation_frame_style(true).fg, Some(Color::Cyan));
-        assert_eq!(theme::relation_create_style().fg, Some(Color::Green));
-        assert_eq!(theme::relation_update_style().fg, Some(Color::Yellow));
-        assert_eq!(theme::relation_replace_style().fg, Some(Color::Magenta));
-        assert_eq!(theme::relation_delete_style().fg, Some(Color::Red));
-        assert_eq!(theme::relation_text_style().bg, Some(Color::Reset));
+        assert_eq!(theme::overview_total_add_style().fg, Some(Color::Green));
+        assert_eq!(theme::overview_total_update_style().fg, Some(Color::Yellow));
+        assert_eq!(
+            theme::overview_total_replace_style().fg,
+            Some(Color::Magenta)
+        );
+        assert_eq!(theme::overview_total_destroy_style().fg, Some(Color::Red));
+        assert_eq!(theme::overview_text_style().bg, Some(Color::Reset));
     }
 
     fn view<'a>(

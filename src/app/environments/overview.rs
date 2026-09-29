@@ -97,12 +97,6 @@ pub(crate) struct GroupCell {
     pub(crate) source: Option<SourceReference>,
 }
 
-pub(crate) fn environment_overview(plans: &[EnvironmentPlan]) -> EnvironmentOverview {
-    let selection = EnvironmentSelection::new(None, plans.len())
-        .expect("all environment indexes form a valid selection");
-    environment_overview_for_selection(plans, &selection)
-}
-
 pub(crate) fn environment_overview_for_selection(
     plans: &[EnvironmentPlan],
     selection: &EnvironmentSelection,
@@ -564,6 +558,12 @@ mod tests {
         },
         review::{PlanBlock, PlanBlockKind, PlanDocument, PlanMetadata},
     };
+
+    fn environment_overview(plans: &[EnvironmentPlan]) -> EnvironmentOverview {
+        let selection = EnvironmentSelection::new(None, plans.len())
+            .expect("all environment indexes form a valid selection");
+        environment_overview_for_selection(plans, &selection)
+    }
 
     #[test]
     fn unequal_counts_group_patterns_and_restore_exact_address_comparisons() {
