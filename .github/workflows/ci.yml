@@ -34,6 +34,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo clippy --locked --all-targets -- -D warnings
       - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73
         with:
           tool: cargo-machete,ast-grep@0.42.1
@@ -136,7 +137,7 @@ jobs:
         run: |
           cargo test --locked --lib reviews_the_basic_scenario_with_four_direct_matches_and_one_no_match -- --ignored
           cargo test --locked --lib gets_saved_plan_from_the_basic_terraform_scenario -- --ignored
-          cargo test --locked --all-features --test cli single_demo_opens_the_tui_after_noninteractive_setup -- --ignored
+          cargo test --locked --test cli single_demo_opens_the_tui_after_noninteractive_setup -- --ignored
 
   audit:
     name: Dependency audit
