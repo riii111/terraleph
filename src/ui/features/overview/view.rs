@@ -6,7 +6,7 @@ use crate::app::{
     plan::{PlanAction, RelationNodeId, ResourceChangeKind, grouping::GroupMember},
     session::ReviewSessionState,
 };
-use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input};
+use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input::TextInput};
 
 use super::{OverviewInput, relations::RelationGraphScroll};
 
@@ -107,8 +107,7 @@ impl OverviewContent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SearchState {
-    query: String,
-    cursor: usize,
+    input: TextInput,
     previous_query: String,
     previous_vertical: u16,
     previous_selected: Option<usize>,
@@ -291,9 +290,8 @@ impl OverviewViewState {
             OverviewInput::SearchStart if self.active_pane() == OverviewPane::Changes => {
                 let query = self.filter.clone();
                 self.search = Some(SearchState {
-                    cursor: text_input::last_grapheme_boundary(&query),
-                    previous_query: query.clone(),
-                    query,
+                    input: TextInput::with_cursor_at_end(query.clone()),
+                    previous_query: query,
                     previous_vertical: self.vertical,
                     previous_selected: self.selected,
                 });
@@ -359,7 +357,7 @@ impl OverviewViewState {
         match input {
             OverviewInput::SearchConfirm => {
                 let search = self.search.take().expect("search state should exist");
-                self.filter = search.query;
+                self.filter = search.input.into_text();
                 self.selected = (row_count > 0).then_some(0);
                 self.vertical = 0;
             }
@@ -370,35 +368,22 @@ impl OverviewViewState {
                 self.selected = search.previous_selected;
             }
             OverviewInput::SearchChar(character) => {
-                search.query.insert(search.cursor, character);
-                search.cursor = text_input::next_grapheme_boundary_at_or_after(
-                    &search.query,
-                    search.cursor + character.len_utf8(),
-                );
-                self.filter = search.query.clone();
+                search.input.insert(character);
+                self.filter = search.input.text().to_owned();
                 self.selected = (row_count > 0).then_some(0);
                 self.vertical = 0;
             }
             OverviewInput::SearchBackspace => {
-                if search.cursor > 0 {
-                    let start =
-                        text_input::previous_grapheme_boundary(&search.query, search.cursor);
-                    search.query.drain(start..search.cursor);
-                    search.cursor = start;
-                    self.filter = search.query.clone();
+                if search.input.backspace() {
+                    self.filter = search.input.text().to_owned();
                     self.selected = (row_count > 0).then_some(0);
                     self.vertical = 0;
                 }
             }
-            OverviewInput::SearchLeft => {
-                search.cursor =
-                    text_input::previous_grapheme_boundary(&search.query, search.cursor);
-            }
-            OverviewInput::SearchRight => {
-                search.cursor = text_input::next_grapheme_boundary(&search.query, search.cursor);
-            }
-            OverviewInput::SearchHome => search.cursor = 0,
-            OverviewInput::SearchEnd => search.cursor = search.query.len(),
+            OverviewInput::SearchLeft => search.input.move_left(),
+            OverviewInput::SearchRight => search.input.move_right(),
+            OverviewInput::SearchHome => search.input.move_home(),
+            OverviewInput::SearchEnd => search.input.move_end(),
             _ => {}
         }
         None
@@ -451,7 +436,7 @@ impl OverviewViewState {
     }
 
     pub(crate) fn search_query(&self) -> Option<&str> {
-        self.search.as_ref().map(|search| search.query.as_str())
+        self.search.as_ref().map(|search| search.input.text())
     }
 
     pub(crate) const fn selected(&self) -> Option<usize> {
