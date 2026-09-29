@@ -144,13 +144,13 @@ mod tests {
             (
                 "control_c_cancels_running",
                 key(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                ExecutionStage::Planning,
+                ExecutionStage::Reading,
                 Some(ExecutionInput::Action(ExecutionAction::RequestCancellation)),
             ),
             (
                 "q_is_ignored_while_running",
                 key(KeyCode::Char('q'), KeyModifiers::NONE),
-                ExecutionStage::Planning,
+                ExecutionStage::Reading,
                 None,
             ),
             (
@@ -174,13 +174,13 @@ mod tests {
             (
                 "alt_v_pages_up",
                 key(KeyCode::Char('v'), KeyModifiers::ALT),
-                ExecutionStage::Planning,
+                ExecutionStage::Reading,
                 Some(ExecutionInput::Scroll(ExecutionScroll::PageUp)),
             ),
             (
                 "control_v_pages_down",
                 key(KeyCode::Char('v'), KeyModifiers::CONTROL),
-                ExecutionStage::Planning,
+                ExecutionStage::Reading,
                 Some(ExecutionInput::Scroll(ExecutionScroll::PageDown)),
             ),
         ];
@@ -211,7 +211,7 @@ mod tests {
     #[case::uppercase(KeyCode::Char('Y'), KeyModifiers::NONE)]
     fn copy_keys_are_ignored_while_running(#[case] code: KeyCode, #[case] modifiers: KeyModifiers) {
         assert_eq!(
-            execution_key_to_input(key(code, modifiers), ExecutionStage::Planning, false),
+            execution_key_to_input(key(code, modifiers), ExecutionStage::Reading, false),
             None
         );
     }

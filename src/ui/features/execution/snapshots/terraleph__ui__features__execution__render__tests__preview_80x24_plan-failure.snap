@@ -14,7 +14,7 @@ expression: buffer_text(buffer)
  │Terraform failed: Exited(1)                                                 │
  │Waiting 0s    Follow: On                                                    │
  │Elapsed 2.0s                                                                │
- │planning output                                                             │
+ │reading output                                                              │
  │synthetic plan failure                                                      │
  │────────────────────────────────────────────────────────────────────────────│
  └────────────────────────────────────────────────────────────────────────────┘

@@ -158,17 +158,6 @@ pub(crate) struct Plan {
 
 impl Plan {
     #[must_use]
-    pub(crate) const fn empty() -> Self {
-        Self {
-            resource_changes: Vec::new(),
-            value_addresses: BTreeSet::new(),
-            unsupported_changes: Vec::new(),
-            output_changes: Vec::new(),
-            drifted_resources: Vec::new(),
-        }
-    }
-
-    #[must_use]
     pub(crate) fn summary(&self) -> PlanSummary {
         let mut summary = PlanSummary::default();
         for change in &self.resource_changes {
@@ -241,7 +230,21 @@ impl ProviderSchemas {
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{OutputChange, PlanAction, ResourceChange, ResourceChangeKind, ResourceMode};
+    use std::collections::BTreeSet;
+
+    use super::{OutputChange, Plan, PlanAction, ResourceChange, ResourceChangeKind, ResourceMode};
+
+    impl Plan {
+        pub(crate) const fn empty() -> Self {
+            Self {
+                resource_changes: Vec::new(),
+                value_addresses: BTreeSet::new(),
+                unsupported_changes: Vec::new(),
+                output_changes: Vec::new(),
+                drifted_resources: Vec::new(),
+            }
+        }
+    }
 
     pub(crate) fn output_change(address: &str, action: PlanAction) -> OutputChange {
         OutputChange {

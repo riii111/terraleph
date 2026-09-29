@@ -607,7 +607,7 @@ impl EnvironmentView {
             PlanReviewInput::Copy => return Some(copy_plan(index)),
             PlanReviewInput::Apply => {
                 let review = review.review();
-                if !review.apply_allowed() || !review.metadata().applyable() {
+                if !review.metadata().applyable() {
                     return None;
                 }
                 if !can_start_apply {

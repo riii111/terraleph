@@ -160,7 +160,7 @@ pub(super) fn layout_with_content(
 ) -> PlanReviewLayout {
     let panel_width = area.width;
     let content_metrics = content.metrics();
-    let applyable = review.apply_allowed() && review.metadata().applyable();
+    let applyable = review.metadata().applyable();
     let filter_visible = searching || !content.filter_query().is_empty();
     let showing =
         filter_footer_status(content.filter_query(), content.matches().len(), panel_width);

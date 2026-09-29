@@ -319,7 +319,7 @@ mod tests {
     use crate::app::{
         execution::{
             ApplyStatus, DiagnosticSeverity, DiagnosticSource, EventStream, ExecutionContext,
-            ExecutionEvent, ExecutionEventKind, ExecutionLogLine,
+            ExecutionEvent, test_support::log_event,
         },
         plan::Plan,
         review::{
@@ -415,10 +415,10 @@ mod tests {
         let summary = "Apply complete! Resources: 1 added, 0 changed, 0 destroyed.";
         state.record(ExecutionEvent {
             received_at: now,
-            kind: ExecutionEventKind::Log(ExecutionLogLine {
-                stream: EventStream::Stdout,
-                text: format!("Applying saved plan...\n{summary}"),
-            }),
+            kind: log_event(
+                EventStream::Stdout,
+                format!("Applying saved plan...\n{summary}"),
+            ),
         });
         state.finish_apply(ApplyStatus::Succeeded, Some(summary.to_owned()), None, now);
 

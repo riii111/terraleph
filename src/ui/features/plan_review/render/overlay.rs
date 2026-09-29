@@ -82,7 +82,7 @@ pub(super) fn plan_help_sections(
         help_dialog::HelpAction::new("c", "show execution context"),
         help_dialog::HelpAction::new("y", "copy the full plan"),
     ];
-    if review.apply_allowed() && review.metadata().applyable() {
+    if review.metadata().applyable() {
         action_items.push(help_dialog::HelpAction::new("a", "apply the full plan"));
     }
     vec![

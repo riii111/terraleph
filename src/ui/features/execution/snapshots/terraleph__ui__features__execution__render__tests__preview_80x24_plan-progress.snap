@@ -5,11 +5,11 @@ expression: buffer_text(buffer)
 
  Terraleph | main
 
- ┌Planning────────────────────────────────────────────────────────────────────┐
- │| Planning...                                                               │
+ ┌Reading─────────────────────────────────────────────────────────────────────┐
+ │| Reading plan...                                                           │
  │Waiting 2s    Follow: On                                                    │
  │Elapsed 2.0s                                                                │
- │planning output                                                             │
+ │reading output                                                              │
  │                                                                            │
  │                                                                            │
  │                                                                            │

@@ -1059,7 +1059,6 @@ fn status_lines(
     } else {
         match state.stage() {
             ExecutionStage::Initializing => running_status_line("Initializing...", state, now),
-            ExecutionStage::Planning => running_status_line("Planning...", state, now),
             ExecutionStage::Reading => running_status_line("Reading plan...", state, now),
             ExecutionStage::Failed => Line::from(state.result().map_or_else(
                 || "Terraform failed.".to_owned(),
@@ -1264,6 +1263,7 @@ mod tests {
         ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionAction,
         ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionPhase,
         ExecutionTargetSpec, ResourceAction, ResourceEvent, ResourceEventKind,
+        test_support::log_event,
     };
     use crate::app::session::{self, Action, SessionState};
     use crate::ui::features::execution::ExecutionScroll;
@@ -1370,10 +1370,7 @@ mod tests {
         for (text, stream) in APPLY_LOG {
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: *stream,
-                    text: (*text).to_owned(),
-                }),
+                kind: log_event(*stream, (*text).to_owned()),
             });
         }
         for (address, action) in [
@@ -1428,10 +1425,7 @@ mod tests {
             for (text, stream) in SUCCESS_LOG {
                 state.record(ExecutionEvent {
                     received_at: started_at,
-                    kind: ExecutionEventKind::Log(ExecutionLogLine {
-                        stream: *stream,
-                        text: (*text).to_owned(),
-                    }),
+                    kind: log_event(*stream, (*text).to_owned()),
                 });
             }
         }
@@ -1468,7 +1462,7 @@ mod tests {
             };
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine { stream, text }),
+                kind: output_event(stream, text),
             });
         }
         state.finish_apply(
@@ -1557,7 +1551,7 @@ mod tests {
 
     #[test]
     fn renders_plan_progress_and_failure() {
-        let (running, now) = plan_state(Some(ExecutionPhase::Planning), &["planning output"]);
+        let (running, now) = plan_state(Some(ExecutionPhase::Reading), &["reading output"]);
         let mut failed = running.clone();
         failed.fail("synthetic plan failure".to_owned(), now);
 
@@ -1616,10 +1610,7 @@ mod tests {
         for text in lines {
             state.record(ExecutionEvent {
                 received_at: now,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text,
-                }),
+                kind: log_event(EventStream::Stdout, text),
             });
         }
         (state, now)
@@ -1641,13 +1632,26 @@ mod tests {
         for text in lines {
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: (*text).to_owned(),
-                }),
+                kind: output_event(EventStream::Stdout, (*text).to_owned()),
             });
         }
         (state, started_at + Duration::from_secs(2))
+    }
+
+    // Terraform reports errors as error diagnostics, which mark the first error line.
+    fn output_event(stream: EventStream, text: String) -> ExecutionEventKind {
+        if text.starts_with("Error:") {
+            ExecutionEventKind::Diagnostic(Diagnostic {
+                severity: DiagnosticSeverity::Error,
+                summary: text,
+                detail: None,
+                address: None,
+                position: None,
+                source: DiagnosticSource::Terraform,
+            })
+        } else {
+            log_event(stream, text)
+        }
     }
 
     mod targets {
@@ -2423,10 +2427,7 @@ mod tests {
                         message: Some(entry_text(entry)),
                     })
                 } else {
-                    ExecutionEventKind::Log(ExecutionLogLine {
-                        stream: EventStream::Stdout,
-                        text: entry_text(entry),
-                    })
+                    log_event(EventStream::Stdout, entry_text(entry))
                 };
                 state.record(ExecutionEvent {
                     received_at: started_at,
@@ -2605,10 +2606,7 @@ mod tests {
         fn record_log(state: &mut ExecutionState, now: Instant, text: &str) {
             state.record(ExecutionEvent {
                 received_at: now,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: text.to_owned(),
-                }),
+                kind: log_event(EventStream::Stdout, text.to_owned()),
             });
         }
 
@@ -2694,10 +2692,7 @@ mod tests {
             let (mut state, now) = applying_state_with_lines(vec!["x".repeat(200)]);
             state.record(ExecutionEvent {
                 received_at: now,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stderr,
-                    text: "ｶﾞabc".to_owned(),
-                }),
+                kind: log_event(EventStream::Stderr, "ｶﾞabc".to_owned()),
             });
             let area = Rect::new(0, 0, 80, 24);
             let mut view = logs_view();
@@ -3001,10 +2996,7 @@ mod tests {
             for text in ["first", "second", "tail"] {
                 state.record(ExecutionEvent {
                     received_at: started_at,
-                    kind: ExecutionEventKind::Log(ExecutionLogLine {
-                        stream: EventStream::Stdout,
-                        text: text.to_owned(),
-                    }),
+                    kind: log_event(EventStream::Stdout, text.to_owned()),
                 });
             }
 
@@ -3030,10 +3022,7 @@ mod tests {
                 ExecutionState::applying(started_at, ExecutionContext::loading("/repo"));
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: "Applying saved plan...".to_owned(),
-                }),
+                kind: log_event(EventStream::Stdout, "Applying saved plan...".to_owned()),
             });
             state.apply(ExecutionAction::RequestCancellation);
 
@@ -3358,10 +3347,7 @@ mod tests {
             let mut state = ExecutionState::applying(now, ExecutionContext::loading("/project"));
             state.record(ExecutionEvent {
                 received_at: now,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: summary.to_owned(),
-                }),
+                kind: log_event(EventStream::Stdout, summary.to_owned()),
             });
             state.finish_apply(
                 ApplyStatus::Succeeded,
@@ -3514,7 +3500,7 @@ mod tests {
         fn running_plan_follows_the_newest_line_until_scrolled_up() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (state, now) = plan_state(Some(ExecutionPhase::Planning), &lines);
+            let (state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
             let layout = execution_layout(Rect::new(0, 0, 80, 24), &state);
 
             let following =
@@ -3538,7 +3524,7 @@ mod tests {
         fn failed_plan_starts_at_the_first_error_until_end_is_pressed() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &lines);
+            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
             state.fail("synthetic plan failure".to_owned(), now);
 
             let initial = render_text((80, 24), &state, ExecutionViewState::default(), now, false);
@@ -3580,7 +3566,7 @@ mod tests {
                     expected: "Quit? Enter exit / Esc cancel",
                 },
             ] {
-                let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &["output"]);
+                let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
                 if case.failed {
                     state.fail("synthetic plan failure".to_owned(), now);
                 }
@@ -3604,7 +3590,7 @@ mod tests {
 
         #[test]
         fn quit_confirmation_and_copy_notice_replace_the_failed_footer_in_place() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &["output"]);
+            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             let area = Rect::new(0, 0, 80, 24);
             let normal = execution_layout(area, &state);
@@ -3644,7 +3630,7 @@ mod tests {
 
         #[test]
         fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Planning), &["output"]);
+            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             state
                 .copy_feedback_mut()
@@ -3778,10 +3764,7 @@ mod tests {
             ] {
                 state.record(ExecutionEvent {
                     received_at: now,
-                    kind: ExecutionEventKind::Log(ExecutionLogLine {
-                        stream,
-                        text: text.to_owned(),
-                    }),
+                    kind: log_event(stream, text.to_owned()),
                 });
             }
 
@@ -3806,17 +3789,14 @@ mod tests {
                 ExecutionState::applying(started_at, ExecutionContext::loading("/repo"));
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: "terraform apply review.tfplan".to_owned(),
-                }),
+                kind: log_event(
+                    EventStream::Stdout,
+                    "terraform apply review.tfplan".to_owned(),
+                ),
             });
             state.record(ExecutionEvent {
                 received_at: started_at,
-                kind: ExecutionEventKind::Log(ExecutionLogLine {
-                    stream: EventStream::Stdout,
-                    text: "apply output".to_owned(),
-                }),
+                kind: log_event(EventStream::Stdout, "apply output".to_owned()),
             });
             let mut session = SessionState::new(state);
             let mut view = ExecutionViewState::default();
@@ -3898,10 +3878,7 @@ mod tests {
                 ] {
                     state.record(ExecutionEvent {
                         received_at: now,
-                        kind: ExecutionEventKind::Log(ExecutionLogLine {
-                            stream,
-                            text: text.to_owned(),
-                        }),
+                        kind: log_event(stream, text.to_owned()),
                     });
                 }
                 state.finish_apply(case.status, None, None, now + Duration::from_secs(1));

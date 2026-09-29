@@ -402,7 +402,6 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
         }
         Action::OpenApplyConfirmation => {
             if let SessionState::Review(review) = state
-                && review.review.apply_allowed()
                 && review.review.metadata().applyable()
             {
                 review.open_apply_confirmation();

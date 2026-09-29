@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "execution target accessors are consumed by the SBI03-03 execution UI"
-    )
-)]
-
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
 
@@ -75,11 +67,6 @@ impl ExecutionTargetState {
     }
 
     #[must_use]
-    pub(crate) const fn completed_stages(&self) -> usize {
-        self.completed_stages
-    }
-
-    #[must_use]
     pub(crate) fn log_ids(&self) -> &[usize] {
         &self.log_ids
     }
@@ -92,11 +79,6 @@ impl ExecutionTargetState {
     #[must_use]
     pub(crate) const fn first_error_line(&self) -> Option<usize> {
         self.first_error_line
-    }
-
-    #[must_use]
-    pub(crate) const fn duration(&self) -> Option<Duration> {
-        self.duration
     }
 
     #[must_use]
@@ -192,17 +174,6 @@ impl ExecutionProgress {
         let ExecutionEvent { received_at, kind } = event;
         self.last_event_at = Some(received_at);
         match kind {
-            ExecutionEventKind::Log(line) => {
-                if self.first_error_line.is_none()
-                    && line
-                        .text
-                        .lines()
-                        .any(|text| text.trim_start().starts_with("Error:"))
-                {
-                    self.first_error_line = Some(self.log_index.line_count());
-                }
-                self.append_log(line.stream, &line.text, None);
-            }
             ExecutionEventKind::Resource(resource) => {
                 if (resource.kind == ResourceEventKind::ApplyErrored
                     || resource.kind == ResourceEventKind::ProvisionErrored)
@@ -550,6 +521,7 @@ mod tests {
         DiagnosticSeverity, DiagnosticSource, ExecutionSummary, ProcessExitStatus,
     };
     use super::*;
+    use crate::app::execution::test_support::log_event;
 
     fn event(kind: ExecutionEventKind) -> ExecutionEvent {
         ExecutionEvent {
@@ -615,10 +587,10 @@ mod tests {
             }],
             vec![SensitiveValue::Text("secret-value".to_owned())],
         );
-        progress.record(event(ExecutionEventKind::Log(ExecutionLogLine {
-            stream: EventStream::Stdout,
-            text: "unbound output with secret-value".to_owned(),
-        })));
+        progress.record(event(log_event(
+            EventStream::Stdout,
+            "unbound output with secret-value".to_owned(),
+        )));
         progress.record(event(ExecutionEventKind::Diagnostic(Diagnostic {
             severity: DiagnosticSeverity::Warning,
             summary: "Deprecated attribute".to_owned(),
@@ -706,7 +678,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Running
         );
-        assert_eq!(progress.targets()[0].completed_stages(), 1);
+        assert_eq!(progress.targets()[0].completed_stages, 1);
 
         progress.record(ExecutionEvent {
             received_at: started_at,
@@ -722,7 +694,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(progress.targets()[0].completed_stages(), 2);
+        assert_eq!(progress.targets()[0].completed_stages, 2);
         assert_eq!(progress.targets()[0].log_ids(), &[0, 1]);
     }
 
@@ -757,10 +729,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(
-            progress.targets()[0].duration(),
-            Some(Duration::from_secs(7))
-        );
+        assert_eq!(progress.targets()[0].duration, Some(Duration::from_secs(7)));
         assert_eq!(
             progress.targets()[0].previous(),
             Some(Duration::from_secs(9))
@@ -791,7 +760,7 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
         );
-        assert_eq!(progress.targets()[0].duration(), None);
+        assert_eq!(progress.targets()[0].duration, None);
         assert!(
             progress
                 .successful_history(&ExecutionContext::loading("/repo").with_workspace("default"))
@@ -897,7 +866,7 @@ mod tests {
         });
 
         assert_eq!(failed.targets()[0].status(), ExecutionTargetStatus::Failed);
-        assert_eq!(failed.targets()[0].duration(), Some(Duration::from_secs(1)));
+        assert_eq!(failed.targets()[0].duration, Some(Duration::from_secs(1)));
         assert!(failed.successful_history(&context).is_empty());
         assert_eq!(
             skipped.targets()[0].status(),
@@ -1045,7 +1014,7 @@ mod tests {
                 }),
             });
         }
-        assert_eq!(progress.targets()[0].completed_stages(), 1);
+        assert_eq!(progress.targets()[0].completed_stages, 1);
         assert_eq!(
             progress.targets()[0].status(),
             ExecutionTargetStatus::Running
@@ -1061,7 +1030,7 @@ mod tests {
             }),
         });
 
-        assert_eq!(progress.targets()[0].completed_stages(), 2);
+        assert_eq!(progress.targets()[0].completed_stages, 2);
         assert_eq!(
             progress.targets()[0].status(),
             ExecutionTargetStatus::Completed
@@ -1101,7 +1070,7 @@ mod tests {
                 progress.targets()[0].status(),
                 ExecutionTargetStatus::Running
             );
-            assert_eq!(progress.targets()[0].completed_stages(), 0);
+            assert_eq!(progress.targets()[0].completed_stages, 0);
         }
     }
 
