@@ -19,7 +19,7 @@ pub(crate) fn hint(alternative_keys: &[&'static str], description: &'static str)
                 theme::footer_key_separator_style(),
             ));
         }
-        spans.push(Span::styled(*key, theme::footer_key_style()));
+        spans.push(Span::styled(*key, theme::body_style()));
     }
     spans.push(Span::styled(
         format!(" {description}"),
@@ -87,15 +87,9 @@ fn quit_confirmation_line() -> Line<'static> {
             "Quit Terraleph?   ",
             theme::accent_style().add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            "[Enter]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Enter]", theme::body_style().add_modifier(Modifier::BOLD)),
         Span::styled(" Quit   ", theme::footer_text_style()),
-        Span::styled(
-            "[Esc]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Esc]", theme::body_style().add_modifier(Modifier::BOLD)),
         Span::styled(" Cancel", theme::footer_text_style()),
     ])
 }
@@ -103,15 +97,9 @@ fn quit_confirmation_line() -> Line<'static> {
 fn compact_quit_confirmation_line() -> Line<'static> {
     Line::from(vec![
         Span::styled("Quit? ", theme::accent_style().add_modifier(Modifier::BOLD)),
-        Span::styled(
-            "[Enter]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Enter]", theme::body_style().add_modifier(Modifier::BOLD)),
         Span::styled(" quit ", theme::footer_text_style()),
-        Span::styled(
-            "[Esc]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Esc]", theme::body_style().add_modifier(Modifier::BOLD)),
         Span::styled(" cancel", theme::footer_text_style()),
     ])
 }
@@ -119,15 +107,9 @@ fn compact_quit_confirmation_line() -> Line<'static> {
 fn minimal_quit_confirmation_line() -> Line<'static> {
     Line::from(vec![
         Span::styled("Quit? ", theme::accent_style().add_modifier(Modifier::BOLD)),
-        Span::styled(
-            "[Enter]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Enter]", theme::body_style().add_modifier(Modifier::BOLD)),
         Span::styled("/", theme::footer_key_separator_style()),
-        Span::styled(
-            "[Esc]",
-            theme::footer_key_style().add_modifier(Modifier::BOLD),
-        ),
+        Span::styled("[Esc]", theme::body_style().add_modifier(Modifier::BOLD)),
     ])
 }
 

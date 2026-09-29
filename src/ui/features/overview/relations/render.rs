@@ -133,11 +133,7 @@ pub(crate) fn title_line(title: RelationGraphTitle<'_>, focused: bool) -> Line<'
     let mut spans = vec![
         Span::styled(
             if focused { "* " } else { "  " },
-            if focused {
-                theme::relation_frame_style(true)
-            } else {
-                theme::overview_muted_style()
-            },
+            theme::relation_frame_style(focused),
         ),
         Span::styled(
             "[3] Relations",

@@ -17,7 +17,7 @@ use crate::ui::{
         atoms::{scrollbar, separator},
         molecules::{context_dialog, help_dialog, terminal_notice},
     },
-    shell::{context, footer, header, layout as shell_layout},
+    shell::{context, environments as shell_environments, footer, header, layout as shell_layout},
     theme,
 };
 
@@ -245,7 +245,7 @@ fn render_terminal_size_notice(frame: &mut Frame<'_>, area: Rect, quit_confirmat
 fn status_line(state: &ReviewSessionState, view: &OverviewViewState) -> Line<'static> {
     let counts = state.review().summary();
     let mut spans = vec![
-        Span::styled("✓ ", theme::overview_total_add_style()),
+        shell_environments::ready_marker(),
         Span::styled("Ready", theme::overview_text_style()),
     ];
     append_count(

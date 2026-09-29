@@ -427,7 +427,7 @@ fn push_emphasized<'a>(
 
 fn plan_line_style(line: &str, kind: PlanLineKind) -> Style {
     match kind {
-        PlanLineKind::Note => theme::plan_note_style(),
+        PlanLineKind::Note => theme::secondary_style(),
         PlanLineKind::ResourceHeader => theme::plan_resource_header_style(),
         PlanLineKind::HeredocBody { marker_column } => {
             theme::plan_marker_style(heredoc_marker(line, marker_column))

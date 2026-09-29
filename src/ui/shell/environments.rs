@@ -23,9 +23,13 @@ pub(crate) enum EnvironmentPane {
 }
 
 // Every marker keeps two columns so the status words line up.
+pub(crate) fn ready_marker() -> Span<'static> {
+    Span::styled("✓ ", theme::overview_total_add_style())
+}
+
 pub(crate) fn status_marker(state: &EnvironmentState) -> Span<'static> {
     match state {
-        EnvironmentState::Ready { .. } => Span::styled("✓ ", theme::overview_total_add_style()),
+        EnvironmentState::Ready { .. } => ready_marker(),
         EnvironmentState::Error => Span::styled("✗ ", theme::overview_total_destroy_style()),
         EnvironmentState::Pending | EnvironmentState::Running | EnvironmentState::ExcludedHcp => {
             Span::styled("  ", theme::overview_muted_style())

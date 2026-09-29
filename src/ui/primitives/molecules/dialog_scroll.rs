@@ -17,9 +17,8 @@ pub(crate) struct DialogScroll {
 }
 
 impl DialogScroll {
-    /// Applies the scroll keys every help, context, and message dialog shares. Returns false for
-    /// any other key so the caller can close the dialog or ignore it.
-    pub(crate) fn handle_key(&mut self, code: KeyCode, page: i16) -> bool {
+    /// Applies the scroll keys every help, context, and message dialog shares and ignores the rest.
+    pub(crate) fn handle_key(&mut self, code: KeyCode, page: i16) {
         match code {
             KeyCode::Up | KeyCode::Char('k') => self.scroll_by(-1),
             KeyCode::Down | KeyCode::Char('j') => self.scroll_by(1),
@@ -29,9 +28,8 @@ impl DialogScroll {
             KeyCode::Right | KeyCode::Char('l') => self.scroll_right(),
             KeyCode::Home => self.top(),
             KeyCode::End => self.bottom(),
-            _ => return false,
+            _ => {}
         }
-        true
     }
 
     pub(crate) fn scroll_by(&mut self, delta: i16) {

@@ -503,6 +503,43 @@ mod help {
     }
 
     #[test]
+    fn environment_dialogs_accept_the_single_review_scroll_keys() {
+        let state = partial_session();
+        let size = Size::new(80, 24);
+
+        let mut raw = EnvironmentView::default();
+        handle_key_code(&mut raw, KeyCode::Char('v'), size, &state);
+        handle_key_code(&mut raw, KeyCode::Char('c'), size, &state);
+        assert!(raw.reviews[0].overlay().is_some());
+        for (key, expected) in [
+            (KeyCode::Char('j'), 1),
+            (KeyCode::End, u16::MAX),
+            (KeyCode::Home, 0),
+        ] {
+            handle_key_code(&mut raw, key, size, &state);
+            assert_eq!(
+                raw.reviews[0].overlay_scroll().offset_for_test(),
+                expected,
+                "{key:?}"
+            );
+        }
+        handle_key_code(&mut raw, KeyCode::Char('l'), size, &state);
+        assert!(raw.reviews[0].overlay_scroll().column_for_test() > 0);
+
+        let mut overview = EnvironmentView::default();
+        handle_key_code(&mut overview, KeyCode::Char('c'), size, &state);
+        assert!(overview.dialog.is_some());
+        for (key, expected) in [(KeyCode::Char('j'), 1), (KeyCode::End, u16::MAX)] {
+            handle_key_code(&mut overview, key, size, &state);
+            assert_eq!(
+                overview.dialog_scroll.offset_for_test(),
+                expected,
+                "{key:?}"
+            );
+        }
+    }
+
+    #[test]
     fn help_dialog_down_stops_at_the_end_so_up_moves_immediately() {
         let state = partial_session();
         let size = Size::new(40, 16);
