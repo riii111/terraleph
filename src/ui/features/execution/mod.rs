@@ -307,12 +307,6 @@ pub(crate) use render::{
 mod tests {
     use super::*;
 
-    impl ExecutionViewState {
-        pub(crate) const fn follows_latest(self) -> bool {
-            !matches!(self.vertical, VerticalScroll::Manual(_))
-        }
-    }
-
     #[test]
     fn horizontal_scroll_keeps_the_effective_follow_position() {
         let mut view = ExecutionViewState::default();
@@ -321,7 +315,7 @@ mod tests {
 
         assert_eq!(view.vertical_offset(0, 42), 42);
         assert_eq!(view.horizontal(), 1);
-        assert!(!view.follows_latest());
+        assert_eq!(view.vertical_offset(0, 50), 42);
     }
 
     #[test]

@@ -2453,7 +2453,7 @@ mod tests {
                 expected_rows(after_first_beyond_u16..after_first_beyond_u16 + height)
             );
             view.apply_scroll(ExecutionScroll::Up, max, max, layout.body().height);
-            assert!(!view.follows_latest());
+            assert_eq!(view.vertical_offset(0, max + 1), max - 1);
             assert_eq!(
                 body_rows(area, &state, view, now),
                 expected_rows(max - 1..ENTRY_COUNT - 1)
@@ -2996,11 +2996,14 @@ mod tests {
             view.open_logs();
 
             assert!(view.logs_open());
-            assert!(view.follows_latest());
             let layout = execution_layout_with_view(Rect::new(0, 0, 80, 24), &state, view);
             assert_eq!(
                 view.vertical_offset(0, layout.max_vertical()),
                 layout.max_vertical()
+            );
+            assert_eq!(
+                view.vertical_offset(0, layout.max_vertical() + 1),
+                layout.max_vertical() + 1
             );
         }
 
