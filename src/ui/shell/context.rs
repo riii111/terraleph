@@ -130,4 +130,11 @@ mod tests {
         assert_eq!(truncate_middle("abcdef", 5), "a...f");
         assert_eq!(truncate_middle("abcdef", 3), "...");
     }
+
+    #[test]
+    fn start_truncation_keeps_zwj_emoji_together() {
+        let name = format!("{}👩‍💻tail", "a".repeat(31));
+
+        assert_eq!(take_from_start(&name, 33), format!("{}👩‍💻", "a".repeat(31)));
+    }
 }

@@ -351,7 +351,6 @@ fn count_span(prefix: &str, count: usize, width: usize, style: Style) -> Span<'s
 mod tests {
     use super::{CountWidths, count_lines};
     use crate::app::plan::PlanSummary;
-    use crate::ui::shell::context::take_from_start;
 
     #[test]
     fn wrapped_count_lines_fit_the_sidebar_inner_width() {
@@ -372,12 +371,5 @@ mod tests {
         assert!(second.width() <= 22, "{second}");
         assert!(second.to_string().contains("-1000"));
         assert!(second.to_string().contains("1000 replace"));
-    }
-
-    #[test]
-    fn name_truncation_keeps_zwj_emoji_together() {
-        let name = format!("{}👩‍💻tail", "a".repeat(31));
-
-        assert_eq!(take_from_start(&name, 33), format!("{}👩‍💻", "a".repeat(31)));
     }
 }

@@ -818,23 +818,6 @@ struct OverviewFooterContext<'a> {
     resize_guidance: bool,
 }
 
-fn resize_guidance_footer(width: u16) -> Vec<Line<'static>> {
-    footer::layout_prioritized(
-        vec![
-            (
-                80,
-                Line::from(Span::styled(
-                    "Resize terminal to view pane content",
-                    theme::overview_text_style(),
-                )),
-            ),
-            (110, footer::overview_hint(&["?"], "help")),
-            (120, footer::overview_hint(&["q"], "quit")),
-        ],
-        width,
-    )
-}
-
 fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
     let OverviewFooterContext {
         width,
@@ -927,4 +910,21 @@ fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
     items.push((110, footer::overview_hint(&["?"], "help")));
     items.push((120, footer::overview_hint(&["q"], "quit")));
     footer::layout_prioritized(items, width)
+}
+
+fn resize_guidance_footer(width: u16) -> Vec<Line<'static>> {
+    footer::layout_prioritized(
+        vec![
+            (
+                80,
+                Line::from(Span::styled(
+                    "Resize terminal to view pane content",
+                    theme::overview_text_style(),
+                )),
+            ),
+            (110, footer::overview_hint(&["?"], "help")),
+            (120, footer::overview_hint(&["q"], "quit")),
+        ],
+        width,
+    )
 }
