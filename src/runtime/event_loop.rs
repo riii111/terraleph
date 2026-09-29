@@ -136,12 +136,12 @@ pub(crate) fn run_connected(
     }
 }
 
-// The view state one session's screens keep between frames, and the quit confirmation that
-// covers whichever screen is showing.
+// The view state one session's screens keep between frames, the quit confirmation that covers
+// whichever screen is showing, and when the drawn screen next goes stale.
 #[derive(Default)]
 pub(super) struct SessionViews {
     pub(super) execution: execution::ExecutionViewState,
-    pub(super) review: plan_review::PlanReviewViewState,
+    review: plan_review::PlanReviewViewState,
     pub(super) confirmation: plan_review::ApplyConfirmationViewState,
     pub(super) quit_confirmation: bool,
     pub(super) scheduled_draw: Option<Instant>,
@@ -264,7 +264,7 @@ fn draw_if_needed<B: Backend>(
 }
 
 // Returns when a drawn screen goes stale without input or a worker message.
-fn scheduled_draw_after(state: &SessionState, now: Instant) -> Option<Instant> {
+pub(super) fn scheduled_draw_after(state: &SessionState, now: Instant) -> Option<Instant> {
     state
         .apply_confirmation()
         .and_then(|confirmation| plan_review::apply_confirmation_redraw_at(confirmation, now))
@@ -590,7 +590,7 @@ fn handle_execution_key_event<B: Backend>(
     )
 }
 
-fn draw_with_quit_confirmation<B: Backend>(
+pub(super) fn draw_with_quit_confirmation<B: Backend>(
     state: &SessionState,
     terminal: &mut Terminal<B>,
     views: &SessionViews,
@@ -648,7 +648,16 @@ fn draw_with_quit_confirmation<B: Backend>(
     Ok(())
 }
 
-pub(super) fn receive_messages_with_initial_overview<C: ClipboardWriter>(
+pub(super) fn receive_messages<C: ClipboardWriter>(
+    messages: &Receiver<PlanReviewMessage>,
+    state: &mut SessionState,
+    execution_view: &mut execution::ExecutionViewState,
+    effects: &mut RuntimeEffects<'_, C>,
+) -> (Option<SessionOutcome>, bool) {
+    receive_messages_with_initial_overview(messages, state, execution_view, effects, &mut false)
+}
+
+fn receive_messages_with_initial_overview<C: ClipboardWriter>(
     messages: &Receiver<PlanReviewMessage>,
     state: &mut SessionState,
     execution_view: &mut execution::ExecutionViewState,
@@ -754,15 +763,18 @@ fn apply_effect<C: ClipboardWriter>(
             }
             None
         }
-        Some(Effect::StartApply) => match start_apply(state, effects) {
-            Ok(()) => None,
-            Err(message) => dispatch(
-                state,
-                Action::ApplyFailed { message },
-                execution_view,
-                effects,
-            ),
-        },
+        Some(Effect::StartApply) => {
+            let apply = state.apply()?;
+            match start_apply(apply, effects) {
+                Ok(()) => None,
+                Err(message) => dispatch(
+                    state,
+                    Action::ApplyFailed { message },
+                    execution_view,
+                    effects,
+                ),
+            }
+        }
         Some(Effect::WriteClipboard(effect)) => {
             let target = effect.target();
             let result = effects.clipboard.execute(&effect);
@@ -779,12 +791,9 @@ fn apply_effect<C: ClipboardWriter>(
 
 // Apply runs only the saved plan that was reviewed, in the reviewed directory; it never re-plans.
 fn start_apply(
-    state: &SessionState,
+    apply: &ExecutionState,
     effects: &mut RuntimeEffects<'_, impl ClipboardWriter>,
 ) -> Result<(), String> {
-    let apply = state
-        .apply()
-        .ok_or_else(|| "The environment is not ready to apply.".to_owned())?;
     verify_apply_target(apply, effects)?;
     let plan_path = effects
         .plan_path
@@ -976,22 +985,6 @@ mod tests {
 
     mod workers {
         use super::*;
-
-        fn receive_messages<C: ClipboardWriter>(
-            messages: &Receiver<PlanReviewMessage>,
-            state: &mut SessionState,
-            execution_view: &mut execution::ExecutionViewState,
-            effects: &mut RuntimeEffects<'_, C>,
-        ) -> (Option<SessionOutcome>, bool) {
-            let mut start_in_overview = false;
-            super::receive_messages_with_initial_overview(
-                messages,
-                state,
-                execution_view,
-                effects,
-                &mut start_in_overview,
-            )
-        }
 
         #[test]
         fn finished_plan_without_final_message_becomes_a_failed_outcome() {
@@ -1879,7 +1872,7 @@ mod tests {
             assert_eq!(views.confirmation.input(), "y");
 
             assert!(
-                draw_if_needed(&mut state, &mut terminal, &mut views, &mut dirty, now,)
+                draw_if_needed(&mut state, &mut terminal, &mut views, &mut dirty, now)
                     .expect("confirmation should render")
             );
 
@@ -2844,7 +2837,7 @@ mod tests {
     ) -> String {
         let mut dirty = true;
         assert!(
-            draw_if_needed(state, terminal, views, &mut dirty, now,).expect("apply should render")
+            draw_if_needed(state, terminal, views, &mut dirty, now).expect("apply should render")
         );
         terminal_text(terminal)
     }

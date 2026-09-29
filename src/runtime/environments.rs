@@ -27,10 +27,7 @@ use crate::{
             configuration::{self, ExecutionLocation},
         },
     },
-    ui::features::{
-        environments::{EnvironmentInput, EnvironmentView},
-        execution, plan_review,
-    },
+    ui::features::environments::{EnvironmentInput, EnvironmentView},
 };
 
 use super::{
@@ -209,6 +206,7 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
 
 struct EnvironmentApply {
     index: usize,
+    // Copied from the plan, because the apply effects borrow them while its session is updated.
     tool: Tool,
     root: PathBuf,
     views: SessionViews,
@@ -224,67 +222,6 @@ impl EnvironmentApply {
             views: SessionViews::default(),
         }
     }
-}
-
-fn draw_apply_if_needed<B: Backend>(
-    terminal: &mut Terminal<B>,
-    state: &mut EnvironmentSession,
-    view: &mut EnvironmentView,
-    index: usize,
-    views: &mut SessionViews,
-    dirty: &mut bool,
-    now: Instant,
-) -> Result<bool, B::Error> {
-    *dirty |= state.clear_expired_copy_feedback(now);
-    *dirty |= views.scheduled_draw.is_some_and(|at| now >= at);
-    let running = state.plans()[index]
-        .session()
-        .and_then(SessionState::apply)
-        .is_some_and(|apply| apply.result().is_none());
-    if !*dirty && !running {
-        return Ok(false);
-    }
-    draw_apply(terminal, state, view, index, views, now)?;
-    *dirty = false;
-    Ok(true)
-}
-
-fn draw_apply<B: Backend>(
-    terminal: &mut Terminal<B>,
-    state: &EnvironmentSession,
-    view: &mut EnvironmentView,
-    index: usize,
-    views: &mut SessionViews,
-    now: Instant,
-) -> Result<(), B::Error> {
-    views.scheduled_draw = None;
-    let Some(session) = state.plans()[index].session() else {
-        return Ok(());
-    };
-    if let Some(confirmation) = session.apply_confirmation() {
-        terminal.draw(|frame| {
-            view.render_apply_confirmation(
-                frame,
-                state,
-                index,
-                confirmation,
-                &views.confirmation,
-                now,
-            );
-        })?;
-        views.scheduled_draw = plan_review::apply_confirmation_redraw_at(confirmation, now);
-    } else if let Some(execution) = session.apply() {
-        terminal.draw(|frame| {
-            execution::render_execution_with_quit_confirmation(
-                frame,
-                execution,
-                views.execution,
-                now,
-                views.quit_confirmation,
-            );
-        })?;
-    }
-    Ok(())
 }
 
 struct ApplyRuntime {
@@ -342,13 +279,8 @@ impl ApplyRuntime {
         };
         if let Some(session) = state.session_mut(apply.index) {
             let execution_view = &mut apply.views.execution;
-            let (outcome, received) = event_loop::receive_messages_with_initial_overview(
-                &self.receiver,
-                session,
-                execution_view,
-                &mut effects,
-                &mut false,
-            );
+            let (outcome, received) =
+                event_loop::receive_messages(&self.receiver, session, execution_view, &mut effects);
             *dirty |= received;
             if let Some(outcome) = outcome {
                 return Ok(ApplyStep::Finished(outcome));
@@ -415,6 +347,59 @@ impl ApplyRuntime {
             history: HistoryStore::platform(),
         }
     }
+}
+
+fn draw_apply_if_needed<B: Backend>(
+    terminal: &mut Terminal<B>,
+    state: &mut EnvironmentSession,
+    view: &mut EnvironmentView,
+    index: usize,
+    views: &mut SessionViews,
+    dirty: &mut bool,
+    now: Instant,
+) -> Result<bool, B::Error> {
+    *dirty |= state.clear_expired_copy_feedback(now);
+    *dirty |= views.scheduled_draw.is_some_and(|at| now >= at);
+    let running = state.plans()[index]
+        .session()
+        .and_then(SessionState::apply)
+        .is_some_and(|apply| apply.result().is_none());
+    if !*dirty && !running {
+        return Ok(false);
+    }
+    draw_apply(terminal, state, view, index, views, now)?;
+    *dirty = false;
+    Ok(true)
+}
+
+fn draw_apply<B: Backend>(
+    terminal: &mut Terminal<B>,
+    state: &EnvironmentSession,
+    view: &mut EnvironmentView,
+    index: usize,
+    views: &mut SessionViews,
+    now: Instant,
+) -> Result<(), B::Error> {
+    let Some(session) = state.plans()[index].session() else {
+        views.scheduled_draw = None;
+        return Ok(());
+    };
+    if let Some(confirmation) = session.apply_confirmation() {
+        terminal.draw(|frame| {
+            view.render_apply_confirmation(
+                frame,
+                state,
+                index,
+                confirmation,
+                &views.confirmation,
+                now,
+            );
+        })?;
+    } else if session.apply().is_some() {
+        event_loop::draw_with_quit_confirmation(session, terminal, views, now)?;
+    }
+    views.scheduled_draw = event_loop::scheduled_draw_after(session, now);
+    Ok(())
 }
 
 fn should_draw(state: &EnvironmentSession, dirty: bool) -> bool {
