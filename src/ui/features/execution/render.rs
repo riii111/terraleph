@@ -1272,6 +1272,8 @@ mod tests {
     };
 
     const SIZES: [(u16, u16); 3] = [(80, 24), (120, 40), (160, 60)];
+    // The first row count a `u16` can no longer hold.
+    const FIRST_BEYOND_U16: usize = u16::MAX as usize + 1;
     const APPLY_LOG: &[(&str, EventStream)] = &[
         ("terraform apply review.tfplan", EventStream::Stdout),
         (
@@ -2378,8 +2380,10 @@ mod tests {
         use super::*;
         use crate::ui::features::execution::ExecutionTargetMove;
 
-        const ENTRY_COUNT: usize = 100_000;
         const TARGET_EVERY: usize = 10;
+        // Leaves a window's worth of entries after the first position beyond the `u16` range, and
+        // makes the target's last entry fall beyond it too.
+        const ENTRY_COUNT: usize = (FIRST_BEYOND_U16 + 100).next_multiple_of(TARGET_EVERY);
         const TARGET: &str = "terraform_data.bulk";
 
         fn entry_text(entry: usize) -> String {
@@ -2470,14 +2474,21 @@ mod tests {
                 body_rows(area, &state, view, now),
                 expected_rows(height..height * 2)
             );
-            view.apply_scroll(ExecutionScroll::Down, 70_000, max, layout.body().height);
+            let beyond_u16 = FIRST_BEYOND_U16 + 1;
+            assert!(max > beyond_u16);
+            view.apply_scroll(
+                ExecutionScroll::Down,
+                FIRST_BEYOND_U16,
+                max,
+                layout.body().height,
+            );
             assert_eq!(
                 execution_scroll_position_with_view(&state, view, &layout),
-                (70_001, max)
+                (beyond_u16, max)
             );
             assert_eq!(
                 body_rows(area, &state, view, now),
-                expected_rows(70_001..70_001 + height)
+                expected_rows(beyond_u16..beyond_u16 + height)
             );
             view.apply_scroll(ExecutionScroll::Up, max, max, layout.body().height);
             assert!(!view.follows_latest());
@@ -2505,6 +2516,7 @@ mod tests {
             let target_lines = ENTRY_COUNT / TARGET_EVERY;
             let max = layout.max_vertical();
             assert_eq!(max, target_lines - height);
+            assert!((target_lines - 1) * TARGET_EVERY > usize::from(u16::MAX));
             let target_rows = |range: std::ops::Range<usize>| {
                 expected_rows(range.map(|line| line * TARGET_EVERY))
             };
@@ -2729,18 +2741,48 @@ mod tests {
             })
         }
 
+        // A line of `prefix`, `unit` repeated, then `suffix`, at least `cells` cells wide.
+        fn line_past(prefix: &str, unit: &str, suffix: &str, cells: usize) -> String {
+            let build = |count: usize| format!("{prefix}{}{suffix}", unit.repeat(count));
+            let width = |text: String| {
+                let log = [ExecutionLogLine {
+                    stream: EventStream::Stdout,
+                    text,
+                }];
+                measure_log_width(LogWidth::default(), &log, None).width
+            };
+            let mut count = 1;
+            loop {
+                let drawn = width(build(count));
+                if drawn >= cells {
+                    return build(count);
+                }
+                count = (count * cells).div_ceil(drawn).max(count + 1);
+            }
+        }
+
         #[test]
         fn long_lines_scrolled_right_draw_only_what_fits_as_their_whole_remainder_would() {
+            const MAX_OFFSET: usize = 40_001;
+            const MAX_WIDTH: u16 = 80;
+            // A few cells beyond the widest window's right edge, so it still has to be cut there.
+            const PAST_RIGHT_EDGE: usize = 8;
+            let reach = MAX_OFFSET + usize::from(MAX_WIDTH) + PAST_RIGHT_EDGE;
             let lines = [
-                "x".repeat(100_000),
+                line_past("", "x", "", reach),
                 "aｶﾞ全角b\t😀".repeat(5_000),
-                format!("{}END", "全".repeat(50_000)),
-                "\u{1b}[1m全\u{1b}[0m\r\u{301}\u{600}\t🇯🇵\t\u{7f}ｶﾞ\t".repeat(5_000),
-                format!("{}\t{}", "x".repeat(79), "\ty".repeat(50_000)),
+                line_past("", "全", "END", reach),
+                line_past(
+                    "",
+                    "\u{1b}[1m全\u{1b}[0m\r\u{301}\u{600}\t🇯🇵\t\u{7f}ｶﾞ\t",
+                    "",
+                    reach,
+                ),
+                line_past(&format!("{}\t", "x".repeat(79)), "\ty", "", reach),
             ];
             for text in &lines {
-                for width in [1_u16, 2, 3, 7, 80] {
-                    for offset in [0, 1, 2, 3, 5, 40_001] {
+                for width in [1_u16, 2, 3, 7, MAX_WIDTH] {
+                    for offset in [0, 1, 2, 3, 5, MAX_OFFSET] {
                         let visible = visible_cells(text, offset, usize::from(width));
                         let case = format!("width {width}, offset {offset}");
 
@@ -2934,7 +2976,7 @@ mod tests {
 
         #[test]
         fn a_log_window_yields_only_its_raw_rows_across_multi_line_entries() {
-            const LINE_COUNT: usize = 100_000;
+            const LINE_COUNT: usize = FIRST_BEYOND_U16 + 10;
             let entry = |stream, text: String| ExecutionLogLine { stream, text };
             let many_lines = (0..LINE_COUNT)
                 .map(|line| format!("line {line:06}"))

@@ -5,13 +5,13 @@ expression: rendered
 terraleph ▸ dev                                                                                                terraform
 ┌* [1] Envs────────────┐┌  [2] Compare─────────────────────────────────────────────────────────────────────────────────┐
 │> [x] dev             ││                                                                                              │
-│    ✓ Ready     ~21   ││                                                                                              │
-│                      ││Address                            │ dev         stg         prod        │ why                │
-│  [x] stg             ││───────────────────────────────────┼─────────────────────────────────────┼────────────────────│
-│    ✓ Ready     ~200  ││Differs across envs                                                                           │
-│        1 replace     ││> terraform_data.api               │ ~           +/-         -           │ action             │
+│    ✓ Ready     ~11   ││                                                                                              │
+│                      ││Address                           │ dev         stg         prod        │ why                 │
+│  [x] stg             ││──────────────────────────────────┼─────────────────────────────────────┼─────────────────────│
+│    ✓ Ready     ~100  ││Differs across envs                                                                           │
+│        1 replace     ││> terraform_data.api              │ ~           +/-         -           │ action              │
 │  [x] prod [PROD]     ││                                                                                              │
-│    ✓ Ready     ~20   ││  ▸ Same change across envs: 1 pattern                                                        │
+│    ✓ Ready     ~10   ││  ▸ Same change across envs: 1 pattern                                                        │
 │    -1                ││    instance counts differ                                                                    │
 │                      ││                                                                                              │
 │                      ││                                                                                              │
@@ -20,7 +20,7 @@ terraleph ▸ dev                                                               
 │                      │┌  [3] Relations · dev · whole env─────────────────────────────────────────────────────────────┐
 │                      ││Links unknown                                                                                 │
 │                      ││> ~ terraform_data.api ! ?  configuration not collected, state not collected                  │
-│                      ││  ~ terraform_data.server[*] ×20 ?  configuration not collected, state not collected          │
+│                      ││  ~ terraform_data.server[*] ×10 ?  configuration not collected, state not collected          │
 │                      ││                                                                                              │
 │                      ││! differs across envs                                                                         │
 │                      ││? unresolved means a relationship could not be determined                                     │

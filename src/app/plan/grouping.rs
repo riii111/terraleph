@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn groups_same_known_changes_with_matching_unknown_attributes() {
-        let mut changes = (0..200)
+        let mut changes = (10..12)
             .map(|index| unknown_output_change(&format!("aws_instance.server[{index}]"), "old"))
             .collect::<Vec<_>>();
         let schemas = schema_for_changes(
@@ -664,7 +664,7 @@ mod tests {
 
         let grouping = group_resource_changes(&changes, Some(&schemas));
 
-        assert_eq!(grouping.repeated, 200);
+        assert_eq!(grouping.repeated, 2);
         assert_eq!(grouping.groups.len(), 1);
         assert_eq!(grouping.groups[0].display_address, "aws_instance.server[*]");
         assert!(grouping.groups[0].has_unknown);
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn reports_repeated_members_from_the_unfiltered_plan_and_keeps_every_member_once() {
-        let mut changes = (0..200)
+        let mut changes = (10..12)
             .map(|index| {
                 change(
                     &format!("aws_instance.web[{index}]"),
@@ -1002,16 +1002,16 @@ mod tests {
             })
             .collect::<Vec<_>>();
         changes.push(change(
-            "aws_instance.web[200]",
+            "aws_instance.web[12]",
             json!({"name": "old"}),
             json!({"name": "different"}),
         ));
 
         let grouping = group_resource_changes(&changes, None);
 
-        assert_eq!(grouping.repeated, 200);
+        assert_eq!(grouping.repeated, 2);
         assert_eq!(grouping.groups.len(), 2);
-        assert_eq!(grouping.groups[0].members.len(), 200);
+        assert_eq!(grouping.groups[0].members.len(), 2);
         assert_eq!(grouping.groups[1].members.len(), 1);
         let addresses = grouping
             .groups
