@@ -575,9 +575,8 @@ mod tests {
     use super::*;
     use crate::{
         app::{
-            copy::{CopyEffect, CopyResult, CopyTarget},
+            copy::{CopyResult, CopyTarget},
             environments::{EnvironmentAvailability, EnvironmentIdentity},
-            execution::{ApplyStatus, ExecutionState},
             plan::Plan,
             review::{PlanMetadata, PlanReview, test_support::plan_document},
             session::Action,
@@ -638,6 +637,10 @@ mod tests {
 
     mod receive_apply {
         use super::*;
+        use crate::app::{
+            copy::CopyEffect,
+            execution::{ApplyStatus, ExecutionState},
+        };
 
         const DISCONNECT_MESSAGE: &str = "Apply worker disconnected.";
 
@@ -651,11 +654,9 @@ mod tests {
         }
 
         impl Fixture {
-            fn new(worker: Option<thread::JoinHandle<()>>) -> Self {
-                if let Some(handle) = &worker {
-                    while !handle.is_finished() {
-                        thread::yield_now();
-                    }
+            fn new(worker: thread::JoinHandle<()>) -> Self {
+                while !worker.is_finished() {
+                    thread::yield_now();
                 }
                 let cancellation = CancellationToken::new();
                 let (sender, receiver) = mpsc::channel();
@@ -664,7 +665,7 @@ mod tests {
                     receiver,
                     worker: WorkerGuard {
                         cancellation: cancellation.clone(),
-                        handle: worker,
+                        handle: Some(worker),
                     },
                     cancellation,
                     session: SessionState::Apply(Box::new(ExecutionState::applying(
@@ -728,7 +729,7 @@ mod tests {
 
         #[test]
         fn worker_panic_fails_before_a_queued_message_is_read() {
-            let mut fixture = Fixture::new(Some(thread::spawn(|| panic!("apply panic"))));
+            let mut fixture = Fixture::new(thread::spawn(|| panic!("apply panic")));
             fixture.queue_apply_completed();
 
             let error = fixture
@@ -747,7 +748,7 @@ mod tests {
 
         #[test]
         fn queued_final_message_is_processed_before_a_finished_worker_is_reported() {
-            let mut fixture = Fixture::new(Some(thread::spawn(|| {})));
+            let mut fixture = Fixture::new(thread::spawn(|| {}));
             fixture.queue_apply_completed();
 
             let (outcome, redraw) = fixture.receive().expect("the worker exited normally");
@@ -765,7 +766,7 @@ mod tests {
 
         #[test]
         fn finished_worker_without_a_final_message_is_reported_as_disconnected() {
-            let mut fixture = Fixture::new(Some(thread::spawn(|| {})));
+            let mut fixture = Fixture::new(thread::spawn(|| {}));
 
             let (outcome, redraw) = fixture.receive().expect("the worker exited normally");
 
