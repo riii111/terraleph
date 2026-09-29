@@ -55,14 +55,9 @@ pub(crate) enum ComparisonScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ComparisonRow {
     pub(crate) address: String,
-    pub(crate) cells: Vec<ComparisonCell>,
+    pub(crate) cells: Vec<CellState>,
     pub(crate) difference: Option<DifferenceReason>,
     pub(crate) has_unknown: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ComparisonCell {
-    pub(crate) state: CellState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,13 +159,11 @@ fn comparison_cell(
     address: &str,
     review: Option<&PlanReview>,
     resource: Option<&ResourceChange>,
-) -> ComparisonCell {
+) -> CellState {
     let Some(review) = review else {
-        return ComparisonCell {
-            state: CellState::Unavailable,
-        };
+        return CellState::Unavailable;
     };
-    let state = match resource {
+    match resource {
         Some(change) if change.kind != ResourceChangeKind::NoOp => CellState::Change {
             actions: change.actions.clone(),
             kind: change.kind,
@@ -178,21 +171,20 @@ fn comparison_cell(
         Some(_) => CellState::NoOp,
         None if review.plan().value_addresses.contains(address) => CellState::NoOp,
         None => CellState::Missing,
-    };
-    ComparisonCell { state }
+    }
 }
 
 fn difference_reason(
     address: &str,
     reviews: &[Option<&PlanReview>],
     resources: &[BTreeMap<&str, &ResourceChange>],
-    cells: &[ComparisonCell],
+    cells: &[CellState],
 ) -> Option<DifferenceReason> {
     let mut present = cells
         .iter()
-        .filter(|cell| matches!(cell.state, CellState::Change { .. } | CellState::NoOp));
+        .filter(|cell| matches!(cell, CellState::Change { .. } | CellState::NoOp));
     if let Some(first) = present.next()
-        && present.any(|cell| cell.state != first.state)
+        && present.any(|cell| cell != first)
     {
         return Some(DifferenceReason::Action);
     }
@@ -218,7 +210,7 @@ fn difference_reason(
     }
     if attrs_differ {
         Some(DifferenceReason::Attrs)
-    } else if cells.iter().any(|cell| cell.state == CellState::Missing) {
+    } else if cells.contains(&CellState::Missing) {
         Some(DifferenceReason::Missing)
     } else if unknown_differ {
         Some(DifferenceReason::Unknown)
@@ -271,7 +263,6 @@ mod tests {
             address: "test_resource.item".to_owned(),
             provider: Some("test".to_owned()),
             resource_type: Some("test_resource".to_owned()),
-            resource_name: Some("item".to_owned()),
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -745,7 +736,7 @@ mod tests {
                 .iter()
                 .all(|row| row.difference == Some(DifferenceReason::Missing))
         );
-        assert_eq!(comparison.rows[0].cells[1].state, CellState::Missing);
+        assert_eq!(comparison.rows[0].cells[1], CellState::Missing);
     }
 
     #[test]
@@ -764,12 +755,7 @@ mod tests {
             comparison.rows[0].difference,
             Some(DifferenceReason::Action)
         );
-        assert_eq!(
-            comparison.rows[0].cells[1],
-            ComparisonCell {
-                state: CellState::NoOp,
-            }
-        );
+        assert_eq!(comparison.rows[0].cells[1], CellState::NoOp);
     }
 
     #[test]
@@ -818,7 +804,7 @@ mod tests {
             assert!(
                 comparison.rows[0].cells[1..]
                     .iter()
-                    .all(|cell| cell.state == CellState::Unavailable),
+                    .all(|cell| *cell == CellState::Unavailable),
                 "{phase}"
             );
         }
@@ -902,7 +888,7 @@ mod tests {
         assert_eq!(comparison.scope, ComparisonScope::Partial);
         assert_eq!(comparison.rows[0].difference, None);
         assert_eq!(comparison.rows[0].cells.len(), 2);
-        assert_eq!(comparison.rows[0].cells[1].state, CellState::Unavailable);
+        assert_eq!(comparison.rows[0].cells[1], CellState::Unavailable);
     }
 
     #[test]

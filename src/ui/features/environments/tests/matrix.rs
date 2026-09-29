@@ -43,7 +43,6 @@ fn change(address: &str, kind: ResourceChangeKind) -> ResourceChange {
         address: address.to_owned(),
         provider: None,
         resource_type: Some("terraform_data".to_owned()),
-        resource_name: Some("server".to_owned()),
         mode: ResourceMode::Managed,
         actions,
         kind,
@@ -462,7 +461,7 @@ mod raw_plan {
     }
 
     #[test]
-    fn matrix_cell_keeps_its_source_reference_and_missing_blocks_stay_in_overview() {
+    fn matrix_enter_opens_the_source_block_and_missing_blocks_stay_in_overview() {
         let mut state = session(&["dev"]);
         complete(
             &mut state,
@@ -470,13 +469,19 @@ mod raw_plan {
         );
         let mut view = EnvironmentView::default();
         let _ = render_text(&mut view, &state, (80, 24));
-        let Some(MatrixSelectedItem::Resource {
-            cell: Some(cell), ..
-        }) = view.matrix.selected_item(0)
-        else {
-            panic!("the initial matrix row has a source cell");
-        };
-        let _ = cell;
+        press(&mut view, &mut state, KeyCode::Enter);
+
+        assert_eq!(view.selection.raw, Some(0));
+        let block_line = state.plans()[0]
+            .review()
+            .unwrap()
+            .review()
+            .document()
+            .block_for_address("terraform_data.alpha")
+            .unwrap()
+            .lines()
+            .start;
+        assert_eq!(view.reviews[0].scroll().0, block_line);
 
         let mut missing = session(&["dev"]);
         complete_with_plan_document(
@@ -493,8 +498,7 @@ mod raw_plan {
         assert_eq!(missing_view.selection.raw, None);
         assert!(
             render_text(&mut missing_view, &missing, (80, 24))
-                .to_lowercase()
-                .contains("no source block")
+                .contains("No source block for terraform_data.alpha in dev.")
         );
     }
 
@@ -591,13 +595,17 @@ mod raw_plan {
         let _ = render_text(&mut view, &state, (80, 24));
         press(&mut view, &mut state, KeyCode::Char(' '));
         press(&mut view, &mut state, KeyCode::Down);
-        let Some(MatrixSelectedItem::Resource {
-            cell: Some(cell), ..
-        }) = view.matrix.selected_item(0)
-        else {
-            panic!("the selected row is a grouped resource");
-        };
-        let _ = cell;
+        assert!(matches!(
+            view.matrix.selected_item(0),
+            Some(MatrixSelectedItem::Resource {
+                cell: Some(MatrixCell {
+                    state: CellState::Change { .. },
+                    ..
+                }),
+                grouped: true,
+                ..
+            })
+        ));
         press(&mut view, &mut state, KeyCode::Enter);
 
         assert_eq!(view.selection.raw, Some(0));
@@ -1663,10 +1671,10 @@ mod row_groups {
                 })
                 .collect();
             changes.extend((0..20).map(|index| {
-                let address = format!("terraform_data.zz_extra_{index:02}");
-                let mut change = change(&address, ResourceChangeKind::Update);
-                change.resource_name = Some(format!("zz_extra_{index:02}"));
-                change
+                change(
+                    &format!("terraform_data.zz_extra_{index:02}"),
+                    ResourceChangeKind::Update,
+                )
             }));
             complete_with_schemas(
                 &mut state,

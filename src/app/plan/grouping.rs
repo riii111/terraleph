@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     AttributeType, PlanAction, ProviderSchemas, RelationNodeId, ResourceChange, ResourceChangeKind,
-    ResourceSchema,
     attribute_diff::{
         AttributeChangeKind, AttributeDiff, AttributePathSegment, GroupingValue, UnknownShape,
         diff_resource_attributes,
@@ -16,7 +15,8 @@ pub(crate) struct ChangeGroup {
     pub(crate) display_address: String,
     pub(crate) members: Vec<GroupMember>,
     pub(crate) has_unknown: bool,
-    /// The node every changed member maps to; the Overview sets it when it builds its graph.
+    /// The node every changed member maps to. Only `SingleEnvironmentOverview` fills it;
+    /// it stays `None` everywhere else.
     pub(crate) node_id: Option<RelationNodeId>,
 }
 
@@ -286,7 +286,7 @@ fn dynamic_scalar_unknown_type<'a>(
         return None;
     }
 
-    let attribute_type = resource_schema(change, schemas)?.attributes.get(name)?;
+    let attribute_type = schemas?.resource(change)?.attributes.get(name)?;
     matches!(attribute_type, AttributeType::Dynamic).then_some(attribute_type)
 }
 
@@ -298,7 +298,7 @@ fn grouping_attribute_type<'a>(
     let [AttributePathSegment::Key(name), rest @ ..] = path else {
         return None;
     };
-    let schema = resource_schema(change, schemas)?;
+    let schema = schemas?.resource(change)?;
     let mut attribute_type = schema
         .attributes
         .get(name)
@@ -357,16 +357,9 @@ fn is_simple_map_attribute(
     attribute_name: &str,
     schemas: Option<&ProviderSchemas>,
 ) -> bool {
-    resource_schema(change, schemas)
-        .and_then(|schema| schema.attributes.get(attribute_name))
+    schemas
+        .and_then(|schemas| schemas.resource(change)?.attributes.get(attribute_name))
         .is_some_and(AttributeType::is_simple_map)
-}
-
-fn resource_schema<'a>(
-    change: &ResourceChange,
-    schemas: Option<&'a ProviderSchemas>,
-) -> Option<&'a ResourceSchema> {
-    schemas?.resource(change)
 }
 
 fn has_duplicate_addresses(bucket: &[Candidate<'_>]) -> bool {
@@ -381,7 +374,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::app::plan::{PlanValue, ProviderSchema, ResourceMode};
+    use crate::app::plan::{PlanValue, ProviderSchema, ResourceMode, ResourceSchema};
 
     fn plan_value(value: Value) -> PlanValue {
         match value {
@@ -404,7 +397,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,

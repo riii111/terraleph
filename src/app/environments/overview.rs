@@ -246,7 +246,7 @@ fn comparison_node_inputs(
     for row in &overview.rows {
         match row {
             OverviewRow::Individual(row) => {
-                if !matches!(row.cells[column].state, CellState::Change { .. }) {
+                if !matches!(row.cells[column], CellState::Change { .. }) {
                     continue;
                 }
                 let addresses = [row.address.clone()];
@@ -437,7 +437,7 @@ fn shared_candidate<'a>(
 ) -> Option<&'a GroupingCandidate> {
     let mut shared: Option<&GroupingCandidate> = None;
     for (cell, candidates) in row.cells.iter().zip(candidates) {
-        match &cell.state {
+        match cell {
             CellState::Change { .. } => {
                 let candidate = candidates.get(row.address.as_str())?;
                 if shared.is_some_and(|shared| shared.key != candidate.key) {
@@ -457,11 +457,11 @@ fn group_cells(children: &[ComparisonRow], environment_count: usize) -> Vec<Grou
         .map(|environment| {
             let members: Vec<_> = children
                 .iter()
-                .filter(|row| matches!(row.cells[environment].state, CellState::Change { .. }))
+                .filter(|row| matches!(row.cells[environment], CellState::Change { .. }))
                 .collect();
             let cell = &members.first().copied().unwrap_or(&children[0]).cells[environment];
             GroupCell {
-                state: cell.state.clone(),
+                state: cell.clone(),
                 members: members.iter().map(|row| row.address.clone()).collect(),
             }
         })
@@ -525,7 +525,7 @@ mod tests {
             .find(|row| row.address == "test_resource.item[199]")
             .unwrap();
         assert_eq!(extra.difference, Some(DifferenceReason::Missing));
-        assert_eq!(extra.cells[0].state, CellState::Missing);
+        assert_eq!(extra.cells[0], CellState::Missing);
         assert_partition(&session, &overview);
     }
 
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_environments_group_only_their_common_changes_and_keep_original_sources() {
+    fn selected_environments_group_only_their_common_changes() {
         let session = ready_session([changes(2, "excluded"), changes(2, "new"), changes(3, "new")]);
         let all = environment_overview(session.plans());
         let selection = EnvironmentSelection::new(Some(vec![2, 1]), session.plans().len()).unwrap();
@@ -713,7 +713,7 @@ mod tests {
         let overview = environment_overview(session.plans());
 
         assert!(matches!(&overview.rows[0], OverviewRow::Individual(row)
-            if row.cells[1].state == CellState::NoOp));
+            if row.cells[1] == CellState::NoOp));
         assert_partition(&session, &overview);
     }
 
@@ -968,7 +968,7 @@ mod tests {
 
         let result = environment_overview_with_relations_for_selection(session.plans(), &selection);
 
-        let group = only_group(&result.overview);
+        only_group(&result.overview);
         let included = result.relations[&0]
             .graph
             .as_ref()
@@ -986,12 +986,6 @@ mod tests {
         assert_eq!(excluded.nodes[0].id.addresses().len(), 3);
         assert!(!excluded.nodes[0].differs);
         assert!(excluded_relation.row_node_ids.is_empty());
-        assert_eq!(
-            excluded_relation
-                .row_node_ids
-                .get(&OverviewRowId::Group(group.id.clone())),
-            None
-        );
     }
 
     #[test]
@@ -1097,7 +1091,7 @@ mod tests {
                             .children
                             .iter()
                             .filter(|row| {
-                                matches!(row.cells[environment].state, CellState::Change { .. })
+                                matches!(row.cells[environment], CellState::Change { .. })
                             })
                             .collect();
                         assert_eq!(
@@ -1211,7 +1205,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,

@@ -611,7 +611,7 @@ mod tests {
         };
         assert_eq!(overview.review().search_query(), "api");
 
-        assert!(update(&mut state, Action::OpenReviewFromOverview, now,).is_none());
+        assert!(update(&mut state, Action::OpenReviewFromOverview, now).is_none());
         let Some(review) = state.review() else {
             panic!("raw review should be visible");
         };
@@ -628,7 +628,7 @@ mod tests {
             "api"
         );
 
-        assert!(update(&mut state, Action::OpenReviewFromOverview, now,).is_none());
+        assert!(update(&mut state, Action::OpenReviewFromOverview, now).is_none());
         assert!(update(&mut state, Action::ReturnToOverview, now).is_none());
         assert_eq!(
             state

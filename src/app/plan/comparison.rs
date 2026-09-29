@@ -163,7 +163,7 @@ fn object_value(
             markers
                 .into_iter()
                 .flat_map(BTreeMap::iter)
-                .filter(|(_, marker)| marker_contains_unknown(Some(marker)))
+                .filter(|(_, marker)| marker.marks_any())
                 .map(|(key, _)| key),
         )
         .collect();
@@ -199,7 +199,7 @@ fn array_value(
     };
     let marker_length = markers
         .iter()
-        .rposition(|marker| marker_contains_unknown(Some(marker)))
+        .rposition(PlanValue::marks_any)
         .map_or(0, |index| index + 1);
     let mut elements: Vec<_> = (0..values.len().max(marker_length))
         .map(|index| {

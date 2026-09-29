@@ -475,9 +475,7 @@ fn rows(overview: &EnvironmentOverview, filter: &str, expanded: &BTreeSet<GroupI
                     .map(|(index, cell)| {
                         let members: Vec<_> = children
                             .iter()
-                            .filter(|child| {
-                                matches!(child.cells[index].state, CellState::Change { .. })
-                            })
+                            .filter(|child| matches!(child.cells[index], CellState::Change { .. }))
                             .collect();
                         MatrixCell {
                             state: cell.state.clone(),
@@ -533,7 +531,7 @@ fn individual(row: &ComparisonRow, child: bool, selection: MatrixRowSelection) -
             .cells
             .iter()
             .map(|cell| MatrixCell {
-                state: cell.state.clone(),
+                state: cell.clone(),
                 members: vec![row.address.clone()],
             })
             .collect(),

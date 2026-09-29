@@ -310,8 +310,7 @@ fn attribute_value(
     AttributeValue {
         kind,
         original: value.cloned(),
-        unknown_marker: unknown_marker
-            .and_then(|marker| marker_contains_true(Some(marker)).then(|| marker.clone())),
+        unknown_marker: unknown_marker.filter(|marker| marker.marks_any()).cloned(),
         sensitive: is_sensitive,
     }
 }
@@ -472,7 +471,6 @@ mod tests {
             address: "aws_instance.example".to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,

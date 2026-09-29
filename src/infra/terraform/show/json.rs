@@ -244,7 +244,6 @@ fn parse_resource_change(
         address,
         provider: parse_optional_string(resource, "provider_name")?,
         resource_type: parse_optional_string(resource, "type")?,
-        resource_name: parse_optional_string(resource, "name")?,
         mode,
         actions: actions.clone(),
         kind,
@@ -622,7 +621,6 @@ mod tests {
         change.insert("before_sensitive".to_owned(), json!(false));
         change.insert("after_sensitive".to_owned(), json!({"id": false}));
         change.insert("after_unknown".to_owned(), json!({"id": true}));
-        change.insert("replace_paths".to_owned(), json!([["id"]]));
 
         let mut resource = Map::new();
         resource.insert("address".to_owned(), json!(address));
@@ -669,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_change_values_and_replacement_paths_for_follow_up_diffing() {
+    fn preserves_change_values_and_markers_for_follow_up_diffing() {
         let input = plan_with_resources(json!([resource(
             "aws_instance.api",
             "managed",
@@ -801,7 +799,6 @@ mod tests {
             Some("registry.terraform.io/hashicorp/example")
         );
         assert_eq!(change.resource_type.as_deref(), Some("example_server"));
-        assert_eq!(change.resource_name.as_deref(), Some("server"));
         assert_eq!(change.address, "module.api[\"blue\"].example.server[0]");
         assert!(change.before.is_some());
         assert!(change.after.is_some());
@@ -1062,8 +1059,7 @@ mod tests {
 
     #[test]
     fn accepts_null_optional_sections_from_terraform_show() {
-        let mut resource = resource("terraform_data.api", "managed", json!(["update"]));
-        resource["change"]["replace_paths"] = Value::Null;
+        let resource = resource("terraform_data.api", "managed", json!(["update"]));
 
         let input = json!({
             "format_version": "1.2",

@@ -769,7 +769,7 @@ mod tests {
     mod projection {
         use super::*;
         use crate::app::plan::{
-            OutputChange, PlanValue, ResourceChange, UnsupportedChange, UnsupportedChangeKind,
+            PlanValue, ResourceChange, UnsupportedChange, UnsupportedChangeKind,
             UnsupportedChangeScope,
             test_support::{output_change, resource_change},
         };
@@ -794,10 +794,6 @@ mod tests {
                 reason: None,
                 action_type: None,
             }
-        }
-
-        fn sensitive_no_op_output() -> OutputChange {
-            output_change("secret", PlanAction::NoOp)
         }
 
         #[test]
@@ -870,7 +866,7 @@ mod tests {
                     plan: Plan {
                         output_changes: vec![
                             output_change("endpoint", PlanAction::NoOp),
-                            sensitive_no_op_output(),
+                            output_change("secret", PlanAction::NoOp),
                         ],
                         ..Plan::empty()
                     },
@@ -881,7 +877,7 @@ mod tests {
                     plan: Plan {
                         output_changes: vec![
                             output_change("endpoint", PlanAction::Update),
-                            sensitive_no_op_output(),
+                            output_change("secret", PlanAction::NoOp),
                         ],
                         ..Plan::empty()
                     },
@@ -990,7 +986,7 @@ mod tests {
                         output_change("updated", PlanAction::Update),
                         output_change("deleted", PlanAction::Delete),
                         output_change("unchanged", PlanAction::NoOp),
-                        sensitive_no_op_output(),
+                        output_change("secret", PlanAction::NoOp),
                     ],
                     ..Plan::empty()
                 },
