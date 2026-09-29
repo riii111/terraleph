@@ -100,8 +100,8 @@ pub(crate) struct ResourceChange {
     pub(crate) before_sensitive: Option<PlanValue>,
     pub(crate) after_sensitive: Option<PlanValue>,
     pub(crate) after_unknown: Option<PlanValue>,
-    pub(crate) previous_address: Option<String>,
-    pub(crate) importing: Option<PlanValue>,
+    pub(crate) has_previous_address: bool,
+    pub(crate) has_importing: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -110,35 +110,6 @@ pub(crate) struct PlanSummary {
     pub(crate) updates: usize,
     pub(crate) replaces: usize,
     pub(crate) deletes: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnsupportedChangeScope {
-    Resource,
-    DeferredResource,
-    ActionInvocation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnsupportedChangeKind {
-    Read,
-    Move,
-    Import,
-    UnknownAction,
-    UnsupportedActions,
-    Deferred,
-    ActionInvocation,
-    DeferredActionInvocation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UnsupportedChange {
-    pub(crate) scope: UnsupportedChangeScope,
-    pub(crate) address: String,
-    pub(crate) actions: Vec<PlanAction>,
-    pub(crate) kind: UnsupportedChangeKind,
-    pub(crate) reason: Option<String>,
-    pub(crate) action_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,7 +122,7 @@ pub(crate) struct OutputChange {
 pub(crate) struct Plan {
     pub(crate) resource_changes: Vec<ResourceChange>,
     pub(crate) value_addresses: BTreeSet<String>,
-    pub(crate) unsupported_changes: Vec<UnsupportedChange>,
+    pub(crate) unsupported_change_count: usize,
     pub(crate) output_changes: Vec<OutputChange>,
     pub(crate) drifted_resources: Vec<String>,
 }
@@ -239,7 +210,7 @@ pub(crate) mod test_support {
             Self {
                 resource_changes: Vec::new(),
                 value_addresses: BTreeSet::new(),
-                unsupported_changes: Vec::new(),
+                unsupported_change_count: 0,
                 output_changes: Vec::new(),
                 drifted_resources: Vec::new(),
             }
@@ -279,8 +250,8 @@ pub(crate) mod test_support {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 }

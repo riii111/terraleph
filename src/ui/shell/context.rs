@@ -4,7 +4,9 @@ use ratatui::buffer::CellWidth;
 use ratatui::style::Style;
 use ratatui::text::Line;
 
-use crate::app::execution::{ExecutionContext, ExecutionContextValue, directory_display_name};
+use crate::app::execution::{
+    ExecutionContext, ExecutionContextValue, ToolVersion, directory_display_name,
+};
 
 pub(crate) fn target(path: &Path) -> String {
     directory_display_name(path)
@@ -25,12 +27,16 @@ pub(crate) fn relative_directory(path: &Path, launch_root: Option<&Path>) -> Str
         )
 }
 
+pub(crate) fn tool_label(context: &ExecutionContext) -> String {
+    match context.tool_version() {
+        ToolVersion::Known(version) => format!("{} {version}", context.tool_name()),
+        ToolVersion::Loading => format!("{} loading...", context.tool_name()),
+        ToolVersion::Unavailable => context.tool_name().to_owned(),
+    }
+}
+
 pub(crate) fn context_lines(context: &ExecutionContext) -> Vec<Line<'static>> {
     let workspace = match context.workspace() {
-        ExecutionContextValue::Known(value) => value.clone(),
-        ExecutionContextValue::Loading => "loading...".to_owned(),
-    };
-    let version = match context.tool_version() {
         ExecutionContextValue::Known(value) => value.clone(),
         ExecutionContextValue::Loading => "loading...".to_owned(),
     };
@@ -38,7 +44,7 @@ pub(crate) fn context_lines(context: &ExecutionContext) -> Vec<Line<'static>> {
         Line::from("Execution directory"),
         Line::from(format!("  {}", context.cwd_path().display())),
         Line::from(format!("Workspace: {workspace}")),
-        Line::from(format!("Tool: {} {version}", context.tool_name())),
+        Line::from(format!("Tool: {}", tool_label(context))),
         Line::from("Variable sources"),
     ];
     let sources = context.variable_sources();
@@ -123,7 +129,22 @@ fn take_from_end(value: &str, max_width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::app::execution::Tool;
+
     use super::*;
+
+    #[test]
+    fn tool_label_omits_the_version_only_when_it_is_unavailable() {
+        let loading = ExecutionContext::loading("/repo").with_tool(Tool::OpenTofu);
+        let known = loading
+            .clone()
+            .with_tool_version(Tool::OpenTofu, Some("1.10.0"));
+        let unavailable = loading.clone().with_tool_version(Tool::OpenTofu, None);
+
+        assert_eq!(tool_label(&loading), "tofu loading...");
+        assert_eq!(tool_label(&known), "tofu 1.10.0");
+        assert_eq!(tool_label(&unavailable), "tofu");
+    }
 
     #[test]
     fn middle_truncation_preserves_both_ends() {

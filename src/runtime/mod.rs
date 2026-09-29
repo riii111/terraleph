@@ -17,8 +17,7 @@ mod terminal;
 use crate::{
     app::{
         execution::{
-            ApplyStatus, ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionPhase,
-            ExecutionStage, ExecutionState, HistoryKey, Tool, VariableSources,
+            ApplyStatus, ExecutionContext, ExecutionState, HistoryKey, Tool, VariableSources,
         },
         plan::PlanSummary,
         review::{PlanReview, PlanReviewMessage},
@@ -282,12 +281,12 @@ fn review_exit(
             status,
             summary_line,
         }) => report_applied(status, summary_line.as_deref()),
-        Ok(SessionOutcome::Interrupted(phase)) => {
-            report_interrupted(phase);
+        Ok(SessionOutcome::Interrupted) => {
+            report_interrupted();
             ExitCode::from(INTERRUPTED)
         }
-        Ok(SessionOutcome::Failed(phase)) => {
-            report_error(&format!("{} failed.", phase.title()));
+        Ok(SessionOutcome::Failed(stage)) => {
+            report_error(&format!("{} failed.", stage.title()));
             ExitCode::from(EXECUTION_FAILURE)
         }
         Err(error) => {
@@ -388,12 +387,8 @@ fn report_terminated(signal: TerminationSignal) {
     let _ = writeln!(io::stderr(), "Stopped by {}.", signal.name());
 }
 
-fn report_interrupted(phase: ExecutionStage) {
-    let message = match phase {
-        ExecutionStage::Initializing => "Initialization cancelled.",
-        _ => "Plan cancelled.",
-    };
-    let _ = writeln!(io::stdout(), "{message}");
+fn report_interrupted() {
+    let _ = writeln!(io::stdout(), "Plan cancelled.");
 }
 
 // The saved plan outlives both workers: it is removed once, only after every worker that may
@@ -498,12 +493,6 @@ fn spawn_review_worker(
             let mut event_sink = |event| {
                 let _ = sender.send(PlanReviewMessage::Event(event));
             };
-            let mut phase_sink = |phase: ExecutionPhase| {
-                let _ = sender.send(PlanReviewMessage::Event(ExecutionEvent {
-                    received_at: Instant::now(),
-                    kind: ExecutionEventKind::Phase(phase),
-                }));
-            };
             match terraform::read_saved_plan_review(
                 tool,
                 &worker_display_root,
@@ -516,7 +505,6 @@ fn spawn_review_worker(
                 &worker_cancellation,
                 &terraform::SystemProcessRunner,
                 &mut event_sink,
-                &mut phase_sink,
             ) {
                 Ok(review) => {
                     let review = with_previous_durations(
@@ -745,7 +733,7 @@ mod tests {
         let mut apply_worker = idle_worker(&cancellation);
 
         let (ui_result, cleanup) = finish_review(
-            Ok(SessionOutcome::Interrupted(ExecutionStage::Initializing)),
+            Ok(SessionOutcome::Interrupted),
             &cancellation,
             &mut apply_worker,
             &mut plan_worker,
@@ -771,7 +759,7 @@ mod tests {
     #[test]
     fn apply_panic_takes_precedence_over_plan_panic_after_successful_ui() {
         let error = finalize_ui_result(
-            Ok(SessionOutcome::Interrupted(ExecutionStage::Initializing)),
+            Ok(SessionOutcome::Interrupted),
             &panic_join(),
             &panic_join(),
         )

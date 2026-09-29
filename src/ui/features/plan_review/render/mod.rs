@@ -15,7 +15,7 @@ use ratatui::{
 
 use crate::app::session::ReviewSessionState;
 use crate::ui::primitives::{
-    atoms::{scrollbar, separator},
+    atoms::{copy_flash, scrollbar, separator},
     molecules::terminal_notice,
 };
 use crate::ui::shell::{footer, header};
@@ -32,7 +32,7 @@ pub(crate) use layout::{
     environment_layout, layout, layout_with_quit_confirmation, overview_detail_layout,
 };
 
-use content::{PlanContent, flash_lines, visible_lines};
+use content::{PlanContent, visible_lines};
 use layout::layout_with_content;
 use overlay::render_overlay;
 use review_footer::review_footer_status;
@@ -221,7 +221,7 @@ fn render_for_navigation(
             .and_then(|selected| content.matches().get(selected)),
     );
     let lines = if state.copy_feedback().flash_active(now) {
-        flash_lines(&lines)
+        copy_flash::restyle_lines(&lines)
     } else {
         lines
     };

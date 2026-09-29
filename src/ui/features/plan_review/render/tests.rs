@@ -403,7 +403,7 @@ fn renders_long_target_header_and_preserves_position_for_overlays() {
         ExecutionContext::loading("/repo/environments/production/very-long-target-name-for-review")
             .with_launch_root("/repo")
             .with_workspace("default")
-            .with_tool_version(Tool::Terraform, "1.9.0")
+            .with_tool_version(Tool::Terraform, Some("1.9.0"))
             .with_variable_sources(VariableSources::new(
                 vec![PathBuf::from("/repo/environments/production/common.tfvars")],
                 vec![PathBuf::from("/repo/secrets/production.tfvars")],
@@ -670,7 +670,7 @@ fn renders_apply_help_and_context_with_only_confirmation_actions() {
         ExecutionContext::loading("/repo/environments/production/main")
             .with_launch_root("/repo")
             .with_workspace("default")
-            .with_tool_version(Tool::Terraform, "1.9.0"),
+            .with_tool_version(Tool::Terraform, Some("1.9.0")),
     );
     let state = confirmation_state(plan);
     for (width, height) in [(40, 16), (40, 24), (80, 24)] {

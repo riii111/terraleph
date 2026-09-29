@@ -14,7 +14,7 @@ use crate::app::{
 };
 use crate::ui::{
     primitives::{
-        atoms::{scrollbar, separator},
+        atoms::{copy_flash, focus_mark, scrollbar, separator},
         molecules::{context_dialog, help_dialog, terminal_notice},
     },
     shell::{context, environments as shell_environments, footer, header, layout as shell_layout},
@@ -171,7 +171,7 @@ pub(crate) fn render_with_quit_confirmation(
     );
 
     let lines = if state.copy_feedback().flash_active(now) {
-        copy_flash_lines(prepared_lines)
+        copy_flash::restyle_lines(prepared_lines)
     } else {
         prepared_lines
     };
@@ -343,10 +343,7 @@ fn render_changes_panel(
         .split_once(" · ")
         .expect("the changes pane title has an environment name");
     let title = Line::from(vec![
-        Span::styled(
-            if focused { "* " } else { "  " },
-            theme::relation_frame_style(focused),
-        ),
+        focus_mark::render(focused),
         Span::styled(pane_name.to_owned(), theme::overview_pane_title_style()),
         Span::styled(format!(" · {environment}"), theme::overview_muted_style()),
     ]);
@@ -480,13 +477,6 @@ fn action_style(action: &str) -> Style {
     } else {
         theme::overview_muted_style()
     }
-}
-
-fn copy_flash_lines(lines: Vec<Line<'static>>) -> Vec<Line<'static>> {
-    lines
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line.to_string(), theme::copy_flash_style())))
-        .collect()
 }
 
 fn footer_items(view: &OverviewViewState, content: &OverviewContent) -> Vec<(u8, Line<'static>)> {
@@ -725,8 +715,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         };
         Plan {
             resource_changes: addresses.into_iter().map(change).collect(),

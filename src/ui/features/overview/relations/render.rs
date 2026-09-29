@@ -14,7 +14,10 @@ use crate::{
         RelationNodeId, RelationSource, RelationUnresolvedReason, ResourceChangeKind,
     },
     ui::{
-        primitives::{atoms::scrollbar, molecules::help_dialog},
+        primitives::{
+            atoms::{focus_mark, scrollbar},
+            molecules::help_dialog,
+        },
         theme,
     },
 };
@@ -162,10 +165,7 @@ pub(crate) fn render(
 
 pub(crate) fn title_line(title: RelationGraphTitle<'_>, focused: bool) -> Line<'static> {
     let mut spans = vec![
-        Span::styled(
-            if focused { "* " } else { "  " },
-            theme::relation_frame_style(focused),
-        ),
+        focus_mark::render(focused),
         Span::styled(
             "[3] Relations",
             theme::overview_text_style().add_modifier(Modifier::BOLD),

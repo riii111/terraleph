@@ -16,22 +16,11 @@ pub(crate) struct EnvironmentSelection {
 }
 
 impl EnvironmentSelection {
-    pub(crate) fn new(
-        selected_indexes: Option<Vec<usize>>,
-        environment_count: usize,
-    ) -> Option<Self> {
-        let selected = selected_indexes.is_some();
+    /// The caller passes non-empty, unique, in-range indexes; the view keeps them so.
+    pub(crate) fn new(selected_indexes: Option<Vec<usize>>, environment_count: usize) -> Self {
         let mut indexes = selected_indexes.unwrap_or_else(|| (0..environment_count).collect());
-        if selected
-            && (indexes.is_empty() || indexes.iter().any(|index| *index >= environment_count))
-        {
-            return None;
-        }
         indexes.sort_unstable();
-        if indexes.windows(2).any(|pair| pair[0] == pair[1]) {
-            return None;
-        }
-        Some(Self { indexes })
+        Self { indexes }
     }
 
     pub(crate) fn indexes(&self) -> &[usize] {
@@ -84,10 +73,6 @@ pub(crate) fn compare_environments_for_selection(
     plans: &[EnvironmentPlan],
     selection: &EnvironmentSelection,
 ) -> EnvironmentComparison {
-    assert!(
-        selection.indexes().iter().all(|index| *index < plans.len()),
-        "environment selection indexes must belong to the compared plans"
-    );
     let reviews: Vec<_> = selection
         .indexes()
         .iter()
@@ -266,8 +251,8 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            previous_address: None,
-            importing: None,
+            has_previous_address: false,
+            has_importing: false,
         }
     }
 
@@ -370,7 +355,7 @@ mod tests {
     }
 
     fn compare_all(plans: &[EnvironmentPlan]) -> EnvironmentComparison {
-        let selection = EnvironmentSelection::new(None, plans.len()).unwrap();
+        let selection = EnvironmentSelection::new(None, plans.len());
         compare_environments_for_selection(plans, &selection)
     }
 
@@ -812,14 +797,9 @@ mod tests {
     }
 
     #[test]
-    fn selected_environment_indexes_must_be_nonempty_unique_and_in_range() {
-        assert!(EnvironmentSelection::new(Some(Vec::new()), 3).is_none());
-        assert!(EnvironmentSelection::new(Some(vec![0, 0]), 3).is_none());
-        assert!(EnvironmentSelection::new(Some(vec![3]), 3).is_none());
+    fn selected_environment_indexes_are_ordered() {
         assert_eq!(
-            EnvironmentSelection::new(Some(vec![2, 0]), 3)
-                .unwrap()
-                .indexes(),
+            EnvironmentSelection::new(Some(vec![2, 0]), 3).indexes(),
             [0, 2]
         );
     }
@@ -837,7 +817,7 @@ mod tests {
         complete_next(&mut session, review(vec![same.clone()], None));
         complete_next(&mut session, review(vec![outside, outside_only], None));
         complete_next(&mut session, review(vec![same], None));
-        let selection = EnvironmentSelection::new(Some(vec![2, 0]), session.plans().len()).unwrap();
+        let selection = EnvironmentSelection::new(Some(vec![2, 0]), session.plans().len());
 
         let comparison = compare_environments_for_selection(session.plans(), &selection);
 
@@ -866,8 +846,7 @@ mod tests {
         let run = session.start_next().unwrap();
         assert!(session.complete(run, PlanResult::Error("failed".to_owned()), Vec::new()));
         complete_next(&mut session, review(vec![right], None));
-        let selected_error =
-            EnvironmentSelection::new(Some(vec![1, 0]), session.plans().len()).unwrap();
+        let selected_error = EnvironmentSelection::new(Some(vec![1, 0]), session.plans().len());
 
         let comparison = compare_environments_for_selection(session.plans(), &selected_error);
 

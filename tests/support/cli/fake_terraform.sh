@@ -50,9 +50,6 @@ case "${TERRALEPH_FAKE_MODE:-}" in
 esac
 
 case "$1" in
-  version)
-    printf '%s\n' '{"terraform_version":"1.9.0"}'
-    ;;
   init)
     printf 'Initializing the backend...\n'
     printf 'Initializing provider plugins...\n' >&2

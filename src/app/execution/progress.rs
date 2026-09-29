@@ -235,8 +235,7 @@ impl ExecutionProgress {
                     self.append_log(EventStream::Stdout, &message, None);
                 }
             }
-            ExecutionEventKind::Phase(_)
-            | ExecutionEventKind::Workspace(_)
+            ExecutionEventKind::Workspace(_)
             | ExecutionEventKind::Informational { message: None, .. } => {}
             ExecutionEventKind::Terminated(termination) => self.termination = Some(termination),
         }

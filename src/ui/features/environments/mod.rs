@@ -251,8 +251,7 @@ impl EnvironmentView {
             },
         );
         let selection =
-            ComparisonSelection::new(self.selected_environments.clone(), state.plans().len())
-                .expect("the displayed comparison indexes form a valid selection");
+            ComparisonSelection::new(self.selected_environments.clone(), state.plans().len());
         if self.relation_revision != Some(state.revision())
             || self.relation_environments != selection.indexes()
         {
