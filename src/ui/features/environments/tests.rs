@@ -1834,7 +1834,7 @@ mod apply {
         .with_context(
             ExecutionContext::loading(format!("/synthetic/{name}"))
                 .with_workspace("default")
-                .with_tool_version(Tool::Terraform, "1.9.0"),
+                .with_tool_version(Tool::Terraform, Some("1.9.0")),
         )
     }
 

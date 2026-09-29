@@ -213,13 +213,6 @@ pub(crate) fn read_saved_plan_review(
     runner: &dyn ProcessRunner,
     event_sink: &mut dyn FnMut(ExecutionEvent),
 ) -> Result<PlanReview, TerraformExecutionError> {
-    let version = super::version::read_version_with_arguments(
-        tool,
-        launch_root,
-        global_arguments,
-        cancellation,
-        runner,
-    )?;
     let workspace =
         read_workspace_with_arguments(tool, launch_root, global_arguments, cancellation, runner)?;
     event_sink(ExecutionEvent {
@@ -256,7 +249,7 @@ pub(crate) fn read_saved_plan_review(
         runner,
     )?;
     let context = initial_context
-        .with_tool_version(tool, version)
+        .with_tool_version(tool, metadata.tool_version())
         .with_workspace(workspace.clone());
     let review = PlanReview::new(
         display_root.to_owned(),

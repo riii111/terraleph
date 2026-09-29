@@ -13,7 +13,6 @@ pub(crate) mod hcl;
 pub(crate) mod init;
 mod plan;
 mod show;
-mod version;
 mod workspace;
 
 pub(crate) use apply::run_apply_with_arguments;

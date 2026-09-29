@@ -14,7 +14,15 @@ pub(super) fn metadata_from_document(
             .and_then(Value::as_bool)
             .unwrap_or(detailed_exit_has_changes);
 
-    PlanMetadata::new(applyable).with_sensitive_values(sensitive_values(root))
+    let tool_version = root
+        .get("terraform_version")
+        .and_then(Value::as_str)
+        .filter(|version| !version.is_empty())
+        .map(str::to_owned);
+
+    PlanMetadata::new(applyable)
+        .with_tool_version(tool_version)
+        .with_sensitive_values(sensitive_values(root))
 }
 
 fn sensitive_values(root: &Map<String, Value>) -> Vec<SensitiveValue> {
@@ -166,6 +174,47 @@ mod tests {
             let metadata = parse_metadata(&case.document, case.detailed_exit_has_changes);
 
             assert_eq!(metadata.applyable(), case.expected, "case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn reads_the_tool_version_only_when_it_is_a_non_empty_string() {
+        struct VersionCase {
+            name: &'static str,
+            document: Value,
+            expected: Option<&'static str>,
+        }
+
+        for case in [
+            VersionCase {
+                name: "string",
+                document: json!({"format_version": "1.0", "terraform_version": "1.9.0"}),
+                expected: Some("1.9.0"),
+            },
+            VersionCase {
+                name: "missing",
+                document: json!({"format_version": "1.0"}),
+                expected: None,
+            },
+            VersionCase {
+                name: "empty",
+                document: json!({"format_version": "1.0", "terraform_version": ""}),
+                expected: None,
+            },
+            VersionCase {
+                name: "not_a_string",
+                document: json!({"format_version": "1.0", "terraform_version": 1}),
+                expected: None,
+            },
+        ] {
+            let metadata = parse_metadata(&case.document, true);
+
+            assert_eq!(
+                metadata.tool_version(),
+                case.expected,
+                "case: {}",
+                case.name
+            );
         }
     }
 

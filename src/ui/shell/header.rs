@@ -13,7 +13,9 @@ use crate::app::{
 use crate::ui::theme;
 
 use super::changes;
-use super::context::{display_width, relative_directory, take_from_start, target, truncate_middle};
+use super::context::{
+    display_width, relative_directory, take_from_start, target, tool_label, truncate_middle,
+};
 
 const REVIEW_HEADER_SEPARATOR: &str = " ";
 const PRODUCTION_SUFFIX: &str = " [PROD]";
@@ -110,14 +112,10 @@ fn review_header_values(review: &PlanReview) -> [String; 4] {
         ExecutionContextValue::Known(value) => value.as_str(),
         ExecutionContextValue::Loading => review.workspace(),
     };
-    let version = match context.tool_version() {
-        ExecutionContextValue::Known(value) => value.as_str(),
-        ExecutionContextValue::Loading => "loading...",
-    };
     [
         target_name,
         workspace.to_owned(),
-        format!("{} {version}", context.tool_name()),
+        tool_label(context),
         relative_directory(context.cwd_path(), context.launch_root_path()),
     ]
 }
