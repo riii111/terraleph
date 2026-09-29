@@ -5,31 +5,25 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::context::truncate_middle;
 use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
         execution::{ToolVersion, directory_display_name},
         session::SessionState,
     },
-    ui::theme,
+    ui::{primitives::atoms::ready_mark, shell::context::truncate_middle, theme},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EnvironmentPane {
+pub(super) enum EnvironmentPane {
     Environments,
     Matrix,
     Relations,
 }
 
-// Every marker keeps two columns so the status words line up.
-pub(crate) fn ready_marker() -> Span<'static> {
-    Span::styled("✓ ", theme::overview_total_add_style())
-}
-
-pub(crate) fn status_marker(state: &EnvironmentState) -> Span<'static> {
+pub(super) fn status_marker(state: &EnvironmentState) -> Span<'static> {
     match state {
-        EnvironmentState::Ready { .. } => ready_marker(),
+        EnvironmentState::Ready { .. } => ready_mark::render(),
         EnvironmentState::Error => Span::styled("✗ ", theme::overview_total_destroy_style()),
         EnvironmentState::Pending | EnvironmentState::Running | EnvironmentState::ExcludedHcp => {
             Span::styled("  ", theme::overview_muted_style())
@@ -37,7 +31,7 @@ pub(crate) fn status_marker(state: &EnvironmentState) -> Span<'static> {
     }
 }
 
-pub(crate) fn status_style(state: &EnvironmentState) -> ratatui::style::Style {
+pub(super) fn status_style(state: &EnvironmentState) -> ratatui::style::Style {
     match state {
         EnvironmentState::Pending | EnvironmentState::Running => theme::overview_muted_style(),
         EnvironmentState::Ready { .. } => theme::overview_text_style(),
@@ -47,28 +41,28 @@ pub(crate) fn status_style(state: &EnvironmentState) -> ratatui::style::Style {
 }
 
 #[derive(Default)]
-pub(crate) struct EnvironmentSelection {
-    pub(crate) column: usize,
-    pub(crate) raw: Option<usize>,
+pub(super) struct EnvironmentSelection {
+    pub(super) column: usize,
+    pub(super) raw: Option<usize>,
 }
 
-pub(crate) struct EnvironmentLayout {
-    pub(crate) header: Rect,
-    pub(crate) summary: Rect,
-    pub(crate) body: Rect,
-    pub(crate) footer: Rect,
-    pub(crate) environments: Rect,
-    pub(crate) matrix: Rect,
-    pub(crate) relations: Rect,
+pub(super) struct EnvironmentLayout {
+    pub(super) header: Rect,
+    pub(super) summary: Rect,
+    pub(super) body: Rect,
+    pub(super) footer: Rect,
+    pub(super) environments: Rect,
+    pub(super) matrix: Rect,
+    pub(super) relations: Rect,
 }
 
 impl EnvironmentSelection {
-    pub(crate) fn active(&self) -> usize {
+    pub(super) fn active(&self) -> usize {
         self.raw.unwrap_or(self.column)
     }
 }
 
-pub(crate) fn overview_layout(
+pub(super) fn overview_layout(
     area: Rect,
     sidebar_width: u16,
     sidebar_visible: bool,
@@ -139,7 +133,7 @@ pub(crate) fn overview_layout(
     }
 }
 
-pub(crate) fn sidebar_width(plans: &[EnvironmentPlan]) -> u16 {
+pub(super) fn sidebar_width(plans: &[EnvironmentPlan]) -> u16 {
     let widest_row = plans
         .iter()
         .map(|plan| {
@@ -154,7 +148,7 @@ pub(crate) fn sidebar_width(plans: &[EnvironmentPlan]) -> u16 {
     u16::try_from(widest_row).unwrap_or(41)
 }
 
-pub(crate) fn render_header(
+pub(super) fn render_header(
     frame: &mut Frame<'_>,
     area: Rect,
     state: &EnvironmentSession,
@@ -203,7 +197,7 @@ pub(crate) fn render_header(
     );
 }
 
-pub(crate) fn context(plan: &EnvironmentPlan) -> String {
+pub(super) fn context(plan: &EnvironmentPlan) -> String {
     format!(
         "{}   ws:{}\nDirectory: {}",
         plan.tool.display_name(),
@@ -212,7 +206,7 @@ pub(crate) fn context(plan: &EnvironmentPlan) -> String {
     )
 }
 
-pub(crate) const fn status(plan: &EnvironmentPlan) -> &'static str {
+pub(super) const fn status(plan: &EnvironmentPlan) -> &'static str {
     match plan.state() {
         EnvironmentState::Pending => "Pending",
         EnvironmentState::Running => "Running",

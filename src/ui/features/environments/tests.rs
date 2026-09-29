@@ -674,17 +674,13 @@ mod layout {
 
     #[test]
     fn environment_layout_reserves_the_sidebar_and_four_six_right_panes() {
-        let layout = environments::overview_layout(
-            ratatui::layout::Rect::new(0, 0, 160, 53),
-            41,
-            true,
-            None,
-        );
+        let layout =
+            shell::overview_layout(ratatui::layout::Rect::new(0, 0, 160, 53), 41, true, None);
         assert_eq!(layout.environments.width, 41);
         assert_eq!(layout.matrix.height, 20);
         assert_eq!(layout.relations.height, 30);
 
-        assert_eq!(environments::sidebar_width(partial_session().plans()), 24);
+        assert_eq!(shell::sidebar_width(partial_session().plans()), 24);
 
         let ordinary_name = "x".repeat(20);
         let ordinary = EnvironmentSession::new(
@@ -697,7 +693,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(ordinary.plans()), 24);
+        assert_eq!(shell::sidebar_width(ordinary.plans()), 24);
 
         let production_name = format!("prod-{}", "x".repeat(15));
         let production = EnvironmentSession::new(
@@ -710,7 +706,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(production.plans()), 30);
+        assert_eq!(shell::sidebar_width(production.plans()), 30);
 
         let mixed = EnvironmentSession::new(
             vec![
@@ -731,7 +727,7 @@ mod layout {
             ],
             false,
         );
-        assert_eq!(environments::sidebar_width(mixed.plans()), 30);
+        assert_eq!(shell::sidebar_width(mixed.plans()), 30);
 
         let name = "x".repeat(60);
         let state = EnvironmentSession::new(
@@ -744,7 +740,7 @@ mod layout {
             }],
             false,
         );
-        assert_eq!(environments::sidebar_width(state.plans()), 41);
+        assert_eq!(shell::sidebar_width(state.plans()), 41);
     }
 
     #[test]

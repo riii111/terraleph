@@ -1,4 +1,6 @@
+mod matrix;
 mod render;
+mod shell;
 mod sidebar;
 
 use std::ops::ControlFlow;
@@ -6,11 +8,12 @@ use std::ops::ControlFlow;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Size;
 
+use self::{
+    matrix::{MatrixCell, MatrixSelectedItem, MatrixView},
+    shell::{EnvironmentPane, EnvironmentSelection},
+};
 use super::{
-    overview::{
-        self, OverviewInput,
-        matrix::{MatrixCell, MatrixSelectedItem, MatrixView},
-    },
+    overview::{self, OverviewInput},
     plan_review::{self, PlanReviewInput, PlanReviewViewState},
 };
 use crate::{
@@ -27,12 +30,9 @@ use crate::{
         session::{Action, ReviewSessionState},
     },
     ui::{
-        QuitConfirmationInput,
-        features::overview::relations::RelationGraphScroll,
-        input::normalize_key,
-        primitives::molecules::dialog_scroll::DialogScroll,
+        QuitConfirmationInput, features::overview::relations::RelationGraphScroll,
+        input::normalize_key, primitives::molecules::dialog_scroll::DialogScroll,
         quit_confirmation_key_to_input,
-        shell::environments::{self, EnvironmentPane, EnvironmentSelection},
     },
 };
 
@@ -225,7 +225,7 @@ impl EnvironmentView {
             return;
         }
         self.sidebar_enabled = state.plans().len() > 1;
-        self.sidebar_width = environments::sidebar_width(state.plans());
+        self.sidebar_width = shell::sidebar_width(state.plans());
         self.sidebar = if self.sidebar_enabled && size.width >= 90 {
             SidebarSetting::Open
         } else {
@@ -705,8 +705,8 @@ impl EnvironmentView {
             self.show_dialog(format!(
                 "{}: {}\n{}\n{}\n\nEsc close   r retries Error after closing",
                 plan.display_name(),
-                environments::status(plan),
-                environments::context(plan),
+                shell::status(plan),
+                shell::context(plan),
                 if matches!(plan.state(), EnvironmentState::Error) {
                     plan.diagnostic().text().to_owned()
                 } else {
@@ -825,10 +825,7 @@ impl EnvironmentView {
 
     fn show_context(&mut self, state: &EnvironmentSession) {
         if let Some(plan) = state.plans().get(self.selection.column) {
-            self.show_dialog(format!(
-                "Context\n{}\n\nEsc close",
-                environments::context(plan)
-            ));
+            self.show_dialog(format!("Context\n{}\n\nEsc close", shell::context(plan)));
         }
     }
 

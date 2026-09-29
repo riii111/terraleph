@@ -6,16 +6,13 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use super::shell;
 use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentState},
         plan::PlanSummary,
     },
-    ui::{
-        primitives::atoms::focus_mark,
-        shell::{context::take_from_start, environments},
-        theme,
-    },
+    ui::{primitives::atoms::focus_mark, shell::context::take_from_start, theme},
 };
 
 #[derive(Clone, Copy)]
@@ -204,14 +201,14 @@ fn status_line(plan: &EnvironmentPlan, width: u16) -> Line<'static> {
     let status = if matches!(plan.state(), EnvironmentState::ExcludedHcp) {
         "Excluded"
     } else {
-        environments::status(plan)
+        shell::status(plan)
     };
     Line::from(vec![
         Span::styled("    ", theme::overview_text_style()),
-        environments::status_marker(plan.state()),
+        shell::status_marker(plan.state()),
         Span::styled(
             take_from_start(status, usize::from(width).saturating_sub(6)),
-            environments::status_style(plan.state()),
+            shell::status_style(plan.state()),
         ),
     ])
 }
