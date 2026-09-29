@@ -89,7 +89,7 @@ pub(crate) fn display_width(value: &str) -> usize {
         .sum()
 }
 
-pub(super) fn take_from_start(value: &str, max_width: usize) -> String {
+pub(crate) fn take_from_start(value: &str, max_width: usize) -> String {
     let mut result = String::new();
     let mut width = 0;
     for grapheme in Line::from(value).styled_graphemes(Style::default()) {
@@ -129,5 +129,12 @@ mod tests {
     fn middle_truncation_preserves_both_ends() {
         assert_eq!(truncate_middle("abcdef", 5), "a...f");
         assert_eq!(truncate_middle("abcdef", 3), "...");
+    }
+
+    #[test]
+    fn start_truncation_keeps_zwj_emoji_together() {
+        let name = format!("{}👩‍💻tail", "a".repeat(31));
+
+        assert_eq!(take_from_start(&name, 33), format!("{}👩‍💻", "a".repeat(31)));
     }
 }

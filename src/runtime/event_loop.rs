@@ -303,10 +303,6 @@ fn reconcile_resize(
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the key dispatcher keeps the existing review and apply paths together"
-)]
 fn handle_key_event<B: Backend>(
     terminal: &Terminal<B>,
     state: &SessionState,
@@ -321,17 +317,12 @@ fn handle_key_event<B: Backend>(
 
     if state.apply_confirmation().is_some() {
         if confirmation_view.overlay().is_some() {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('?') => confirmation_view.close_overlay(),
-                KeyCode::Up | KeyCode::Char('k') => confirmation_view.scroll_overlay(-1),
-                KeyCode::Down | KeyCode::Char('j') => confirmation_view.scroll_overlay(1),
-                KeyCode::PageUp => confirmation_view.scroll_overlay(-8),
-                KeyCode::PageDown => confirmation_view.scroll_overlay(8),
-                KeyCode::Left | KeyCode::Char('h') => confirmation_view.scroll_overlay_left(),
-                KeyCode::Right | KeyCode::Char('l') => confirmation_view.scroll_overlay_right(),
-                KeyCode::Home => confirmation_view.overlay_top(),
-                KeyCode::End => confirmation_view.overlay_bottom(),
-                _ => {}
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                confirmation_view.close_overlay();
+            } else {
+                confirmation_view
+                    .overlay_scroll_mut()
+                    .handle_key(key.code, 8);
             }
             return Ok(None);
         }
@@ -363,17 +354,10 @@ fn handle_key_event<B: Backend>(
         return Ok(None);
     };
     if review_view.overlay().is_some() {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('?') => review_view.close_overlay(),
-            KeyCode::Up | KeyCode::Char('k') => review_view.scroll_overlay(-1),
-            KeyCode::Down | KeyCode::Char('j') => review_view.scroll_overlay(1),
-            KeyCode::PageUp => review_view.scroll_overlay(-8),
-            KeyCode::PageDown => review_view.scroll_overlay(8),
-            KeyCode::Left | KeyCode::Char('h') => review_view.scroll_overlay_left(),
-            KeyCode::Right | KeyCode::Char('l') => review_view.scroll_overlay_right(),
-            KeyCode::Home => review_view.overlay_top(),
-            KeyCode::End => review_view.overlay_bottom(),
-            _ => {}
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+            review_view.close_overlay();
+        } else {
+            review_view.overlay_scroll_mut().handle_key(key.code, 8);
         }
         return Ok(None);
     }
@@ -432,19 +416,11 @@ fn handle_overview_key_event<B: Backend>(
     key: KeyEvent,
 ) -> Result<Option<Action>, B::Error> {
     if review_view.overview().overlay().is_some() {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('?') => review_view.overview_mut().close_overlay(),
-            KeyCode::Up | KeyCode::Char('k') => review_view.overview_mut().scroll_overlay(-1),
-            KeyCode::Down | KeyCode::Char('j') => review_view.overview_mut().scroll_overlay(1),
-            KeyCode::PageUp => review_view.overview_mut().scroll_overlay(-8),
-            KeyCode::PageDown => review_view.overview_mut().scroll_overlay(8),
-            KeyCode::Left | KeyCode::Char('h') => review_view.overview_mut().scroll_overlay_left(),
-            KeyCode::Right | KeyCode::Char('l') => {
-                review_view.overview_mut().scroll_overlay_right();
-            }
-            KeyCode::Home => review_view.overview_mut().overlay_top(),
-            KeyCode::End => review_view.overview_mut().overlay_bottom(),
-            _ => {}
+        let overview = review_view.overview_mut();
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+            overview.close_overlay();
+        } else {
+            overview.overlay_scroll_mut().handle_key(key.code, 8);
         }
         return Ok(None);
     }
@@ -479,10 +455,10 @@ fn handle_overview_key_event<B: Backend>(
         jump_to_overview_address(terminal, review_view, overview_state, address.as_deref())?;
     }
     Ok(command.map(|command| match command {
-        overview::OverviewCommand::Open(address) => Action::OpenReviewFromOverview { address },
+        overview::OverviewCommand::Open(_) => Action::OpenReviewFromOverview,
         overview::OverviewCommand::ViewPlan | overview::OverviewCommand::Back => {
             review_view.jump_to_line(0, usize::MAX);
-            Action::OpenReviewFromOverview { address: None }
+            Action::OpenReviewFromOverview
         }
         overview::OverviewCommand::Copy => Action::Copy(CopyTarget::Plan),
         overview::OverviewCommand::Quit => Action::Quit,

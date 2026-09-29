@@ -3,8 +3,7 @@ use std::{cell::Cell, collections::BTreeSet};
 use ratatui::layout::Rect;
 
 use crate::app::{
-    environments::overview::SingleOverviewMember,
-    plan::{PlanAction, RelationNodeId, ResourceChangeKind},
+    plan::{PlanAction, RelationNodeId, ResourceChangeKind, grouping::GroupMember},
     session::ReviewSessionState,
 };
 use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input};
@@ -522,24 +521,8 @@ impl OverviewViewState {
         &self.overlay_scroll
     }
 
-    pub(crate) fn scroll_overlay(&mut self, delta: i16) {
-        self.overlay_scroll.scroll_by(delta);
-    }
-
-    pub(crate) fn scroll_overlay_left(&mut self) {
-        self.overlay_scroll.scroll_left();
-    }
-
-    pub(crate) fn scroll_overlay_right(&mut self) {
-        self.overlay_scroll.scroll_right();
-    }
-
-    pub(crate) const fn overlay_top(&mut self) {
-        self.overlay_scroll.top();
-    }
-
-    pub(crate) const fn overlay_bottom(&mut self) {
-        self.overlay_scroll.bottom();
+    pub(crate) const fn overlay_scroll_mut(&mut self) -> &mut DialogScroll {
+        &mut self.overlay_scroll
     }
 
     pub(crate) const fn close_overlay(&mut self) {
@@ -557,7 +540,7 @@ impl OverviewViewState {
     }
 }
 
-fn action_text(change: &SingleOverviewMember) -> String {
+fn action_text(change: &GroupMember) -> String {
     let symbol = match change.kind {
         ResourceChangeKind::Create => "+",
         ResourceChangeKind::Update => "~",
@@ -601,7 +584,6 @@ mod tests {
             address: "terraform_data.unchanged".to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::NoOp],
             kind: ResourceChangeKind::NoOp,
@@ -610,8 +592,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         };
@@ -627,7 +607,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -642,8 +621,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

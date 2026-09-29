@@ -16,49 +16,28 @@ use super::address::{
     AddressIndex, ModuleAddressSegment, ResourceAddress, format_resource_address,
     parse_module_address, parse_resource_address,
 };
-use super::command::{
-    ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, interrupted_error,
-    non_zero_error, run_command,
-};
+use super::command::{ProcessRunner, TerraformCommand, TerraformExecutionError, run_successful};
 
-pub(super) enum StateReadError {
-    Execution(TerraformExecutionError),
-    InvalidFormat,
-}
-
+// A state that is read but cannot be parsed is `None`.
 pub(super) fn read_state_with_arguments(
     tool: Tool,
     root: &Path,
     global_arguments: &[OsString],
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
-) -> Result<Vec<RelationEvidence>, StateReadError> {
+) -> Result<Option<Vec<RelationEvidence>>, TerraformExecutionError> {
     let mut arguments = global_arguments.to_vec();
     arguments.extend([OsString::from("state"), OsString::from("pull")]);
-    let output = run_command(
+    let output = run_successful(
         tool,
         root,
         TerraformCommand::StatePull,
         &arguments,
         cancellation,
         runner,
-    )
-    .map_err(StateReadError::Execution)?;
-    if output.interrupted {
-        return Err(StateReadError::Execution(interrupted_error(
-            tool,
-            TerraformCommand::StatePull,
-            output,
-        )));
-    }
-    if !output.status.is_some_and(ProcessStatus::is_success) {
-        return Err(StateReadError::Execution(non_zero_error(
-            tool,
-            TerraformCommand::StatePull,
-            output,
-        )));
-    }
-    parse_state(&output.output.stdout).ok_or(StateReadError::InvalidFormat)
+        None,
+    )?;
+    Ok(parse_state(&output.stdout))
 }
 
 fn parse_state(input: &[u8]) -> Option<Vec<RelationEvidence>> {
@@ -270,7 +249,7 @@ mod tests {
 
     use serde_json::json;
 
-    use crate::infra::terraform::command::{ProcessOutput, RunningProcess};
+    use crate::infra::terraform::command::{ProcessOutput, ProcessStatus, RunningProcess};
 
     use super::*;
 
@@ -518,7 +497,7 @@ mod tests {
         let root = Path::new("/workspace with spaces");
         let arguments = [OsString::from("-chdir=/workspace with spaces")];
 
-        let Ok(relations) = read_state_with_arguments(
+        let Ok(Some(relations)) = read_state_with_arguments(
             Tool::OpenTofu,
             root,
             &arguments,
@@ -547,7 +526,7 @@ mod tests {
     fn state_pull_failure_does_not_expose_process_output() {
         let runner = runner(b"synthetic-secret state data", ProcessStatus::Exited(1));
 
-        let Err(StateReadError::Execution(error)) = read_state_with_arguments(
+        let Err(error) = read_state_with_arguments(
             Tool::Terraform,
             Path::new("/workspace"),
             &[],
@@ -572,7 +551,7 @@ mod tests {
             &runner,
         );
 
-        assert!(matches!(result, Err(StateReadError::InvalidFormat)));
+        assert!(matches!(result, Ok(None)));
     }
 
     #[test]
@@ -589,7 +568,7 @@ mod tests {
             &runner,
         );
 
-        assert!(matches!(result, Err(StateReadError::Execution(error)) if error.is_interrupted()));
+        assert!(matches!(result, Err(error) if error.is_interrupted()));
         assert_eq!(runner.interrupts.get(), 1);
         assert_eq!(runner.waits.get(), 1);
     }

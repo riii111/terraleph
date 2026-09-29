@@ -244,24 +244,8 @@ impl PlanReviewViewState {
         self.selected = None;
     }
 
-    pub(crate) fn scroll_overlay(&mut self, delta: i16) {
-        self.overlay_scroll.scroll_by(delta);
-    }
-
-    pub(crate) fn scroll_overlay_left(&mut self) {
-        self.overlay_scroll.scroll_left();
-    }
-
-    pub(crate) fn scroll_overlay_right(&mut self) {
-        self.overlay_scroll.scroll_right();
-    }
-
-    pub(crate) const fn overlay_top(&mut self) {
-        self.overlay_scroll.top();
-    }
-
-    pub(crate) const fn overlay_bottom(&mut self) {
-        self.overlay_scroll.bottom();
+    pub(crate) const fn overlay_scroll_mut(&mut self) -> &mut DialogScroll {
+        &mut self.overlay_scroll
     }
 
     pub(crate) const fn close_overlay(&mut self) {
@@ -887,7 +871,7 @@ mod tests {
         assert_eq!(view.overlay(), Some(PlanReviewOverlay::Help));
         assert_eq!(view.scroll(), position);
         assert_eq!(view.selected(), selected);
-        view.scroll_overlay(3);
+        view.overlay_scroll_mut().scroll_by(3);
         assert_eq!(view.overlay_scroll().offset_for_test(), 3);
         view.close_overlay();
         assert_eq!(view.overlay(), None);

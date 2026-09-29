@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    AttributeType, PlanAction, ProviderSchemas, ResourceChange, ResourceSchema,
+    AttributeType, PlanAction, ProviderSchemas, RelationNodeId, ResourceChange, ResourceChangeKind,
     attribute_diff::{
         AttributeChangeKind, AttributeDiff, AttributePathSegment, GroupingValue, UnknownShape,
         diff_resource_attributes,
@@ -13,8 +13,28 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChangeGroup {
     pub(crate) display_address: String,
-    pub(crate) members: Vec<ResourceChange>,
+    pub(crate) members: Vec<GroupMember>,
     pub(crate) has_unknown: bool,
+    /// The node every changed member maps to. Only `SingleEnvironmentOverview` fills it;
+    /// it stays `None` everywhere else.
+    pub(crate) node_id: Option<RelationNodeId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GroupMember {
+    pub(crate) address: String,
+    pub(crate) kind: ResourceChangeKind,
+    pub(crate) actions: Vec<PlanAction>,
+}
+
+impl From<&ResourceChange> for GroupMember {
+    fn from(change: &ResourceChange) -> Self {
+        Self {
+            address: change.address.clone(),
+            kind: change.kind,
+            actions: change.actions.clone(),
+        }
+    }
 }
 
 impl ChangeGroup {
@@ -87,7 +107,7 @@ pub(in crate::app) fn group_resource_changes(
         let has_unknown = bucket.iter().any(|candidate| candidate.has_unknown);
         let mut members = bucket
             .into_iter()
-            .map(|candidate| candidate.change.clone())
+            .map(|candidate| GroupMember::from(candidate.change))
             .collect::<Vec<_>>();
         members.sort_by(|left, right| left.address.cmp(&right.address));
         groups.push(LocatedGroup {
@@ -96,6 +116,7 @@ pub(in crate::app) fn group_resource_changes(
                 display_address,
                 members,
                 has_unknown,
+                node_id: None,
             },
         });
     }
@@ -181,8 +202,9 @@ struct LocatedGroup {
 fn single_group(change: &ResourceChange) -> ChangeGroup {
     ChangeGroup {
         display_address: change.address.clone(),
-        members: vec![change.clone()],
+        members: vec![GroupMember::from(change)],
         has_unknown: false,
+        node_id: None,
     }
 }
 
@@ -264,7 +286,7 @@ fn dynamic_scalar_unknown_type<'a>(
         return None;
     }
 
-    let attribute_type = resource_schema(change, schemas)?.attributes.get(name)?;
+    let attribute_type = schemas?.resource(change)?.attributes.get(name)?;
     matches!(attribute_type, AttributeType::Dynamic).then_some(attribute_type)
 }
 
@@ -276,7 +298,7 @@ fn grouping_attribute_type<'a>(
     let [AttributePathSegment::Key(name), rest @ ..] = path else {
         return None;
     };
-    let schema = resource_schema(change, schemas)?;
+    let schema = schemas?.resource(change)?;
     let mut attribute_type = schema
         .attributes
         .get(name)
@@ -335,22 +357,9 @@ fn is_simple_map_attribute(
     attribute_name: &str,
     schemas: Option<&ProviderSchemas>,
 ) -> bool {
-    resource_schema(change, schemas)
-        .and_then(|schema| schema.attributes.get(attribute_name))
+    schemas
+        .and_then(|schemas| schemas.resource(change)?.attributes.get(attribute_name))
         .is_some_and(AttributeType::is_simple_map)
-}
-
-fn resource_schema<'a>(
-    change: &ResourceChange,
-    schemas: Option<&'a ProviderSchemas>,
-) -> Option<&'a ResourceSchema> {
-    let provider = change.provider.as_ref()?;
-    let resource_type = change.resource_type.as_ref()?;
-    schemas?
-        .providers
-        .get(provider)?
-        .resources
-        .get(resource_type)
 }
 
 fn has_duplicate_addresses(bucket: &[Candidate<'_>]) -> bool {
@@ -365,7 +374,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::app::plan::{PlanValue, ProviderSchema, ResourceChangeKind, ResourceMode};
+    use crate::app::plan::{PlanValue, ProviderSchema, ResourceMode, ResourceSchema};
 
     fn plan_value(value: Value) -> PlanValue {
         match value {
@@ -388,7 +397,6 @@ mod tests {
             address: address.to_owned(),
             provider: None,
             resource_type: None,
-            resource_name: None,
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -397,8 +405,6 @@ mod tests {
             before_sensitive: Some(PlanValue::Bool(false)),
             after_sensitive: Some(PlanValue::Bool(false)),
             after_unknown: Some(PlanValue::Bool(false)),
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }

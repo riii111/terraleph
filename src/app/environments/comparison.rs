@@ -48,22 +48,16 @@ pub(crate) struct EnvironmentComparison {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ComparisonScope {
     Waiting,
-    Partial { compared: Vec<usize> },
-    All { compared: Vec<usize> },
+    Partial,
+    All,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ComparisonRow {
     pub(crate) address: String,
-    pub(crate) cells: Vec<ComparisonCell>,
+    pub(crate) cells: Vec<CellState>,
     pub(crate) difference: Option<DifferenceReason>,
     pub(crate) has_unknown: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ComparisonCell {
-    pub(crate) state: CellState,
-    pub(crate) source: Option<SourceReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,12 +69,6 @@ pub(crate) enum CellState {
     NoOp,
     Missing,
     Unavailable,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SourceReference {
-    pub(crate) environment: usize,
-    pub(crate) line: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -105,18 +93,13 @@ pub(crate) fn compare_environments_for_selection(
         .iter()
         .map(|index| plans[*index].review().map(ReviewSessionState::review))
         .collect();
-    let compared: Vec<_> = selection
-        .indexes()
-        .iter()
-        .zip(&reviews)
-        .filter_map(|(index, review)| review.as_ref().map(|_| *index))
-        .collect();
-    let scope = if compared.is_empty() {
+    let compared = reviews.iter().flatten().count();
+    let scope = if compared == 0 {
         ComparisonScope::Waiting
-    } else if compared.len() == selection.indexes().len() {
-        ComparisonScope::All { compared }
+    } else if compared == reviews.len() {
+        ComparisonScope::All
     } else {
-        ComparisonScope::Partial { compared }
+        ComparisonScope::Partial
     };
     let resources: Vec<BTreeMap<_, _>> = reviews
         .iter()
@@ -140,9 +123,8 @@ pub(crate) fn compare_environments_for_selection(
             let cells: Vec<_> = reviews
                 .iter()
                 .zip(&resources)
-                .zip(selection.indexes())
-                .map(|((review, resources), index)| {
-                    comparison_cell(*index, address, *review, resources.get(address).copied())
+                .map(|(review, resources)| {
+                    comparison_cell(address, *review, resources.get(address).copied())
                 })
                 .collect();
             let difference = difference_reason(address, &reviews, &resources, &cells);
@@ -169,18 +151,14 @@ pub(crate) fn compare_environments_for_selection(
 }
 
 fn comparison_cell(
-    index: usize,
     address: &str,
     review: Option<&PlanReview>,
     resource: Option<&ResourceChange>,
-) -> ComparisonCell {
+) -> CellState {
     let Some(review) = review else {
-        return ComparisonCell {
-            state: CellState::Unavailable,
-            source: None,
-        };
+        return CellState::Unavailable;
     };
-    let state = match resource {
+    match resource {
         Some(change) if change.kind != ResourceChangeKind::NoOp => CellState::Change {
             actions: change.actions.clone(),
             kind: change.kind,
@@ -188,28 +166,20 @@ fn comparison_cell(
         Some(_) => CellState::NoOp,
         None if review.plan().value_addresses.contains(address) => CellState::NoOp,
         None => CellState::Missing,
-    };
-    let source = (!matches!(state, CellState::Missing)).then(|| SourceReference {
-        environment: index,
-        line: review
-            .document()
-            .block_for_address(address)
-            .map(|block| block.lines().start),
-    });
-    ComparisonCell { state, source }
+    }
 }
 
 fn difference_reason(
     address: &str,
     reviews: &[Option<&PlanReview>],
     resources: &[BTreeMap<&str, &ResourceChange>],
-    cells: &[ComparisonCell],
+    cells: &[CellState],
 ) -> Option<DifferenceReason> {
     let mut present = cells
         .iter()
-        .filter(|cell| matches!(cell.state, CellState::Change { .. } | CellState::NoOp));
+        .filter(|cell| matches!(cell, CellState::Change { .. } | CellState::NoOp));
     if let Some(first) = present.next()
-        && present.any(|cell| cell.state != first.state)
+        && present.any(|cell| cell != first)
     {
         return Some(DifferenceReason::Action);
     }
@@ -235,7 +205,7 @@ fn difference_reason(
     }
     if attrs_differ {
         Some(DifferenceReason::Attrs)
-    } else if cells.iter().any(|cell| cell.state == CellState::Missing) {
+    } else if cells.contains(&CellState::Missing) {
         Some(DifferenceReason::Missing)
     } else if unknown_differ {
         Some(DifferenceReason::Unknown)
@@ -288,7 +258,6 @@ mod tests {
             address: "test_resource.item".to_owned(),
             provider: Some("test".to_owned()),
             resource_type: Some("test_resource".to_owned()),
-            resource_name: Some("item".to_owned()),
             mode: ResourceMode::Managed,
             actions: vec![PlanAction::Update],
             kind: ResourceChangeKind::Update,
@@ -297,8 +266,6 @@ mod tests {
             before_sensitive: None,
             after_sensitive: None,
             after_unknown: None,
-            replace_paths: None,
-            action_reason: None,
             previous_address: None,
             importing: None,
         }
@@ -491,13 +458,7 @@ mod tests {
 
             assert_eq!(comparison.rows.len(), 1, "{name}");
             assert_eq!(comparison.rows[0].difference, expected, "{name}");
-            assert_eq!(
-                comparison.scope,
-                ComparisonScope::All {
-                    compared: vec![0, 1]
-                },
-                "{name}"
-            );
+            assert_eq!(comparison.scope, ComparisonScope::All, "{name}");
         }
     }
 
@@ -770,15 +731,7 @@ mod tests {
                 .iter()
                 .all(|row| row.difference == Some(DifferenceReason::Missing))
         );
-        assert_eq!(
-            comparison.rows[0].cells[0].source,
-            Some(SourceReference {
-                environment: 0,
-                line: Some(1)
-            })
-        );
-        assert_eq!(comparison.rows[0].cells[1].state, CellState::Missing);
-        assert_eq!(comparison.rows[0].cells[1].source, None);
+        assert_eq!(comparison.rows[0].cells[1], CellState::Missing);
     }
 
     #[test]
@@ -797,16 +750,7 @@ mod tests {
             comparison.rows[0].difference,
             Some(DifferenceReason::Action)
         );
-        assert_eq!(
-            comparison.rows[0].cells[1],
-            ComparisonCell {
-                state: CellState::NoOp,
-                source: Some(SourceReference {
-                    environment: 1,
-                    line: None
-                })
-            }
-        );
+        assert_eq!(comparison.rows[0].cells[1], CellState::NoOp);
     }
 
     #[test]
@@ -849,17 +793,13 @@ mod tests {
                 _ => {}
             }
             let comparison = compare_all(session.plans());
-            assert_eq!(
-                comparison.scope,
-                ComparisonScope::Partial { compared: vec![0] },
-                "{phase}"
-            );
+            assert_eq!(comparison.scope, ComparisonScope::Partial, "{phase}");
             assert_eq!(comparison.rows[0].difference, None, "{phase}");
             assert!(comparison.rows[0].has_unknown, "{phase}");
             assert!(
                 comparison.rows[0].cells[1..]
                     .iter()
-                    .all(|cell| cell.state == CellState::Unavailable && cell.source.is_none()),
+                    .all(|cell| *cell == CellState::Unavailable),
                 "{phase}"
             );
         }
@@ -871,20 +811,12 @@ mod tests {
         let right = update(json!({"a": 0}), json!({"a": 2}));
         let mut session = EnvironmentSession::new(vec![environment("a"), environment("b")], false);
         complete_next(&mut session, review(vec![left], None));
-        assert_eq!(
-            compare_all(session.plans()).scope,
-            ComparisonScope::Partial { compared: vec![0] }
-        );
+        assert_eq!(compare_all(session.plans()).scope, ComparisonScope::Partial);
 
         complete_next(&mut session, review(vec![right], None));
         let comparison = compare_all(session.plans());
 
-        assert_eq!(
-            comparison.scope,
-            ComparisonScope::All {
-                compared: vec![0, 1]
-            }
-        );
+        assert_eq!(comparison.scope, ComparisonScope::All);
         assert_eq!(comparison.rows[0].difference, Some(DifferenceReason::Value));
     }
 
@@ -918,23 +850,10 @@ mod tests {
 
         let comparison = compare_environments_for_selection(session.plans(), &selection);
 
-        assert_eq!(
-            comparison.scope,
-            ComparisonScope::All {
-                compared: vec![0, 2]
-            }
-        );
+        assert_eq!(comparison.scope, ComparisonScope::All);
         assert_eq!(comparison.rows.len(), 1);
         assert_eq!(comparison.rows[0].difference, None);
         assert_eq!(comparison.rows[0].cells.len(), 2);
-        assert_eq!(
-            comparison.rows[0]
-                .cells
-                .iter()
-                .map(|cell| cell.source.as_ref().unwrap().environment)
-                .collect::<Vec<_>>(),
-            [0, 2]
-        );
         let full_comparison = compare_all(session.plans());
         let item = full_comparison
             .rows
@@ -961,14 +880,10 @@ mod tests {
 
         let comparison = compare_environments_for_selection(session.plans(), &selected_error);
 
-        assert_eq!(
-            comparison.scope,
-            ComparisonScope::Partial { compared: vec![0] }
-        );
+        assert_eq!(comparison.scope, ComparisonScope::Partial);
         assert_eq!(comparison.rows[0].difference, None);
         assert_eq!(comparison.rows[0].cells.len(), 2);
-        assert_eq!(comparison.rows[0].cells[1].state, CellState::Unavailable);
-        assert_eq!(comparison.rows[0].cells[1].source, None);
+        assert_eq!(comparison.rows[0].cells[1], CellState::Unavailable);
     }
 
     #[test]
