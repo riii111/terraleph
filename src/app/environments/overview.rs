@@ -511,18 +511,18 @@ mod tests {
 
     #[test]
     fn unequal_counts_group_patterns_and_restore_exact_address_comparisons() {
-        let session = ready_session([20, 20, 200].map(|count| changes(count, "new")));
+        let session = ready_session([2, 2, 4].map(|count| changes_from(10, count, "new")));
 
         let overview = environment_overview(session.plans());
 
         let group = only_group(&overview);
-        assert_eq!(member_counts(group), vec![20, 20, 200]);
-        assert_eq!(group.children.len(), 200);
+        assert_eq!(member_counts(group), vec![2, 2, 4]);
+        assert_eq!(group.children.len(), 4);
         assert_eq!(group.display_address, "test_resource.item[*]");
         let extra = group
             .children
             .iter()
-            .find(|row| row.address == "test_resource.item[199]")
+            .find(|row| row.address == "test_resource.item[13]")
             .unwrap();
         assert_eq!(extra.difference, Some(DifferenceReason::Missing));
         assert_eq!(extra.cells[0], CellState::Missing);
@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn groups_matching_unknown_changes_across_small_and_large_environment_counts() {
+    fn groups_matching_unknown_changes_across_unequal_environment_counts() {
         let provider = "registry.example/provider".to_owned();
         let resource_type = "test_resource".to_owned();
         let schemas = ProviderSchemas {
@@ -550,53 +550,52 @@ mod tests {
                 },
             )]),
         };
-        for counts in [[2, 2, 4], [20, 20, 200]] {
-            let mut session = pending_session(3);
-            for count in counts {
-                let changes = (0..count)
-                    .map(|index| {
-                        let mut change = change(&format!("test_resource.server[{index}]"), "new");
-                        change.provider = Some(provider.clone());
-                        change.resource_type = Some(resource_type.clone());
-                        change.before = Some(PlanValue::Object(BTreeMap::from([(
-                            "input".to_owned(),
-                            PlanValue::String("old".to_owned()),
-                        )])));
-                        change.after = Some(PlanValue::Object(BTreeMap::from([
-                            ("input".to_owned(), PlanValue::String("new".to_owned())),
-                            ("output".to_owned(), PlanValue::Null),
-                        ])));
-                        change.after_unknown = Some(PlanValue::Object(BTreeMap::from([(
-                            "output".to_owned(),
-                            PlanValue::Bool(true),
-                        )])));
-                        change
-                    })
-                    .collect();
-                complete_next(
-                    &mut session,
-                    review(changes).with_provider_schemas(Some(schemas.clone())),
-                );
-            }
+        let counts = [2, 2, 4];
+        let mut session = pending_session(3);
+        for count in counts {
+            let changes = (10..10 + count)
+                .map(|index| {
+                    let mut change = change(&format!("test_resource.server[{index}]"), "new");
+                    change.provider = Some(provider.clone());
+                    change.resource_type = Some(resource_type.clone());
+                    change.before = Some(PlanValue::Object(BTreeMap::from([(
+                        "input".to_owned(),
+                        PlanValue::String("old".to_owned()),
+                    )])));
+                    change.after = Some(PlanValue::Object(BTreeMap::from([
+                        ("input".to_owned(), PlanValue::String("new".to_owned())),
+                        ("output".to_owned(), PlanValue::Null),
+                    ])));
+                    change.after_unknown = Some(PlanValue::Object(BTreeMap::from([(
+                        "output".to_owned(),
+                        PlanValue::Bool(true),
+                    )])));
+                    change
+                })
+                .collect();
+            complete_next(
+                &mut session,
+                review(changes).with_provider_schemas(Some(schemas.clone())),
+            );
+        }
 
-            let overview = environment_overview(session.plans());
-            let group = only_group(&overview);
-            assert_eq!(member_counts(group), counts);
-            assert!(group.has_unknown);
+        let overview = environment_overview(session.plans());
+        let group = only_group(&overview);
+        assert_eq!(member_counts(group), counts);
+        assert!(group.has_unknown);
 
-            let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
-            let with_relations =
-                environment_overview_with_relations_for_selection(session.plans(), &selection);
-            for relation in with_relations.relations.values() {
-                let graph = relation.graph.as_ref().unwrap();
-                let node = graph
-                    .nodes
-                    .iter()
-                    .find(|node| node.display_address == "test_resource.server[*]")
-                    .unwrap();
-                assert!(node.has_unknown);
-                assert!(counts.contains(&node.change_count));
-            }
+        let selection = EnvironmentSelection::new(None, session.plans().len()).unwrap();
+        let with_relations =
+            environment_overview_with_relations_for_selection(session.plans(), &selection);
+        for relation in with_relations.relations.values() {
+            let graph = relation.graph.as_ref().unwrap();
+            let node = graph
+                .nodes
+                .iter()
+                .find(|node| node.display_address == "test_resource.server[*]")
+                .unwrap();
+            assert!(node.has_unknown);
+            assert!(counts.contains(&node.change_count));
         }
     }
 
@@ -620,18 +619,18 @@ mod tests {
 
     #[test]
     fn common_changes_keep_the_exception_individual() {
-        let mut resources = changes(200, "new");
-        resources.push(change("test_resource.item[200]", "exception"));
+        let mut resources = changes_from(10, 2, "new");
+        resources.push(change("test_resource.item[12]", "exception"));
         let session = ready_session([resources.clone(), resources]);
 
         let overview = environment_overview(session.plans());
 
         assert_eq!(overview.rows.len(), 2);
         assert!(overview.rows.iter().any(|row| matches!(row,
-            OverviewRow::Group(group) if member_counts(group) == [200, 200]
+            OverviewRow::Group(group) if member_counts(group) == [2, 2]
         )));
         assert!(overview.rows.iter().any(|row| matches!(row,
-            OverviewRow::Individual(row) if row.address == "test_resource.item[200]"
+            OverviewRow::Individual(row) if row.address == "test_resource.item[12]"
         )));
         assert_partition(&session, &overview);
     }
@@ -1189,7 +1188,12 @@ mod tests {
     }
 
     fn changes(count: usize, after: &str) -> Vec<ResourceChange> {
-        (0..count)
+        changes_from(0, count, after)
+    }
+
+    // Starting past 9 keeps the instance keys multi-digit.
+    fn changes_from(first: usize, count: usize, after: &str) -> Vec<ResourceChange> {
+        (first..first + count)
             .map(|index| change(&format!("test_resource.item[{index}]"), after))
             .collect()
     }

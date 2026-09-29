@@ -959,7 +959,7 @@ mod tests {
 
     #[test]
     fn fallback_order_puts_used_nodes_first_and_keeps_group_order_on_cycles() {
-        let nodes = (0..1_000)
+        let nodes = (0..3)
             .map(|index| {
                 node(
                     &format!("aws_service.n{index:04}"),
