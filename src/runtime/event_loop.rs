@@ -290,10 +290,10 @@ fn handle_key_event<B: Backend>(
     confirmation_view: &mut plan_review::ApplyConfirmationViewState,
     key: KeyEvent,
 ) -> Result<Option<Action>, B::Error> {
-    if let Some(execution) = state.execution().or_else(|| state.apply()) {
-        return handle_execution_key_event(terminal, execution, execution_view, key);
-    }
     let size = terminal.size()?;
+    if let Some(execution) = state.execution().or_else(|| state.apply()) {
+        return Ok(execution_view.handle_key(execution, key, size));
+    }
     if let Some(confirmation) = state.apply_confirmation() {
         return Ok(confirmation_view.handle_key(confirmation, key, size, Instant::now()));
     }
@@ -303,112 +303,6 @@ fn handle_key_event<B: Backend>(
     Ok(state
         .review()
         .and_then(|review| review_view.handle_key(review, key, size)))
-}
-
-fn handle_execution_key_event<B: Backend>(
-    terminal: &Terminal<B>,
-    state: &ExecutionState,
-    execution_view: &mut execution::ExecutionViewState,
-    key: KeyEvent,
-) -> Result<Option<Action>, B::Error> {
-    Ok(
-        match execution::execution_key_to_input(key, state.stage(), execution_view.logs_open()) {
-            Some(execution::ExecutionInput::Quit) => Some(Action::Quit),
-            Some(execution::ExecutionInput::Action(action)) => Some(Action::Execution(action)),
-            Some(execution::ExecutionInput::SelectTarget(direction)) => {
-                let targets = state
-                    .progress()
-                    .display_target_indices(state.result().is_some());
-                execution_view.select_target(direction, &targets);
-                execution_view.measure_log(state.progress());
-                let size = terminal.size()?;
-                let layout = execution::execution_layout_with_view(
-                    Rect::new(0, 0, size.width, size.height),
-                    state,
-                    *execution_view,
-                );
-                if let Some(position) = execution_view
-                    .selected_target()
-                    .and_then(|selected| targets.iter().position(|index| *index == selected))
-                {
-                    execution_view.ensure_target_visible(
-                        position,
-                        layout.target_body().height,
-                        layout.target_max_vertical(),
-                    );
-                }
-                None
-            }
-            Some(execution::ExecutionInput::ToggleFocus) => {
-                execution_view.toggle_focus();
-                None
-            }
-            Some(execution::ExecutionInput::OpenLogs) => {
-                execution_view.open_logs();
-                None
-            }
-            Some(execution::ExecutionInput::CloseLogs) => {
-                execution_view.close_logs();
-                None
-            }
-            Some(execution::ExecutionInput::End) => {
-                execution_view.end();
-                None
-            }
-            Some(execution::ExecutionInput::Scroll(scroll)) => {
-                let size = terminal.size()?;
-                let layout = execution::execution_layout_with_view(
-                    Rect::new(0, 0, size.width, size.height),
-                    state,
-                    *execution_view,
-                );
-                if state.is_apply() && !execution_view.logs_open() {
-                    let (current, max) = execution::execution_target_scroll_position_with_view(
-                        *execution_view,
-                        &layout,
-                    );
-                    execution_view.apply_target_scroll(
-                        scroll,
-                        current,
-                        max,
-                        layout.target_body().height,
-                    );
-                    return Ok(None);
-                }
-                let (current_vertical, _) =
-                    execution::execution_scroll_position_with_view(state, *execution_view, &layout);
-                match scroll {
-                    execution::ExecutionScroll::Left
-                    | execution::ExecutionScroll::Right
-                    | execution::ExecutionScroll::LeftEdge
-                    | execution::ExecutionScroll::RightEdge => {
-                        let (current, max) =
-                            execution::execution_horizontal_scroll_position_with_view(
-                                *execution_view,
-                                &layout,
-                            );
-                        execution_view.apply_horizontal_scroll(
-                            scroll,
-                            current,
-                            max,
-                            current_vertical,
-                        );
-                    }
-                    _ => {
-                        let (current, max) = execution::execution_scroll_position_with_view(
-                            state,
-                            *execution_view,
-                            &layout,
-                        );
-                        execution_view.apply_scroll(scroll, current, max, layout.body().height);
-                    }
-                }
-                None
-            }
-            Some(execution::ExecutionInput::Copy(target)) => Some(Action::Copy(target)),
-            None => None,
-        },
-    )
 }
 
 pub(super) fn draw_with_quit_confirmation<B: Backend>(
@@ -2377,8 +2271,11 @@ mod tests {
             // The widest line the view has measured, as the all-logs panel scrolls to it.
             let measured_width = |state: &SessionState, view: execution::ExecutionViewState| {
                 let apply = state.apply().expect("apply state");
-                let layout =
-                    execution::execution_layout_with_view(Rect::new(0, 0, 80, 24), apply, view);
+                let layout = execution::test_support::execution_layout_with_view(
+                    Rect::new(0, 0, 80, 24),
+                    apply,
+                    view,
+                );
                 layout.max_horizontal() + usize::from(layout.body().width)
             };
             assert_eq!(measured_width(&state, view), 500);
@@ -2529,10 +2426,10 @@ mod tests {
             view: execution::ExecutionViewState,
         ) -> usize {
             let apply = state.apply().expect("apply state");
-            execution::execution_scroll_position_with_view(
+            execution::test_support::execution_scroll_position_with_view(
                 apply,
                 view,
-                &execution::execution_layout_with_view(
+                &execution::test_support::execution_layout_with_view(
                     ratatui::layout::Rect::new(0, 0, 80, 24),
                     apply,
                     view,
