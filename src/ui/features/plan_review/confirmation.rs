@@ -1,7 +1,12 @@
-use crate::app::session::Action;
+use std::time::Instant;
+
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::{Rect, Size};
+
+use crate::app::session::{Action, ReviewSessionState};
 use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input::TextInput};
 
-use super::ApplyConfirmationInput;
+use super::{ApplyConfirmationInput, apply_confirmation_key_to_input, apply_confirmation_layout};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ApplyConfirmationViewState {
@@ -19,6 +24,32 @@ pub(crate) enum ConfirmationOverlay {
 }
 
 impl ApplyConfirmationViewState {
+    pub(crate) fn handle_key(
+        &mut self,
+        state: &ReviewSessionState,
+        key: KeyEvent,
+        size: Size,
+        now: Instant,
+    ) -> Option<Action> {
+        if self.overlay().is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                self.close_overlay();
+            } else {
+                self.overlay_scroll_mut().handle_key(key.code, 8);
+            }
+            return None;
+        }
+        let layout = apply_confirmation_layout(Rect::from(size), state, now);
+        let input = apply_confirmation_key_to_input(key);
+        let input = match input {
+            Some(ApplyConfirmationInput::Cancel) => input,
+            Some(_) if layout.renderable() => input,
+            _ => None,
+        };
+        let expected = state.review().confirmation_input();
+        input.and_then(|input| self.apply(input, &expected, layout.max_vertical()))
+    }
+
     pub(crate) fn apply(
         &mut self,
         input: ApplyConfirmationInput,

@@ -1,6 +1,7 @@
 use std::{cell::Cell, collections::BTreeSet};
 
-use ratatui::layout::Rect;
+use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::{Rect, Size};
 
 use crate::app::{
     plan::{PlanAction, RelationNodeId, ResourceChangeKind, grouping::GroupMember},
@@ -8,7 +9,7 @@ use crate::app::{
 };
 use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input::TextInput};
 
-use super::{OverviewInput, relations::RelationGraphScroll};
+use super::{OverviewInput, key_to_input, layout, relations::RelationGraphScroll};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OverviewOverlay {
@@ -146,6 +147,32 @@ pub(crate) enum OverviewCommand {
 }
 
 impl OverviewViewState {
+    pub(crate) fn handle_key(
+        &mut self,
+        state: &ReviewSessionState,
+        key: KeyEvent,
+        size: Size,
+    ) -> Option<OverviewCommand> {
+        if self.overlay().is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
+                self.close_overlay();
+            } else {
+                self.overlay_scroll_mut().handle_key(key.code, 8);
+            }
+            return None;
+        }
+        let content = OverviewContent::project(state, self.filter(), self.expanded());
+        let layout = layout(Rect::from(size), state, self, &content);
+        let input = key_to_input(key, self.searching(), !self.filter().is_empty())?;
+        self.apply(
+            input,
+            layout.changes_body(),
+            layout.relations(),
+            layout.max_vertical(),
+            &content,
+        )
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "Overview pane, selection, and search inputs share state transitions"
@@ -542,7 +569,6 @@ mod tests {
     use super::*;
     use crate::app::plan::{Plan, PlanValue, ResourceChange, ResourceMode};
     use crate::app::review::{PlanBlock, PlanBlockKind, PlanDocument, PlanMetadata, PlanReview};
-    use crate::ui::features::overview::key_to_input;
 
     fn apply_search(view: &mut OverviewViewState, input: OverviewInput, content: &OverviewContent) {
         view.apply(input, Rect::new(0, 0, 40, 5), Rect::default(), 0, content);

@@ -5,19 +5,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyEvent};
 use ratatui::{DefaultTerminal, Terminal, backend::Backend, layout::Rect};
 
 use crate::{
     app::{
-        copy::{CopyEffect, CopyFeedback, CopyResult, CopyTarget},
+        copy::{CopyEffect, CopyFeedback, CopyResult},
         execution::{
             ExecutionContextValue, ExecutionStage, ExecutionState, ExecutionTargetState, Tool,
         },
         review::PlanReviewMessage,
-        session::{
-            self, Action, Effect, ReviewScreen, ReviewSessionState, SessionOutcome, SessionState,
-        },
+        session::{self, Action, Effect, ReviewScreen, SessionOutcome, SessionState},
     },
     infra::{CancellationToken, ClipboardExecutor, termination, terraform},
     ui::{
@@ -101,9 +99,8 @@ pub(crate) fn run_connected(
             match input_event {
                 Event::Resize(width, height) => {
                     dirty = true;
-                    reconcile_resize(
+                    views.review.reconcile_resize(
                         &state,
-                        &mut views.review,
                         Rect::new(0, 0, width, height),
                         views.quit_confirmation,
                     );
@@ -285,33 +282,6 @@ fn clear_expired_copy_feedback(state: &mut SessionState, now: Instant) -> bool {
         .is_some_and(|feedback| feedback.clear_expired(now))
 }
 
-// The apply confirmation body and the dialogs clamp against the current layout on their next
-// input or render, so only the review and Overview offsets need a resize correction.
-fn reconcile_resize(
-    state: &SessionState,
-    review_view: &mut plan_review::PlanReviewViewState,
-    area: Rect,
-    quit_confirmation: bool,
-) {
-    if let Some(review) = state.review() {
-        let layout = plan_review::layout_with_quit_confirmation(
-            area,
-            review_view,
-            review,
-            quit_confirmation,
-        );
-        review_view.reconcile(
-            layout.body(),
-            layout.max_vertical(),
-            layout.max_horizontal(),
-            layout.matches(),
-        );
-    }
-    if let Some(overview_state) = state.overview() {
-        overview::reconcile_view(area, overview_state, review_view.overview_mut());
-    }
-}
-
 fn handle_key_event<B: Backend>(
     terminal: &Terminal<B>,
     state: &SessionState,
@@ -323,174 +293,16 @@ fn handle_key_event<B: Backend>(
     if let Some(execution) = state.execution().or_else(|| state.apply()) {
         return handle_execution_key_event(terminal, execution, execution_view, key);
     }
-
-    if state.apply_confirmation().is_some() {
-        if confirmation_view.overlay().is_some() {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                confirmation_view.close_overlay();
-            } else {
-                confirmation_view
-                    .overlay_scroll_mut()
-                    .handle_key(key.code, 8);
-            }
-            return Ok(None);
-        }
-        let confirmation = state
-            .apply_confirmation()
-            .expect("confirmation state should still be available");
-        let size = terminal.size()?;
-        let layout = plan_review::apply_confirmation_layout(
-            Rect::new(0, 0, size.width, size.height),
-            confirmation,
-            Instant::now(),
-        );
-        let input = plan_review::apply_confirmation_key_to_input(key);
-        let input = match input {
-            Some(plan_review::ApplyConfirmationInput::Cancel) => input,
-            Some(_) if layout.renderable() => input,
-            _ => None,
-        };
-        let expected = confirmation.review().confirmation_input();
-        return Ok(input
-            .and_then(|input| confirmation_view.apply(input, &expected, layout.max_vertical())));
+    let size = terminal.size()?;
+    if let Some(confirmation) = state.apply_confirmation() {
+        return Ok(confirmation_view.handle_key(confirmation, key, size, Instant::now()));
     }
-
     if let Some(overview_state) = state.overview() {
-        return handle_overview_key_event(terminal, overview_state, review_view, key);
+        return Ok(review_view.handle_overview_key(overview_state, key, size));
     }
-
-    let Some(review) = state.review() else {
-        return Ok(None);
-    };
-    if review_view.overlay().is_some() {
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-            review_view.close_overlay();
-        } else {
-            review_view.overlay_scroll_mut().handle_key(key.code, 8);
-        }
-        return Ok(None);
-    }
-    Ok(
-        match plan_review::key_to_input(
-            key,
-            review_view.searching(),
-            !review.review().search_query().is_empty(),
-        ) {
-            Some(plan_review::PlanReviewInput::Quit) => Some(Action::Quit),
-            Some(plan_review::PlanReviewInput::Apply) => Some(Action::OpenApplyConfirmation),
-            Some(plan_review::PlanReviewInput::Copy) => Some(Action::Copy(CopyTarget::Plan)),
-            Some(plan_review::PlanReviewInput::OpenOverview) => {
-                let content = overview::OverviewContent::project(
-                    review,
-                    review_view.overview().filter(),
-                    review_view.overview().expanded(),
-                );
-                review_view
-                    .overview_mut()
-                    .reconcile(u16::MAX, content.rows.len());
-                Some(Action::OpenOverview)
-            }
-            Some(plan_review::PlanReviewInput::SearchCancel)
-                if !review_view.searching() && review.is_from_overview() =>
-            {
-                Some(Action::ReturnToOverview)
-            }
-            Some(input) => {
-                let size = terminal.size()?;
-                let body = plan_review::layout(
-                    Rect::new(0, 0, size.width, size.height),
-                    review_view,
-                    review,
-                );
-                review_view
-                    .apply_with_matches(
-                        input,
-                        body.body(),
-                        body.max_vertical(),
-                        body.max_horizontal(),
-                        review.review().search_query(),
-                        body.matches(),
-                    )
-                    .map(Action::ReviewSearchChanged)
-            }
-            None => None,
-        },
-    )
-}
-
-fn handle_overview_key_event<B: Backend>(
-    terminal: &Terminal<B>,
-    overview_state: &ReviewSessionState,
-    review_view: &mut plan_review::PlanReviewViewState,
-    key: KeyEvent,
-) -> Result<Option<Action>, B::Error> {
-    if review_view.overview().overlay().is_some() {
-        let overview = review_view.overview_mut();
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-            overview.close_overlay();
-        } else {
-            overview.overlay_scroll_mut().handle_key(key.code, 8);
-        }
-        return Ok(None);
-    }
-    let size = terminal.size()?;
-    let content = overview::OverviewContent::project(
-        overview_state,
-        review_view.overview().filter(),
-        review_view.overview().expanded(),
-    );
-    let layout = overview::layout(
-        Rect::new(0, 0, size.width, size.height),
-        overview_state,
-        review_view.overview(),
-        &content,
-    );
-    let input = overview::key_to_input(
-        key,
-        review_view.overview().searching(),
-        !review_view.overview().filter().is_empty(),
-    );
-    let Some(input) = input else {
-        return Ok(None);
-    };
-    let command = review_view.overview_mut().apply(
-        input,
-        layout.changes_body(),
-        layout.relations(),
-        layout.max_vertical(),
-        &content,
-    );
-    if let Some(overview::OverviewCommand::Open(address)) = command.as_ref() {
-        jump_to_overview_address(terminal, review_view, overview_state, address.as_deref())?;
-    }
-    Ok(command.map(|command| match command {
-        overview::OverviewCommand::Open(_) => Action::OpenReviewFromOverview,
-        overview::OverviewCommand::ViewPlan | overview::OverviewCommand::Back => {
-            review_view.jump_to_line(0, usize::MAX);
-            Action::OpenReviewFromOverview
-        }
-        overview::OverviewCommand::Copy => Action::Copy(CopyTarget::Plan),
-        overview::OverviewCommand::Quit => Action::Quit,
-    }))
-}
-
-fn jump_to_overview_address<B: Backend>(
-    terminal: &Terminal<B>,
-    review_view: &mut plan_review::PlanReviewViewState,
-    overview: &ReviewSessionState,
-    address: Option<&str>,
-) -> Result<(), B::Error> {
-    let line = address
-        .and_then(|address| overview.review().document().block_for_address(address))
-        .map_or(0, |block| block.lines().start);
-    let size = terminal.size()?;
-    let layout = plan_review::overview_detail_layout(
-        Rect::new(0, 0, size.width, size.height),
-        review_view,
-        overview.review(),
-    );
-    review_view.jump_to_line(line, layout.max_vertical());
-    Ok(())
+    Ok(state
+        .review()
+        .and_then(|review| review_view.handle_key(review, key, size)))
 }
 
 fn handle_execution_key_event<B: Backend>(
@@ -909,6 +721,7 @@ pub(super) struct RuntimeEffects<'a, C: ClipboardWriter = ClipboardExecutor> {
 mod tests {
     use super::*;
     use crate::app::{
+        copy::CopyTarget,
         execution::{
             ApplyStatus, EventStream, ExecutionAction, ExecutionContext, ExecutionEvent,
             ExecutionEventKind, ExecutionTargetSpec, HistoryKey, SuccessfulTarget,
@@ -918,6 +731,7 @@ mod tests {
             test_support::{output_change, resource_change},
         },
         review::{PlanMetadata, PlanReview, test_support::plan_document},
+        session::ReviewSessionState,
     };
     use crate::infra::history::HistoryStore;
     use crate::runtime::{
@@ -2341,7 +2155,7 @@ mod tests {
         ) -> Rect {
             terminal.backend_mut().resize(width, height);
             let area = Rect::new(0, 0, width, height);
-            reconcile_resize(state, review_view, area, false);
+            review_view.reconcile_resize(state, area, false);
             area
         }
     }
