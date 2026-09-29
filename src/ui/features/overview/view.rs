@@ -171,21 +171,20 @@ impl OverviewViewState {
                 self.move_selection(1, changes_body, max_vertical, content)
             }
             OverviewInput::Up => {
-                self.scroll_relations_vertical(-1);
+                self.update_relations_scroll(|scroll| scroll.up(1));
                 None
             }
             OverviewInput::Down => {
-                self.scroll_relations_vertical(1);
+                self.update_relations_scroll(|scroll| scroll.down(1));
                 None
             }
             OverviewInput::PageUp => {
                 if self.active_pane() == OverviewPane::Changes {
                     self.vertical = self.vertical.saturating_sub(changes_body.height.max(1));
                 } else {
-                    self.scroll_relations_vertical(
-                        -i16::try_from(relations_body.height.saturating_sub(5).max(1))
-                            .unwrap_or(i16::MAX),
-                    );
+                    self.update_relations_scroll(|scroll| {
+                        scroll.up(RelationGraphScroll::page_lines(relations_body.height));
+                    });
                 }
                 None
             }
@@ -196,10 +195,9 @@ impl OverviewViewState {
                         .saturating_add(changes_body.height.max(1))
                         .min(max_vertical);
                 } else {
-                    self.scroll_relations_vertical(
-                        i16::try_from(relations_body.height.saturating_sub(5).max(1))
-                            .unwrap_or(i16::MAX),
-                    );
+                    self.update_relations_scroll(|scroll| {
+                        scroll.down(RelationGraphScroll::page_lines(relations_body.height));
+                    });
                 }
                 None
             }
@@ -208,7 +206,7 @@ impl OverviewViewState {
                     self.vertical = 0;
                     self.selected = content.rows.first().map(|_| 0);
                 } else {
-                    self.update_relations_scroll(|scroll| scroll.vertical = 0);
+                    self.update_relations_scroll(RelationGraphScroll::top);
                 }
                 None
             }
@@ -217,7 +215,7 @@ impl OverviewViewState {
                     self.vertical = max_vertical;
                     self.selected = content.rows.len().checked_sub(1);
                 } else {
-                    self.update_relations_scroll(|scroll| scroll.vertical = u16::MAX);
+                    self.update_relations_scroll(RelationGraphScroll::bottom);
                 }
                 None
             }
@@ -226,9 +224,7 @@ impl OverviewViewState {
                     self.changes_horizontal
                         .set(self.changes_horizontal.get().saturating_sub(1));
                 } else {
-                    self.update_relations_scroll(|scroll| {
-                        scroll.horizontal = scroll.horizontal.saturating_sub(1);
-                    });
+                    self.update_relations_scroll(RelationGraphScroll::left);
                 }
                 None
             }
@@ -241,9 +237,7 @@ impl OverviewViewState {
                             .map_or(horizontal, |max| horizontal.min(max)),
                     );
                 } else {
-                    self.update_relations_scroll(|scroll| {
-                        scroll.horizontal = scroll.horizontal.saturating_add(1);
-                    });
+                    self.update_relations_scroll(RelationGraphScroll::right);
                 }
                 None
             }
@@ -332,16 +326,6 @@ impl OverviewViewState {
             | OverviewInput::SearchConfirm
             | OverviewInput::SearchStart => None,
         }
-    }
-
-    fn scroll_relations_vertical(&self, delta: i16) {
-        self.update_relations_scroll(|scroll| {
-            if delta.is_negative() {
-                scroll.vertical = scroll.vertical.saturating_sub(delta.unsigned_abs());
-            } else {
-                scroll.vertical = scroll.vertical.saturating_add(delta.cast_unsigned());
-            }
-        });
     }
 
     fn update_relations_scroll(&self, update: impl FnOnce(&mut RelationGraphScroll)) {

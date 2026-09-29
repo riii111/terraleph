@@ -422,17 +422,6 @@ impl EnvironmentView {
         ControlFlow::Continue(())
     }
 
-    fn scroll_relations_horizontally(&mut self, key: KeyCode) {
-        let Some(scroll) = self.relation_scrolls.get_mut(self.selection.column) else {
-            return;
-        };
-        match key {
-            KeyCode::Left => scroll.horizontal = scroll.horizontal.saturating_sub(1),
-            KeyCode::Right => scroll.horizontal = scroll.horizontal.saturating_add(1),
-            _ => {}
-        }
-    }
-
     fn relations_navigation(
         &mut self,
         key: KeyEvent,
@@ -440,14 +429,24 @@ impl EnvironmentView {
         state: &EnvironmentSession,
     ) -> ControlFlow<Option<EnvironmentInput>> {
         match key.code {
-            KeyCode::Left | KeyCode::Right => self.scroll_relations_horizontally(key.code),
-            KeyCode::Up | KeyCode::Char('k') => self.scroll_relations_vertically(KeyCode::Up, size),
+            KeyCode::Left => self.update_relations_scroll(RelationGraphScroll::left),
+            KeyCode::Right => self.update_relations_scroll(RelationGraphScroll::right),
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.update_relations_scroll(|scroll| scroll.up(1));
+            }
             KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll_relations_vertically(KeyCode::Down, size);
+                self.update_relations_scroll(|scroll| scroll.down(1));
             }
-            KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End => {
-                self.scroll_relations_vertically(key.code, size);
+            KeyCode::PageUp => {
+                let page = self.relations_page_lines(size);
+                self.update_relations_scroll(|scroll| scroll.up(page));
             }
+            KeyCode::PageDown => {
+                let page = self.relations_page_lines(size);
+                self.update_relations_scroll(|scroll| scroll.down(page));
+            }
+            KeyCode::Home => self.update_relations_scroll(RelationGraphScroll::top),
+            KeyCode::End => self.update_relations_scroll(RelationGraphScroll::bottom),
             KeyCode::Enter => return ControlFlow::Break(self.open(state, self.selection.column)),
             KeyCode::Char(' ' | '/') => return ControlFlow::Break(None),
             _ => return ControlFlow::Continue(()),
@@ -455,21 +454,15 @@ impl EnvironmentView {
         ControlFlow::Break(None)
     }
 
-    fn scroll_relations_vertically(&mut self, key: KeyCode, size: Size) {
+    fn relations_page_lines(&self, size: Size) -> u16 {
         let layout =
             self.overview_layout(ratatui::layout::Rect::new(0, 0, size.width, size.height));
-        let page = layout.relations.height.saturating_sub(5).max(1);
-        let Some(scroll) = self.relation_scrolls.get_mut(self.selection.column) else {
-            return;
-        };
-        match key {
-            KeyCode::Up => scroll.vertical = scroll.vertical.saturating_sub(1),
-            KeyCode::Down => scroll.vertical = scroll.vertical.saturating_add(1),
-            KeyCode::PageUp => scroll.vertical = scroll.vertical.saturating_sub(page),
-            KeyCode::PageDown => scroll.vertical = scroll.vertical.saturating_add(page),
-            KeyCode::Home => scroll.vertical = 0,
-            KeyCode::End => scroll.vertical = u16::MAX,
-            _ => {}
+        RelationGraphScroll::page_lines(layout.relations.height)
+    }
+
+    fn update_relations_scroll(&mut self, update: impl FnOnce(&mut RelationGraphScroll)) {
+        if let Some(scroll) = self.relation_scrolls.get_mut(self.selection.column) {
+            update(scroll);
         }
     }
 
