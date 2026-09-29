@@ -513,7 +513,6 @@ pub(super) fn run_command(
     }
 }
 
-// Runs a command that must exit successfully and returns its output.
 pub(super) fn run_successful(
     tool: Tool,
     root: &Path,
@@ -848,7 +847,6 @@ mod tests {
             output
         }
 
-        // Records every chunk in order, as the reader threads do while a process runs.
         pub(crate) fn from_chunks<'a>(
             chunks: impl IntoIterator<Item = &'a ProcessOutputChunk>,
         ) -> Self {

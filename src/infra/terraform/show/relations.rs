@@ -974,10 +974,6 @@ mod tests {
         })
     }
 
-    fn evidence(document: Value, addresses: &[&str]) -> PlanRelations {
-        parse(document, addresses)
-    }
-
     #[test]
     fn retains_direct_and_explicit_dependencies_and_suppresses_containing_block_reference() {
         let document = json!({
@@ -994,7 +990,7 @@ mod tests {
             ]}}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.source[0]",
@@ -1034,7 +1030,7 @@ mod tests {
             ]}}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.source[0]",
@@ -1067,7 +1063,7 @@ mod tests {
             ]}}
         });
 
-        let relations = evidence(document, &["terraform_data.source", "terraform_data.mixed"]);
+        let relations = parse(document, &["terraform_data.source", "terraform_data.mixed"]);
 
         assert!(relations.configuration.iter().any(|edge| {
             edge.dependent.address() == "terraform_data.mixed"
@@ -1102,7 +1098,7 @@ mod tests {
             ]}}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.source",
@@ -1146,7 +1142,7 @@ mod tests {
             ]}}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.left",
@@ -1281,7 +1277,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.input_source",
@@ -1344,7 +1340,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(document, &["terraform_data.consumer"]);
+        let relations = parse(document, &["terraform_data.consumer"]);
 
         assert!(
             relations
@@ -1445,7 +1441,7 @@ mod tests {
 
     #[test]
     fn does_not_read_reference_shaped_data_from_constant_values() {
-        let relations = evidence(
+        let relations = parse(
             json!({
                 "configuration": {"root_module": {"resources": [
                     resource("terraform_data.source", "source", json!({}), json!([])),
@@ -1492,7 +1488,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.expression_source",
@@ -1535,7 +1531,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.consumer",
@@ -1576,7 +1572,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "terraform_data.consumer",
@@ -1617,7 +1613,7 @@ mod tests {
             }}
         });
 
-        let relations = evidence(
+        let relations = parse(
             document,
             &[
                 "module.child[0].terraform_data.inside",
