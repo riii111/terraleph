@@ -6,7 +6,7 @@ use crate::app::{
     plan::{PlanAction, RelationNodeId, ResourceChangeKind, grouping::GroupMember},
     session::ReviewSessionState,
 };
-use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input};
+use crate::ui::{primitives::molecules::dialog_scroll::DialogScroll, text_input::TextInput};
 
 use super::{OverviewInput, relations::RelationGraphScroll};
 
@@ -107,8 +107,7 @@ impl OverviewContent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SearchState {
-    query: String,
-    cursor: usize,
+    input: TextInput,
     previous_query: String,
     previous_vertical: u16,
     previous_selected: Option<usize>,
@@ -171,21 +170,20 @@ impl OverviewViewState {
                 self.move_selection(1, changes_body, max_vertical, content)
             }
             OverviewInput::Up => {
-                self.scroll_relations_vertical(-1);
+                self.update_relations_scroll(|scroll| scroll.up(1));
                 None
             }
             OverviewInput::Down => {
-                self.scroll_relations_vertical(1);
+                self.update_relations_scroll(|scroll| scroll.down(1));
                 None
             }
             OverviewInput::PageUp => {
                 if self.active_pane() == OverviewPane::Changes {
                     self.vertical = self.vertical.saturating_sub(changes_body.height.max(1));
                 } else {
-                    self.scroll_relations_vertical(
-                        -i16::try_from(relations_body.height.saturating_sub(5).max(1))
-                            .unwrap_or(i16::MAX),
-                    );
+                    self.update_relations_scroll(|scroll| {
+                        scroll.up(RelationGraphScroll::page_lines(relations_body.height));
+                    });
                 }
                 None
             }
@@ -196,10 +194,9 @@ impl OverviewViewState {
                         .saturating_add(changes_body.height.max(1))
                         .min(max_vertical);
                 } else {
-                    self.scroll_relations_vertical(
-                        i16::try_from(relations_body.height.saturating_sub(5).max(1))
-                            .unwrap_or(i16::MAX),
-                    );
+                    self.update_relations_scroll(|scroll| {
+                        scroll.down(RelationGraphScroll::page_lines(relations_body.height));
+                    });
                 }
                 None
             }
@@ -208,7 +205,7 @@ impl OverviewViewState {
                     self.vertical = 0;
                     self.selected = content.rows.first().map(|_| 0);
                 } else {
-                    self.update_relations_scroll(|scroll| scroll.vertical = 0);
+                    self.update_relations_scroll(RelationGraphScroll::top);
                 }
                 None
             }
@@ -217,7 +214,7 @@ impl OverviewViewState {
                     self.vertical = max_vertical;
                     self.selected = content.rows.len().checked_sub(1);
                 } else {
-                    self.update_relations_scroll(|scroll| scroll.vertical = u16::MAX);
+                    self.update_relations_scroll(RelationGraphScroll::bottom);
                 }
                 None
             }
@@ -226,9 +223,7 @@ impl OverviewViewState {
                     self.changes_horizontal
                         .set(self.changes_horizontal.get().saturating_sub(1));
                 } else {
-                    self.update_relations_scroll(|scroll| {
-                        scroll.horizontal = scroll.horizontal.saturating_sub(1);
-                    });
+                    self.update_relations_scroll(RelationGraphScroll::left);
                 }
                 None
             }
@@ -241,9 +236,7 @@ impl OverviewViewState {
                             .map_or(horizontal, |max| horizontal.min(max)),
                     );
                 } else {
-                    self.update_relations_scroll(|scroll| {
-                        scroll.horizontal = scroll.horizontal.saturating_add(1);
-                    });
+                    self.update_relations_scroll(RelationGraphScroll::right);
                 }
                 None
             }
@@ -291,9 +284,8 @@ impl OverviewViewState {
             OverviewInput::SearchStart if self.active_pane() == OverviewPane::Changes => {
                 let query = self.filter.clone();
                 self.search = Some(SearchState {
-                    cursor: text_input::last_grapheme_boundary(&query),
-                    previous_query: query.clone(),
-                    query,
+                    input: TextInput::with_cursor_at_end(query.clone()),
+                    previous_query: query,
                     previous_vertical: self.vertical,
                     previous_selected: self.selected,
                 });
@@ -334,16 +326,6 @@ impl OverviewViewState {
         }
     }
 
-    fn scroll_relations_vertical(&self, delta: i16) {
-        self.update_relations_scroll(|scroll| {
-            if delta.is_negative() {
-                scroll.vertical = scroll.vertical.saturating_sub(delta.unsigned_abs());
-            } else {
-                scroll.vertical = scroll.vertical.saturating_add(delta.cast_unsigned());
-            }
-        });
-    }
-
     fn update_relations_scroll(&self, update: impl FnOnce(&mut RelationGraphScroll)) {
         let mut scroll = self.relations_scroll.get();
         update(&mut scroll);
@@ -359,7 +341,7 @@ impl OverviewViewState {
         match input {
             OverviewInput::SearchConfirm => {
                 let search = self.search.take().expect("search state should exist");
-                self.filter = search.query;
+                self.filter = search.input.into_text();
                 self.selected = (row_count > 0).then_some(0);
                 self.vertical = 0;
             }
@@ -370,35 +352,22 @@ impl OverviewViewState {
                 self.selected = search.previous_selected;
             }
             OverviewInput::SearchChar(character) => {
-                search.query.insert(search.cursor, character);
-                search.cursor = text_input::next_grapheme_boundary_at_or_after(
-                    &search.query,
-                    search.cursor + character.len_utf8(),
-                );
-                self.filter = search.query.clone();
+                search.input.insert(character);
+                self.filter = search.input.text().to_owned();
                 self.selected = (row_count > 0).then_some(0);
                 self.vertical = 0;
             }
             OverviewInput::SearchBackspace => {
-                if search.cursor > 0 {
-                    let start =
-                        text_input::previous_grapheme_boundary(&search.query, search.cursor);
-                    search.query.drain(start..search.cursor);
-                    search.cursor = start;
-                    self.filter = search.query.clone();
+                if search.input.backspace() {
+                    self.filter = search.input.text().to_owned();
                     self.selected = (row_count > 0).then_some(0);
                     self.vertical = 0;
                 }
             }
-            OverviewInput::SearchLeft => {
-                search.cursor =
-                    text_input::previous_grapheme_boundary(&search.query, search.cursor);
-            }
-            OverviewInput::SearchRight => {
-                search.cursor = text_input::next_grapheme_boundary(&search.query, search.cursor);
-            }
-            OverviewInput::SearchHome => search.cursor = 0,
-            OverviewInput::SearchEnd => search.cursor = search.query.len(),
+            OverviewInput::SearchLeft => search.input.move_left(),
+            OverviewInput::SearchRight => search.input.move_right(),
+            OverviewInput::SearchHome => search.input.move_home(),
+            OverviewInput::SearchEnd => search.input.move_end(),
             _ => {}
         }
         None
@@ -451,7 +420,7 @@ impl OverviewViewState {
     }
 
     pub(crate) fn search_query(&self) -> Option<&str> {
-        self.search.as_ref().map(|search| search.query.as_str())
+        self.search.as_ref().map(|search| search.input.text())
     }
 
     pub(crate) const fn selected(&self) -> Option<usize> {

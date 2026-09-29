@@ -25,6 +25,37 @@ pub(crate) struct RelationGraphScroll {
     pub(crate) horizontal: u16,
 }
 
+impl RelationGraphScroll {
+    pub(crate) fn page_lines(pane_height: u16) -> u16 {
+        pane_height.saturating_sub(5).max(1)
+    }
+
+    pub(crate) const fn up(&mut self, lines: u16) {
+        self.vertical = self.vertical.saturating_sub(lines);
+    }
+
+    pub(crate) const fn down(&mut self, lines: u16) {
+        self.vertical = self.vertical.saturating_add(lines);
+    }
+
+    pub(crate) const fn top(&mut self) {
+        self.vertical = 0;
+    }
+
+    // Rendering clamps the offset to the content, so the end is expressed as the maximum offset.
+    pub(crate) const fn bottom(&mut self) {
+        self.vertical = u16::MAX;
+    }
+
+    pub(crate) const fn left(&mut self) {
+        self.horizontal = self.horizontal.saturating_sub(1);
+    }
+
+    pub(crate) const fn right(&mut self) {
+        self.horizontal = self.horizontal.saturating_add(1);
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct RelationGraphTitle<'a> {
     pub(crate) environment: Option<&'a str>,
@@ -919,6 +950,47 @@ mod tests {
         RelationGraphScroll, RelationGraphTitle, RelationGraphView, compact_legend_lines,
         dependency_order, graph_lines, legend_lines, node_line, render, title_line,
     };
+
+    #[test]
+    fn scroll_moves_saturate_at_both_ends() {
+        let mut scroll = RelationGraphScroll::default();
+
+        scroll.up(3);
+        scroll.left();
+        assert_eq!(scroll, RelationGraphScroll::default());
+
+        scroll.down(7);
+        scroll.right();
+        scroll.up(2);
+        assert_eq!(
+            scroll,
+            RelationGraphScroll {
+                vertical: 5,
+                horizontal: 1,
+            }
+        );
+
+        scroll.bottom();
+        scroll.down(1);
+        scroll.left();
+        assert_eq!(
+            scroll,
+            RelationGraphScroll {
+                vertical: u16::MAX,
+                horizontal: 0,
+            }
+        );
+
+        scroll.top();
+        assert_eq!(scroll.vertical, 0);
+    }
+
+    #[test]
+    fn page_lines_leave_frame_rows_and_stay_positive() {
+        assert_eq!(RelationGraphScroll::page_lines(20), 15);
+        assert_eq!(RelationGraphScroll::page_lines(5), 1);
+        assert_eq!(RelationGraphScroll::page_lines(0), 1);
+    }
 
     #[test]
     fn relation_title_keeps_environment_and_scope_styles_separate() {

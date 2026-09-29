@@ -2,7 +2,7 @@ use ratatui::layout::Rect;
 
 use crate::ui::{
     features::overview::OverviewViewState, primitives::molecules::dialog_scroll::DialogScroll,
-    text_input,
+    text_input::TextInput,
 };
 
 use super::{PlanReviewInput, render::PlanContentCache};
@@ -40,8 +40,7 @@ impl PlanReviewMatch {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SearchInputState {
-    query: String,
-    cursor: usize,
+    input: TextInput,
     previous_query: String,
     previous_vertical: usize,
     previous_horizontal: usize,
@@ -80,9 +79,8 @@ impl PlanReviewViewState {
             PlanReviewInput::SearchStart => {
                 let query = current_query.to_owned();
                 self.search = Some(SearchInputState {
-                    cursor: text_input::last_grapheme_boundary(&query),
-                    previous_query: query.clone(),
-                    query,
+                    input: TextInput::with_cursor_at_end(query.clone()),
+                    previous_query: query,
                     previous_vertical: self.vertical,
                     previous_horizontal: self.horizontal,
                     previous_selected: self.selected,
@@ -191,12 +189,12 @@ impl PlanReviewViewState {
     }
 
     pub(crate) fn search_query(&self) -> Option<&str> {
-        self.search.as_ref().map(|search| search.query.as_str())
+        self.search.as_ref().map(|search| search.input.text())
     }
 
     pub(crate) const fn search_cursor(&self) -> Option<usize> {
         match &self.search {
-            Some(search) => Some(search.cursor),
+            Some(search) => Some(search.input.cursor()),
             None => None,
         }
     }
@@ -267,7 +265,8 @@ impl PlanReviewViewState {
             let search = self.search.take()?;
             return match input {
                 PlanReviewInput::SearchConfirm => {
-                    self.selected = (!search.query.is_empty() && !matches.is_empty()).then_some(0);
+                    self.selected =
+                        (!search.input.text().is_empty() && !matches.is_empty()).then_some(0);
                     if self.selected.is_some() {
                         self.ensure_selected_visible(body, max_vertical, max_horizontal, matches);
                     }
@@ -286,43 +285,34 @@ impl PlanReviewViewState {
         let search = self.search.as_mut()?;
         match input {
             PlanReviewInput::SearchChar(character) => {
-                search.query.insert(search.cursor, character);
-                search.cursor = text_input::next_grapheme_boundary_at_or_after(
-                    &search.query,
-                    search.cursor + character.len_utf8(),
-                );
+                search.input.insert(character);
                 self.selected = None;
                 self.vertical = 0;
                 self.horizontal = 0;
-                Some(search.query.clone())
+                Some(search.input.text().to_owned())
             }
             PlanReviewInput::SearchBackspace => {
-                if search.cursor > 0 {
-                    let previous =
-                        text_input::previous_grapheme_boundary(&search.query, search.cursor);
-                    search.query.drain(previous..search.cursor);
-                    search.cursor = previous;
+                if search.input.backspace() {
                     self.selected = None;
                     self.vertical = 0;
                     self.horizontal = 0;
                 }
-                Some(search.query.clone())
+                Some(search.input.text().to_owned())
             }
             PlanReviewInput::SearchLeft => {
-                search.cursor =
-                    text_input::previous_grapheme_boundary(&search.query, search.cursor);
+                search.input.move_left();
                 None
             }
             PlanReviewInput::SearchRight => {
-                search.cursor = text_input::next_grapheme_boundary(&search.query, search.cursor);
+                search.input.move_right();
                 None
             }
             PlanReviewInput::SearchHome => {
-                search.cursor = 0;
+                search.input.move_home();
                 None
             }
             PlanReviewInput::SearchEnd => {
-                search.cursor = search.query.len();
+                search.input.move_end();
                 None
             }
             _ => None,

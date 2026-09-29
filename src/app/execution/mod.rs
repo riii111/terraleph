@@ -14,9 +14,9 @@ pub(crate) use context::{
 };
 pub(crate) use event::{
     Diagnostic, DiagnosticPoint, DiagnosticPosition, DiagnosticSeverity, DiagnosticSource,
-    EventStream, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionPhase,
-    ExecutionSummary, ExecutionTargetSpec, ProcessExitStatus, ProcessTermination, ResourceAction,
-    ResourceEvent, ResourceEventKind, SensitiveValue,
+    EventStream, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionSummary,
+    ExecutionTargetSpec, ProcessExitStatus, ProcessTermination, ResourceAction, ResourceEvent,
+    ResourceEventKind, SensitiveValue,
 };
 pub(crate) use history::{HistoryKey, SuccessfulTarget};
 pub(crate) use log_index::LogLineIndex;
@@ -24,7 +24,6 @@ pub(crate) use progress::{ExecutionProgress, ExecutionTargetState, ExecutionTarg
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExecutionStage {
-    Initializing,
     Reading,
     Applying,
     ApplySucceeded,
@@ -37,7 +36,6 @@ impl ExecutionStage {
     #[must_use]
     pub(crate) const fn title(self) -> &'static str {
         match self {
-            Self::Initializing => "Initializing",
             Self::Reading => "Reading",
             Self::Applying => "Applying",
             Self::ApplySucceeded => "Apply complete",
@@ -107,7 +105,7 @@ impl ExecutionResult {
 impl ExecutionState {
     #[must_use]
     pub(crate) fn with_context(started_at: Instant, context: ExecutionContext) -> Self {
-        Self::at_stage(started_at, context, ExecutionStage::Initializing)
+        Self::at_stage(started_at, context, ExecutionStage::Reading)
     }
 
     #[must_use]
@@ -163,10 +161,6 @@ impl ExecutionState {
             return;
         }
         match &event.kind {
-            ExecutionEventKind::Phase(ExecutionPhase::Reading) => {
-                self.stage = ExecutionStage::Reading;
-                self.active_phase = ExecutionStage::Reading;
-            }
             ExecutionEventKind::Workspace(workspace) => {
                 self.context = self.context.clone().with_workspace(workspace.clone());
             }
@@ -558,10 +552,6 @@ mod tests {
                 interrupted: false,
             }),
         ));
-        state.record(event(
-            started_at + Duration::from_secs(3),
-            ExecutionEventKind::Phase(ExecutionPhase::Reading),
-        ));
 
         assert_eq!(
             state.elapsed_at(started_at + Duration::from_secs(5)),
@@ -613,7 +603,7 @@ mod tests {
             }),
         ));
         assert!(!state.is_cancelling());
-        assert_eq!(state.stage(), ExecutionStage::Initializing);
+        assert_eq!(state.stage(), ExecutionStage::Reading);
     }
 
     #[test]
@@ -653,10 +643,6 @@ mod tests {
     fn failure_result_keeps_the_running_phase_and_first_terraform_error() {
         let started_at = Instant::now();
         let mut state = ExecutionState::new(started_at);
-        state.record(event(
-            started_at,
-            ExecutionEventKind::Phase(ExecutionPhase::Reading),
-        ));
         state.record(event(
             started_at,
             ExecutionEventKind::Diagnostic(Diagnostic {
@@ -751,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn review_events_update_workspace_and_execution_phase() {
+    fn workspace_event_updates_context() {
         let started_at = Instant::now();
         let mut state = ExecutionState::new(started_at);
 
@@ -763,11 +749,5 @@ mod tests {
             state.context().workspace(),
             &ExecutionContextValue::Known("default".to_owned())
         );
-
-        state.record(event(
-            started_at,
-            ExecutionEventKind::Phase(ExecutionPhase::Reading),
-        ));
-        assert_eq!(state.stage(), ExecutionStage::Reading);
     }
 }

@@ -16,7 +16,7 @@ use crate::{
         environments::{Environment, EnvironmentSession, PlanResult},
         execution::{Diagnostic, ExecutionContext, Tool},
         review::PlanReviewMessage,
-        session::{Action, Effect, SessionOutcome, SessionState},
+        session::{Effect, SessionOutcome, SessionState},
     },
     infra::{
         CancellationToken, ClipboardExecutor,
@@ -152,13 +152,9 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
                         if let Some(Effect::WriteClipboard(effect)) =
                             state.update_review(index, *action, std::time::Instant::now())
                         {
-                            let result = clipboard.execute(&effect);
                             state.update_review(
                                 index,
-                                Action::CopyCompleted {
-                                    target: effect.target(),
-                                    result,
-                                },
+                                event_loop::complete_copy(&mut clipboard, &effect),
                                 std::time::Instant::now(),
                             );
                         }
@@ -285,20 +281,15 @@ impl ApplyRuntime {
             if let Some(outcome) = outcome {
                 return Ok(ApplyStep::Finished(outcome));
             }
-            if finished.is_some()
-                && session
-                    .apply()
-                    .is_some_and(|apply| apply.result().is_none())
-            {
-                *dirty = true;
-                if let Some(outcome) = event_loop::dispatch(
-                    session,
-                    Action::WorkerDisconnected,
-                    execution_view,
-                    &mut effects,
-                ) {
-                    return Ok(ApplyStep::Finished(outcome));
-                }
+            let (outcome, disconnected) = event_loop::dispatch_apply_disconnect(
+                session,
+                execution_view,
+                finished.is_some(),
+                &mut effects,
+            );
+            *dirty |= disconnected;
+            if let Some(outcome) = outcome {
+                return Ok(ApplyStep::Finished(outcome));
             }
         }
         draw_apply_if_needed(
@@ -531,7 +522,6 @@ fn acquire(
         cancellation,
         &terraform::SystemProcessRunner,
         &mut |_| {},
-        &mut |_| {},
     )
     .map_err(|error| environment_failure(&error, cancellation))?;
     Ok(PlanResult::Ready {
@@ -574,6 +564,7 @@ mod tests {
             environments::{EnvironmentAvailability, EnvironmentIdentity},
             plan::Plan,
             review::{PlanMetadata, PlanReview, test_support::plan_document},
+            session::Action,
         },
         runtime::event_loop::test_support::terminal_text,
     };

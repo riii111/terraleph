@@ -9,7 +9,7 @@ use crate::app::environments::{
 };
 use crate::app::plan::ResourceChangeKind;
 use crate::ui::features::overview::OverviewInput;
-use crate::ui::text_input;
+use crate::ui::text_input::TextInput;
 
 #[derive(Clone)]
 pub(crate) struct MatrixCell {
@@ -66,7 +66,6 @@ pub(super) enum SelectionKey {
 
 struct Search {
     previous: String,
-    cursor: usize,
 }
 
 #[derive(Default)]
@@ -78,7 +77,7 @@ pub(crate) struct MatrixView {
     pub(super) manual_horizontal_scroll: bool,
     pub(super) expanded: BTreeSet<GroupId>,
     pub(super) same_expanded: bool,
-    pub(super) filter: String,
+    filter: TextInput,
     pub(super) overview: Option<EnvironmentOverview>,
     pub(super) environments: Vec<usize>,
     pub(super) address_content_width: usize,
@@ -179,12 +178,12 @@ impl MatrixView {
         }
     }
 
-    pub(crate) fn filter(&self) -> &str {
-        &self.filter
+    pub(crate) const fn filter(&self) -> &str {
+        self.filter.text()
     }
 
     pub(crate) const fn filtered(&self) -> bool {
-        !self.filter.is_empty()
+        !self.filter.text().is_empty()
     }
 
     pub(crate) fn apply(&mut self, input: OverviewInput, page_size: usize) {
@@ -219,9 +218,9 @@ impl MatrixView {
             OverviewInput::ToggleExpand => self.toggle_selected_expansion(),
             OverviewInput::SearchStart => {
                 self.search = Some(Search {
-                    previous: self.filter.clone(),
-                    cursor: text_input::last_grapheme_boundary(&self.filter),
+                    previous: self.filter.text().to_owned(),
                 });
+                self.filter.move_end();
             }
             OverviewInput::SearchCancel => {
                 self.filter.clear();
@@ -294,17 +293,17 @@ impl MatrixView {
                 OverviewRow::Individual(_) => None,
             })
             .collect();
-        let layout_rows = rows(overview, &self.filter, &all_groups);
+        let layout_rows = rows(overview, self.filter.text(), &all_groups);
         (self.address_content_width, self.unknown_address_width) =
             address_widths(&layout_rows, self.environments.len() > 1);
 
-        let collapsed_rows = rows(overview, &self.filter, &BTreeSet::new());
+        let collapsed_rows = rows(overview, self.filter.text(), &BTreeSet::new());
         let summary_start = collapsed_rows
             .iter()
             .position(|row| row.difference.is_none())
             .unwrap_or(collapsed_rows.len());
         let summary_rows = &collapsed_rows[summary_start..];
-        let mut visible = rows(overview, &self.filter, &self.expanded);
+        let mut visible = rows(overview, self.filter.text(), &self.expanded);
         if self.environments.len() > 1 {
             let same_start = visible
                 .iter()
@@ -339,7 +338,6 @@ impl MatrixView {
     }
 
     fn edit_search(&mut self, input: OverviewInput) {
-        let search = self.search.as_mut().expect("active search");
         match input {
             OverviewInput::SearchConfirm => {
                 self.search = None;
@@ -347,30 +345,20 @@ impl MatrixView {
             }
             OverviewInput::SearchCancel => {
                 let search = self.search.take().expect("active search");
-                self.filter = search.previous;
+                self.filter = TextInput::with_cursor_at_end(search.previous);
                 self.rebuild();
                 return;
             }
-            OverviewInput::SearchChar(character) => {
-                self.filter.insert(search.cursor, character);
-                search.cursor = text_input::next_grapheme_boundary_at_or_after(
-                    &self.filter,
-                    search.cursor + character.len_utf8(),
-                );
+            OverviewInput::SearchChar(character) => self.filter.insert(character),
+            OverviewInput::SearchBackspace => {
+                if !self.filter.backspace() {
+                    return;
+                }
             }
-            OverviewInput::SearchBackspace if search.cursor > 0 => {
-                let previous = text_input::previous_grapheme_boundary(&self.filter, search.cursor);
-                self.filter.drain(previous..search.cursor);
-                search.cursor = previous;
-            }
-            OverviewInput::SearchLeft => {
-                search.cursor = text_input::previous_grapheme_boundary(&self.filter, search.cursor);
-            }
-            OverviewInput::SearchRight => {
-                search.cursor = text_input::next_grapheme_boundary(&self.filter, search.cursor);
-            }
-            OverviewInput::SearchHome => search.cursor = 0,
-            OverviewInput::SearchEnd => search.cursor = self.filter.len(),
+            OverviewInput::SearchLeft => self.filter.move_left(),
+            OverviewInput::SearchRight => self.filter.move_right(),
+            OverviewInput::SearchHome => self.filter.move_home(),
+            OverviewInput::SearchEnd => self.filter.move_end(),
             _ => return,
         }
         self.rebuild();

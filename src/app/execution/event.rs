@@ -187,18 +187,12 @@ pub(crate) enum ExecutionEventKind {
     Resource(ResourceEvent),
     Summary(ExecutionSummary),
     Diagnostic(Diagnostic),
-    Phase(ExecutionPhase),
     Workspace(String),
     Informational {
         event_type: String,
         message: Option<String>,
     },
     Terminated(ProcessTermination),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExecutionPhase {
-    Reading,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -226,7 +220,6 @@ impl Debug for ExecutionEventKind {
                 .debug_tuple("Diagnostic")
                 .field(diagnostic)
                 .finish(),
-            Self::Phase(phase) => formatter.debug_tuple("Phase").field(phase).finish(),
             Self::Workspace(_) => formatter.write_str("Workspace(<redacted>)"),
             Self::Informational { event_type, .. } => formatter
                 .debug_struct("Informational")

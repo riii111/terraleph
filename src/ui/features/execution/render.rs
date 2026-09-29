@@ -1058,7 +1058,6 @@ fn status_lines(
         Line::from("Stopping...")
     } else {
         match state.stage() {
-            ExecutionStage::Initializing => running_status_line("Initializing...", state, now),
             ExecutionStage::Reading => running_status_line("Reading plan...", state, now),
             ExecutionStage::Failed => Line::from(state.result().map_or_else(
                 || "Terraform failed.".to_owned(),
@@ -1261,7 +1260,7 @@ mod tests {
     use crate::app::copy::{CopyResult, CopyTarget};
     use crate::app::execution::{
         ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionAction,
-        ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionPhase,
+        ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine,
         ExecutionTargetSpec, ResourceAction, ResourceEvent, ResourceEventKind,
         test_support::log_event,
     };
@@ -1538,7 +1537,7 @@ mod tests {
 
     #[test]
     fn renders_plan_progress_and_failure() {
-        let (running, now) = plan_state(Some(ExecutionPhase::Reading), &["reading output"]);
+        let (running, now) = plan_state(&["reading output"]);
         let mut failed = running.clone();
         failed.fail("synthetic plan failure".to_owned(), now);
 
@@ -1603,19 +1602,13 @@ mod tests {
         (state, now)
     }
 
-    fn plan_state(phase: Option<ExecutionPhase>, lines: &[&str]) -> (ExecutionState, Instant) {
+    fn plan_state(lines: &[&str]) -> (ExecutionState, Instant) {
         let started_at = Instant::now();
         let mut state = ExecutionState::with_context(
             started_at,
             ExecutionContext::loading("/repo/environments/production/main")
                 .with_workspace("default"),
         );
-        if let Some(phase) = phase {
-            state.record(ExecutionEvent {
-                received_at: started_at,
-                kind: ExecutionEventKind::Phase(phase),
-            });
-        }
         for text in lines {
             state.record(ExecutionEvent {
                 received_at: started_at,
@@ -3491,46 +3484,10 @@ mod tests {
         }
 
         #[test]
-        fn stages_outside_the_snapshot_show_their_title_and_status() {
-            struct StageCase {
-                name: &'static str,
-                phase: Option<ExecutionPhase>,
-                title: &'static str,
-                status: &'static str,
-            }
-
-            for case in [
-                StageCase {
-                    name: "initializing",
-                    phase: None,
-                    title: "Initializing",
-                    status: "Initializing...",
-                },
-                StageCase {
-                    name: "reading",
-                    phase: Some(ExecutionPhase::Reading),
-                    title: "Reading",
-                    status: "Reading plan...",
-                },
-            ] {
-                let (state, now) = plan_state(case.phase, &[]);
-
-                let text = render_text((80, 24), &state, ExecutionViewState::default(), now, false);
-
-                assert!(
-                    text.contains(&format!("┌{}─", case.title)),
-                    "case: {}",
-                    case.name
-                );
-                assert!(text.contains(case.status), "case: {}", case.name);
-            }
-        }
-
-        #[test]
         fn running_plan_follows_the_newest_line_until_scrolled_up() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
+            let (state, now) = plan_state(&lines);
             let layout = execution_layout(Rect::new(0, 0, 80, 24), &state);
 
             let following =
@@ -3554,7 +3511,7 @@ mod tests {
         fn failed_plan_starts_at_the_first_error_until_end_is_pressed() {
             let lines = long_plan_lines();
             let lines = lines.iter().map(String::as_str).collect::<Vec<_>>();
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &lines);
+            let (mut state, now) = plan_state(&lines);
             state.fail("synthetic plan failure".to_owned(), now);
 
             let initial = render_text((80, 24), &state, ExecutionViewState::default(), now, false);
@@ -3596,7 +3553,7 @@ mod tests {
                     expected: "Quit? Enter exit / Esc cancel",
                 },
             ] {
-                let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+                let (mut state, now) = plan_state(&["output"]);
                 if case.failed {
                     state.fail("synthetic plan failure".to_owned(), now);
                 }
@@ -3620,7 +3577,7 @@ mod tests {
 
         #[test]
         fn quit_confirmation_and_copy_notice_replace_the_failed_footer_in_place() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+            let (mut state, now) = plan_state(&["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             let area = Rect::new(0, 0, 80, 24);
             let normal = execution_layout(area, &state);
@@ -3660,7 +3617,7 @@ mod tests {
 
         #[test]
         fn narrow_quit_confirmation_keeps_its_prompt_while_a_copy_notice_is_active() {
-            let (mut state, now) = plan_state(Some(ExecutionPhase::Reading), &["output"]);
+            let (mut state, now) = plan_state(&["output"]);
             state.fail("synthetic plan failure".to_owned(), now);
             state
                 .copy_feedback_mut()
@@ -3778,7 +3735,7 @@ mod tests {
                     ExecutionViewState::default(),
                     started_at + Duration::from_millis(u64::try_from(index).unwrap() * 100),
                 );
-                assert_eq!(status[0].to_string(), format!("{frame} Initializing..."));
+                assert_eq!(status[0].to_string(), format!("{frame} Reading plan..."));
             }
         }
 

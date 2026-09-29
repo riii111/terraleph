@@ -300,13 +300,7 @@ impl ConfigurationTree {
             if let Some(value) = resource.get("expressions") {
                 invalid |= !collect_expression_map(value, &mut expressions);
             }
-            for key in ["count_expression", "for_each_expression"] {
-                if let Some(value) = resource.get(key) {
-                    invalid |=
-                        !value.is_object() || !collect_expression_groups(value, &mut expressions);
-                }
-            }
-            let depends_on = parse_string_array(resource.get("depends_on"), &mut invalid);
+            let depends_on = parse_declaration(resource, &mut expressions, &mut invalid);
             self.partial |= invalid;
             parsed.push(ResourceDefinition {
                 identity,
@@ -411,13 +405,8 @@ impl ConfigurationTree {
                     }
                 }
                 let mut declaration_expressions = Vec::new();
-                for key in ["count_expression", "for_each_expression"] {
-                    if let Some(expression) = call.get(key) {
-                        invalid |= !expression.is_object()
-                            || !collect_expression_groups(expression, &mut declaration_expressions);
-                    }
-                }
-                let mut depends_on = parse_string_array(call.get("depends_on"), &mut invalid);
+                let mut depends_on =
+                    parse_declaration(call, &mut declaration_expressions, &mut invalid);
                 depends_on.sort();
                 let repeated = call.contains_key("count_expression")
                     || call.contains_key("for_each_expression");
@@ -916,6 +905,19 @@ fn collect_expression_map(value: &Value, groups: &mut Vec<Vec<String>>) -> bool 
         }
     }
     valid
+}
+
+fn parse_declaration(
+    declaration: &Map<String, Value>,
+    expressions: &mut Vec<Vec<String>>,
+    invalid: &mut bool,
+) -> Vec<String> {
+    for key in ["count_expression", "for_each_expression"] {
+        if let Some(value) = declaration.get(key) {
+            *invalid |= !value.is_object() || !collect_expression_groups(value, expressions);
+        }
+    }
+    parse_string_array(declaration.get("depends_on"), invalid)
 }
 
 fn parse_string_array(value: Option<&Value>, invalid: &mut bool) -> Vec<String> {
