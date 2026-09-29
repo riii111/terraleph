@@ -278,7 +278,7 @@ fn clear_expired_copy_feedback(state: &mut SessionState, now: Instant) -> bool {
 
 // The apply confirmation body and the dialogs clamp against the current layout on their next
 // input or render, so only the review and Overview offsets need a resize correction.
-pub(super) fn reconcile_resize(
+fn reconcile_resize(
     state: &SessionState,
     review_view: &mut plan_review::PlanReviewViewState,
     area: Rect,

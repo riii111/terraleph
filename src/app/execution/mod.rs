@@ -365,8 +365,8 @@ pub(crate) mod test_support {
         Diagnostic, DiagnosticSeverity, DiagnosticSource, EventStream, ExecutionEventKind,
     };
 
-    // Terraform output reaches the log as informational messages on stdout and as diagnostics
-    // on stderr, so tests add log text the same way.
+    // Log text reaches the progress as informational messages, or as the diagnostics that
+    // non-JSON output lines become, so tests add it the same way.
     pub(crate) fn log_event(stream: EventStream, text: impl Into<String>) -> ExecutionEventKind {
         let text = text.into();
         match stream {
@@ -375,12 +375,12 @@ pub(crate) mod test_support {
                 message: Some(text),
             },
             EventStream::Stderr => ExecutionEventKind::Diagnostic(Diagnostic {
-                severity: DiagnosticSeverity::Warning,
+                severity: DiagnosticSeverity::Unknown,
                 summary: text,
                 detail: None,
                 address: None,
                 position: None,
-                source: DiagnosticSource::Terraform,
+                source: DiagnosticSource::NonJson { stream },
             }),
         }
     }

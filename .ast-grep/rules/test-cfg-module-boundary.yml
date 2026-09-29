@@ -10,7 +10,6 @@ note: |-
 files:
   - src/**/*.rs
   - tests/**/*.rs
-  - examples/**/*.rs
 utils:
   test-cfg:
     kind: attribute_item

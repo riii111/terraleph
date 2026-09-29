@@ -9,7 +9,7 @@ expression: buffer_text(buffer)
  │| Reading plan...                                                           │
  │Waiting 2s    Follow: On                                                    │
  │Elapsed 2.0s                                                                │
- │planning output                                                             │
+ │reading output                                                              │
  │                                                                            │
  │                                                                            │
  │                                                                            │
