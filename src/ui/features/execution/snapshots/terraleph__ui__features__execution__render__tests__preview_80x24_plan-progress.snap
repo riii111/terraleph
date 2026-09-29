@@ -7,7 +7,7 @@ expression: buffer_text(buffer)
 
  ┌Reading─────────────────────────────────────────────────────────────────────┐
  │| Reading plan...                                                           │
- │Waiting 2s    Follow: On                                                    │
+ │Waiting 2s                                                                  │
  │Elapsed 2.0s                                                                │
  │reading output                                                              │
  │                                                                            │
@@ -24,4 +24,4 @@ expression: buffer_text(buffer)
  │                                                                            │
  │────────────────────────────────────────────────────────────────────────────│
  └────────────────────────────────────────────────────────────────────────────┘
- Ctrl-C cancel | End follow latest
+ Ctrl-C cancel

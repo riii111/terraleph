@@ -736,8 +736,8 @@ fn update_session(
             );
         }
     }
-    if let Some(execution) = state.execution().or_else(|| state.apply()) {
-        execution_view.measure_log(execution.progress());
+    if let Some(apply) = state.apply() {
+        execution_view.measure_log(apply.progress());
     }
     effect
 }

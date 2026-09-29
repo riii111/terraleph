@@ -126,8 +126,10 @@ impl ExecutionViewState {
     }
 
     // Measures the entries appended since the last call. Rendering measures any entries this has
-    // not seen yet on every frame, so the runtime calls this whenever the log or the selected
-    // target changes. A view belongs to one execution; the runtime resets it when an apply starts.
+    // not seen yet on every frame, so the runtime calls this whenever the apply log or the
+    // selected target changes. A plan view never calls it: the plan log holds at most the read
+    // failure, which rendering measures directly. A view belongs to one execution; the runtime
+    // resets it when an apply starts.
     pub(crate) fn measure_log(&mut self, progress: &ExecutionProgress) {
         self.log_width = render::measure_log_width(self.log_width, progress.log(), None);
         self.target_log_width = self.selected_target.and_then(|index| {
@@ -252,11 +254,6 @@ impl ExecutionViewState {
     }
 
     #[must_use]
-    pub(crate) const fn follows_latest(self) -> bool {
-        !matches!(self.vertical, VerticalScroll::Manual(_))
-    }
-
-    #[must_use]
     pub(crate) const fn horizontal(self) -> usize {
         self.horizontal
     }
@@ -314,6 +311,12 @@ pub(crate) use render::{
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl ExecutionViewState {
+        pub(crate) const fn follows_latest(self) -> bool {
+            !matches!(self.vertical, VerticalScroll::Manual(_))
+        }
+    }
 
     #[test]
     fn horizontal_scroll_keeps_the_effective_follow_position() {
