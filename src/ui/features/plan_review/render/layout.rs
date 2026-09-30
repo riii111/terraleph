@@ -266,7 +266,7 @@ pub(super) fn layout_with_content(
         area,
         footer_lines,
         required,
-        header::plan_review_height(review, area.width),
+        header::plan_review_height(review, area.width, navigation.header_tool()),
     );
     let inner = shell.content_inner();
     let status_height = u16::from(inner.height > 3);

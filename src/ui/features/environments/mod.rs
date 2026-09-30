@@ -320,7 +320,7 @@ impl EnvironmentView {
         state: &EnvironmentSession,
     ) -> ControlFlow<Option<EnvironmentInput>> {
         if let Some(index) = self.selection.raw {
-            return self.raw_navigation(key, index, state);
+            return self.raw_navigation(key, index, size, state);
         }
 
         if self.active_pane(size.width) == EnvironmentPane::Relations
@@ -363,16 +363,7 @@ impl EnvironmentView {
                 return ControlFlow::Break(None);
             }
             KeyCode::Char('b') if self.maximized.is_none() => {
-                if self.sidebar_enabled && size.width >= 90 {
-                    if self.sidebar == SidebarSetting::Open {
-                        self.sidebar = SidebarSetting::Closed;
-                        if self.focus == EnvironmentPane::Environments {
-                            self.focus = self.last_right_focus;
-                        }
-                    } else {
-                        self.sidebar = SidebarSetting::Open;
-                    }
-                }
+                self.toggle_sidebar(size.width);
                 return ControlFlow::Break(None);
             }
             KeyCode::Char('f') => {
@@ -421,6 +412,20 @@ impl EnvironmentView {
         ControlFlow::Continue(())
     }
 
+    fn toggle_sidebar(&mut self, width: u16) {
+        if !self.sidebar_enabled || width < 90 {
+            return;
+        }
+        if self.sidebar == SidebarSetting::Open {
+            self.sidebar = SidebarSetting::Closed;
+            if self.focus == EnvironmentPane::Environments {
+                self.focus = self.last_right_focus;
+            }
+        } else {
+            self.sidebar = SidebarSetting::Open;
+        }
+    }
+
     fn relations_navigation(
         &mut self,
         key: KeyEvent,
@@ -437,11 +442,11 @@ impl EnvironmentView {
                 self.update_relations_scroll(|scroll| scroll.down(1));
             }
             KeyCode::PageUp => {
-                let page = self.relations_page_lines(size);
+                let page = self.relations_page_lines(size, state);
                 self.update_relations_scroll(|scroll| scroll.up(page));
             }
             KeyCode::PageDown => {
-                let page = self.relations_page_lines(size);
+                let page = self.relations_page_lines(size, state);
                 self.update_relations_scroll(|scroll| scroll.down(page));
             }
             KeyCode::Home => self.update_relations_scroll(RelationGraphScroll::top),
@@ -453,9 +458,11 @@ impl EnvironmentView {
         ControlFlow::Break(None)
     }
 
-    fn relations_page_lines(&self, size: Size) -> u16 {
-        let layout =
-            self.overview_layout(ratatui::layout::Rect::new(0, 0, size.width, size.height));
+    fn relations_page_lines(&self, size: Size, state: &EnvironmentSession) -> u16 {
+        let layout = self.overview_layout(
+            ratatui::layout::Rect::new(0, 0, size.width, size.height),
+            state,
+        );
         RelationGraphScroll::page_lines(layout.relations.height)
     }
 
@@ -469,6 +476,7 @@ impl EnvironmentView {
         &mut self,
         key: KeyEvent,
         index: usize,
+        size: Size,
         state: &EnvironmentSession,
     ) -> ControlFlow<Option<EnvironmentInput>> {
         match key.code {
@@ -479,7 +487,19 @@ impl EnvironmentView {
                     1
                 };
                 let next = adjacent_environment(index, delta, state.plans().len());
-                return ControlFlow::Break(self.open(state, next));
+                if next == index {
+                    return ControlFlow::Break(None);
+                }
+                // Comparing environments reads the same resource in each, so the next plan opens
+                // at the resource the current one is showing.
+                let address = state.plans()[index].review().and_then(|review| {
+                    plan_review::top_resource_address(review, &self.reviews[index])
+                });
+                return ControlFlow::Break(self.open_near(state, next, address.as_deref()));
+            }
+            KeyCode::Char('b') => {
+                self.toggle_sidebar(size.width);
+                return ControlFlow::Break(None);
             }
             KeyCode::Char('0' | 's') => {
                 self.selection.raw = None;
@@ -562,13 +582,9 @@ impl EnvironmentView {
         }
     }
 
-    fn raw_area(size: Size) -> ratatui::layout::Rect {
-        ratatui::layout::Rect::new(
-            0,
-            1.min(size.height),
-            size.width,
-            size.height.saturating_sub(1),
-        )
+    fn raw_plan_area(&self, size: Size) -> ratatui::layout::Rect {
+        self.review_layout(ratatui::layout::Rect::new(0, 0, size.width, size.height))
+            .plan
     }
 
     fn handle_review_key(
@@ -579,7 +595,7 @@ impl EnvironmentView {
         can_start_apply: bool,
     ) -> Option<EnvironmentInput> {
         let index = self.selection.raw?;
-        let area = Self::raw_area(size);
+        let area = self.raw_plan_area(size);
         let view = &mut self.reviews[index];
         if view.overlay().is_some() {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
@@ -698,6 +714,17 @@ impl EnvironmentView {
     }
 
     fn open(&mut self, state: &EnvironmentSession, index: usize) -> Option<EnvironmentInput> {
+        self.open_near(state, index, None)
+    }
+
+    // Opens the plan of `index` scrolled to the block of `address`, or from the top when the plan
+    // has no such block.
+    fn open_near(
+        &mut self,
+        state: &EnvironmentSession,
+        index: usize,
+        address: Option<&str>,
+    ) -> Option<EnvironmentInput> {
         let plan = state.plans().get(index)?;
         if plan.review().is_none() {
             self.selection.raw = None;
@@ -715,13 +742,29 @@ impl EnvironmentView {
             ));
             return None;
         }
-        Some(self.open_at(index, 0, None))
+        let line = address
+            .zip(plan.review())
+            .and_then(|(address, review)| review.review().document().block_for_address(address))
+            .map(|block| block.lines().start);
+        Some(self.open_at(state, index, line, None))
     }
 
-    fn open_at(&mut self, index: usize, line: usize, notice: Option<String>) -> EnvironmentInput {
+    // `line` is a line of the plan text; without one the plan opens from the top.
+    fn open_at(
+        &mut self,
+        state: &EnvironmentSession,
+        index: usize,
+        line: Option<usize>,
+        notice: Option<String>,
+    ) -> EnvironmentInput {
         self.notice = notice;
         self.selection.raw = Some(index);
-        self.reviews[index].jump_to_line(line, usize::MAX);
+        match (line, state.plans()[index].review()) {
+            (Some(line), Some(review)) => {
+                self.reviews[index].jump_to_source_line(review.review(), line);
+            }
+            _ => self.reviews[index].jump_to_line(0, usize::MAX),
+        }
         EnvironmentInput::Review(index, Box::new(Action::ReviewSearchChanged(String::new())))
     }
 
@@ -809,7 +852,7 @@ impl EnvironmentView {
                 matches.len()
             )
         });
-        Some(self.open_at(index, line, notice))
+        Some(self.open_at(state, index, Some(line), notice))
     }
 
     fn handle_dialog_key(&mut self, key: KeyEvent) -> Option<EnvironmentInput> {

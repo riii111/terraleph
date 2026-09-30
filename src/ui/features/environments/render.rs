@@ -36,7 +36,7 @@ impl EnvironmentView {
         if self.selection.raw.is_some() {
             return 1;
         }
-        let layout = self.overview_layout(Rect::new(0, 0, size.width, size.height));
+        let layout = self.overview_layout(Rect::new(0, 0, size.width, size.height), state);
         let content = self.matrix_content_layout(pane_inner(layout.matrix), state);
         let legend_height = if content.matrix.width < 50 { 2 } else { 1 };
         usize::from(content.matrix.height.saturating_sub(2 + legend_height + 1)).max(1)
@@ -50,13 +50,13 @@ impl EnvironmentView {
         if let Some(index) = self.selection.raw
             && let Some(review) = state.plans()[index].review()
         {
-            let header = header_row(area);
-            shell::render_header(frame, header, state, &self.selection);
-            let body = review_body(area, header);
+            let layout = self.review_layout(area);
+            shell::render_header(frame, layout.header, state, &self.selection);
+            self.render_review_environments(frame, layout.environments, state, index);
             if self.confirming_quit {
                 plan_review::render_environment_with_quit_confirmation(
                     frame,
-                    body,
+                    layout.plan,
                     review,
                     &mut self.reviews[index],
                     Instant::now(),
@@ -65,14 +65,14 @@ impl EnvironmentView {
             } else {
                 plan_review::render_environment(
                     frame,
-                    body,
+                    layout.plan,
                     review,
                     &mut self.reviews[index],
                     Instant::now(),
                 );
             }
         } else {
-            let layout = self.overview_layout(area);
+            let layout = self.overview_layout(area, state);
             shell::render_header(frame, layout.header, state, &self.selection);
             self.render_overview(frame, &layout, state);
         }
@@ -117,11 +117,12 @@ impl EnvironmentView {
         self.initialize(Size::new(area.width, area.height), state);
         self.sync(state);
         frame.render_widget(Block::new().style(theme::overview_text_style()), area);
-        let header = header_row(area);
-        shell::render_header(frame, header, state, &self.selection);
+        let layout = self.review_layout(area);
+        shell::render_header(frame, layout.header, state, &self.selection);
+        self.render_review_environments(frame, layout.environments, state, index);
         plan_review::render_environment(
             frame,
-            review_body(area, header),
+            layout.plan,
             confirmation,
             &mut self.reviews[index],
             now,
@@ -130,18 +131,57 @@ impl EnvironmentView {
             frame,
             confirmation,
             confirmation_view,
-            Some(header),
+            Some(layout.header),
             now,
         );
     }
 
-    pub(super) fn overview_layout(&self, area: Rect) -> shell::EnvironmentLayout {
+    pub(super) fn review_layout(&self, area: Rect) -> shell::ReviewLayout {
+        shell::review_layout(area, self.sidebar_width, self.sidebar_visible(area.width))
+    }
+
+    // The list only shows which environment the plan belongs to; keys stay with the plan.
+    fn render_review_environments(
+        &self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        state: &EnvironmentSession,
+        index: usize,
+    ) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        sidebar::render(
+            frame,
+            area,
+            state.plans(),
+            index,
+            &self.compared_environments(state.plans().len()),
+            false,
+        );
+    }
+
+    pub(super) fn overview_layout(
+        &self,
+        area: Rect,
+        state: &EnvironmentSession,
+    ) -> shell::EnvironmentLayout {
         shell::overview_layout(
             area,
             self.sidebar_width,
             self.sidebar_visible(area.width),
             self.maximized_for_width(area.width),
+            |width| self.matrix_pane_rows(width, state),
         )
+    }
+
+    // The border, the notes above the matrix, and the matrix itself.
+    fn matrix_pane_rows(&self, width: u16, state: &EnvironmentSession) -> usize {
+        let inner = pane_inner(Rect::new(0, 0, width, 1000));
+        let content = self.matrix_content_layout(inner, state);
+        usize::from(content.context_height + content.detail_height)
+            + matrix::body_height(&self.matrix, inner.width)
+            + 2
     }
 
     fn render_overview(
@@ -353,24 +393,6 @@ impl EnvironmentView {
             matrix,
         }
     }
-}
-
-const fn header_row(area: Rect) -> Rect {
-    Rect::new(
-        area.x,
-        area.y,
-        area.width,
-        if area.height > 0 { 1 } else { 0 },
-    )
-}
-
-const fn review_body(area: Rect, header: Rect) -> Rect {
-    Rect::new(
-        area.x,
-        header.bottom(),
-        area.width,
-        area.bottom().saturating_sub(header.bottom()),
-    )
 }
 
 fn render_message_dialog(frame: &mut Frame<'_>, area: Rect, text: &str, scroll: &DialogScroll) {

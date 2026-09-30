@@ -357,6 +357,135 @@ mod raw_plan {
         );
     }
 
+    fn resources(names: &[&str]) -> Vec<ResourceChange> {
+        names
+            .iter()
+            .map(|name| {
+                change(
+                    &format!("terraform_data.{name}"),
+                    ResourceChangeKind::Update,
+                )
+            })
+            .collect()
+    }
+
+    const TALL_PLAN: [&str; 10] = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9"];
+
+    #[test]
+    fn brackets_open_the_next_plan_at_the_resource_that_is_on_top() {
+        let mut state = session(&["dev", "stg", "prod"]);
+        complete(&mut state, resources(&TALL_PLAN));
+        complete(&mut state, resources(&TALL_PLAN));
+        complete(&mut state, resources(&["r1"]));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(80, 24);
+
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+        for _ in 0..8 {
+            press_at(&mut view, &mut state, KeyCode::Down, size);
+        }
+        assert_eq!(view.reviews[0].scroll().0, 8);
+        press_at(&mut view, &mut state, KeyCode::Char(']'), size);
+
+        // Line 8 of the plan text is where the r2 block starts.
+        assert_eq!(
+            (view.selection.raw, view.reviews[1].scroll().0),
+            (Some(1), 8)
+        );
+
+        press_at(&mut view, &mut state, KeyCode::Char(']'), size);
+
+        assert_eq!(
+            (view.selection.raw, view.reviews[2].scroll().0),
+            (Some(2), 0)
+        );
+    }
+
+    #[test]
+    fn brackets_at_the_first_and_last_environment_keep_the_plan_where_it_is() {
+        let mut state = session(&["dev", "prod"]);
+        complete(&mut state, resources(&TALL_PLAN));
+        complete(&mut state, resources(&TALL_PLAN));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(80, 24);
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+        for _ in 0..4 {
+            press_at(&mut view, &mut state, KeyCode::Down, size);
+        }
+
+        let input = view.handle_key(
+            KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE),
+            size,
+            &state,
+        );
+
+        assert!(input.is_none());
+        assert_eq!(
+            (view.selection.raw, view.reviews[0].scroll().0),
+            (Some(0), 4)
+        );
+    }
+
+    fn plan_text_column(text: &str) -> usize {
+        text.lines()
+            .find_map(|line| {
+                line.find("# terraform_data.r0")
+                    .map(|byte| line[..byte].chars().count())
+            })
+            .expect("the plan text should be visible")
+    }
+
+    #[test]
+    fn full_plan_keeps_the_environment_list_and_b_hides_it() {
+        let mut state = session(&["dev", "stg"]);
+        complete(&mut state, resources(&["r0"]));
+        complete(&mut state, resources(&["r0"]));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(120, 40);
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+
+        let with_list = render_text(&mut view, &state, (120, 40));
+        press_at(&mut view, &mut state, KeyCode::Char('b'), size);
+        let without_list = render_text(&mut view, &state, (120, 40));
+
+        assert!(with_list.contains("[1] Envs"), "{with_list}");
+        assert!(with_list.contains("> [x] dev"), "{with_list}");
+        assert!(plan_text_column(&with_list) >= 25, "{with_list}");
+        assert!(!without_list.contains("[1] Envs"), "{without_list}");
+        assert!(plan_text_column(&without_list) < 5, "{without_list}");
+    }
+
+    #[test]
+    fn full_plan_marks_the_open_environment_in_the_list_when_brackets_switch() {
+        let mut state = session(&["dev", "stg"]);
+        complete(&mut state, resources(&["r0"]));
+        complete(&mut state, resources(&["r0"]));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(120, 40);
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+        press_at(&mut view, &mut state, KeyCode::Char(']'), size);
+
+        let text = render_text(&mut view, &state, (120, 40));
+
+        assert!(text.contains("> [x] stg"), "{text}");
+        assert!(text.contains("  [x] dev"), "{text}");
+    }
+
+    #[test]
+    fn full_plan_header_leaves_the_tool_to_the_top_row() {
+        let mut state = session(&["dev", "stg"]);
+        complete(&mut state, resources(&["r0"]));
+        complete(&mut state, resources(&["r0"]));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(120, 40);
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+
+        let text = render_text(&mut view, &state, (120, 40));
+
+        assert!(text.contains("Target: dev"), "{text}");
+        assert!(!text.contains("Tool:"), "{text}");
+    }
+
     #[test]
     fn unavailable_environment_opens_its_state_dialog_and_raw_plan_after_completion() {
         let mut state = session(&["a", "b", "c"]);
@@ -1027,6 +1156,26 @@ mod relations {
 
 mod layout {
     use super::*;
+
+    #[test]
+    fn compare_pane_ends_after_its_legend_and_leaves_the_rest_to_relations() {
+        let state = multi_demo_session();
+        let mut view = EnvironmentView::default();
+
+        let text = render_text(&mut view, &state, (165, 50));
+
+        let lines = text.lines().collect::<Vec<_>>();
+        let legend = lines
+            .iter()
+            .position(|line| line.contains("blank: absent"))
+            .expect("the matrix legend");
+        assert!(
+            lines[legend - 1].contains("instance counts differ"),
+            "{text}"
+        );
+        assert!(lines[legend + 1].contains('└'), "{text}");
+        assert!(lines[legend + 2].contains("[3] Relations"), "{text}");
+    }
 
     #[rstest]
     #[case::terminal_150x48(Size::new(150, 48), false)]

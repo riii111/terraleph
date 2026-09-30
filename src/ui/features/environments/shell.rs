@@ -9,7 +9,6 @@ use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
         execution::{ToolVersion, directory_display_name},
-        session::SessionState,
     },
     ui::{primitives::atoms::ready_mark, shell::context::truncate_middle, theme},
 };
@@ -62,11 +61,15 @@ impl EnvironmentSelection {
     }
 }
 
+/// The matrix takes at most four tenths of the right column and only the rows it needs, so a short
+/// matrix does not keep blank rows the relations could use. `matrix_rows` returns the rows the
+/// matrix pane needs at a given width.
 pub(super) fn overview_layout(
     area: Rect,
     sidebar_width: u16,
     sidebar_visible: bool,
     maximized: Option<EnvironmentPane>,
+    matrix_rows: impl FnOnce(u16) -> usize,
 ) -> EnvironmentLayout {
     let show_summary = !sidebar_visible && maximized.is_none();
     let header = Rect::new(area.x, area.y, area.width, area.height.min(1));
@@ -111,7 +114,8 @@ pub(super) fn overview_layout(
             } else {
                 body
             };
-            let matrix_height = right.height.saturating_mul(4) / 10;
+            let needed = u16::try_from(matrix_rows(right.width)).unwrap_or(u16::MAX);
+            let matrix_height = (right.height.saturating_mul(4) / 10).min(needed);
             matrix = Rect::new(right.x, right.y, right.width, matrix_height);
             relations = Rect::new(
                 right.x,
@@ -130,6 +134,46 @@ pub(super) fn overview_layout(
         environments,
         matrix,
         relations,
+    }
+}
+
+// Keeps the plan text off the environment list's border.
+const REVIEW_GAP: u16 = 1;
+
+/// The full plan keeps the environment list where the overview draws it, so the plan starts near
+/// the column where the overview panes start.
+pub(super) struct ReviewLayout {
+    pub(super) header: Rect,
+    pub(super) environments: Rect,
+    pub(super) plan: Rect,
+}
+
+pub(super) fn review_layout(area: Rect, sidebar_width: u16, sidebar_visible: bool) -> ReviewLayout {
+    let header = Rect::new(area.x, area.y, area.width, area.height.min(1));
+    let body = Rect::new(
+        area.x,
+        header.bottom(),
+        area.width,
+        area.bottom().saturating_sub(header.bottom()),
+    );
+    if !sidebar_visible {
+        return ReviewLayout {
+            header,
+            environments: Rect::default(),
+            plan: body,
+        };
+    }
+    let width = sidebar_width.min(body.width);
+    let plan_x = width.saturating_add(REVIEW_GAP).min(body.width);
+    ReviewLayout {
+        header,
+        environments: Rect::new(body.x, body.y, width, body.height),
+        plan: Rect::new(
+            body.x.saturating_add(plan_x),
+            body.y,
+            body.width.saturating_sub(plan_x),
+            body.height,
+        ),
     }
 }
 
@@ -162,21 +206,13 @@ pub(super) fn render_header(
         directory_display_name(state.exploration_root().unwrap_or_else(|| plan.directory()))
     );
     // The confirmation hides the raw review but keeps the same plan context.
-    let review = plan
-        .review()
-        .or_else(|| plan.session().and_then(SessionState::apply_confirmation));
-    let tool = review.map_or_else(
+    let tool = plan.plan_review().map_or_else(
         || plan.tool.display_name().to_owned(),
-        |review| {
-            let review = review.review();
-            match review.context().tool_version() {
-                ToolVersion::Known(version) => {
-                    format!("{} {version}", plan.tool.display_name())
-                }
-                ToolVersion::Loading | ToolVersion::Unavailable => {
-                    plan.tool.display_name().to_owned()
-                }
+        |review| match review.context().tool_version() {
+            ToolVersion::Known(version) => {
+                format!("{} {version}", plan.tool.display_name())
             }
+            ToolVersion::Loading | ToolVersion::Unavailable => plan.tool.display_name().to_owned(),
         },
     );
     let tool_width = Line::from(tool.as_str())

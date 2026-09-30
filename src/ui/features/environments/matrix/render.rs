@@ -234,6 +234,39 @@ fn content_lines(
     (lines, selected_lines)
 }
 
+/// Returns the rows the matrix needs inside a pane of `width` columns: the column headers, every
+/// body line, and the legend.
+pub(crate) fn body_height(view: &MatrixView, width: u16) -> usize {
+    2 + content_line_count(view, width) + legend_height(width)
+}
+
+// Counts what `content_lines` builds without building it, so the layout can size the pane before
+// the rows are drawn.
+fn content_line_count(view: &MatrixView, width: u16) -> usize {
+    let wide = width >= WIDE_WIDTH;
+    let mut count = 0;
+    let mut section = None;
+    let mut summary_seen = false;
+    for row in &view.rows {
+        if let Some(summary) = &row.summary {
+            count += usize::from(section.is_some()) + 1 + summary_note_lines(summary, width).len();
+            section = Some(false);
+            summary_seen = true;
+            continue;
+        }
+        if row.difference.is_some() && !row.child && section != Some(true) {
+            count += usize::from(section.is_some()) + 1;
+            section = Some(true);
+        } else if row.difference.is_none() && !row.child && !summary_seen && section != Some(false)
+        {
+            count += usize::from(section.is_some()) + 1;
+            section = Some(false);
+        }
+        count += 1 + usize::from(!wide && row.has_unknown);
+    }
+    count.max(1)
+}
+
 fn same_section_title(view: &MatrixView, state: &EnvironmentSession) -> &'static str {
     let filtered = view.environments.len() != state.plans().len();
     let partial = view

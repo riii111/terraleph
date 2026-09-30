@@ -124,6 +124,15 @@ impl PlanContent {
         self.plan.get(plan_row).map(|source| source.line_number)
     }
 
+    /// Returns the row that shows plan line `line`, or the first row after it when that line is
+    /// not shown, such as the introduction the body leaves out.
+    pub(super) fn row_for_source_line(&self, line: usize) -> usize {
+        self.notices.len()
+            + self
+                .plan
+                .partition_point(|source| source.line_number < line)
+    }
+
     /// Styles `rows` from the document they were prepared for. The selected match is highlighted
     /// only when it falls on one of them.
     pub(super) fn lines<'a>(

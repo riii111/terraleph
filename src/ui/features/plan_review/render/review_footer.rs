@@ -168,6 +168,7 @@ pub(super) fn footer_items(
         items
     };
     if navigation == ReviewNavigation::Environments && !searching && !filtered {
+        items.insert(0, (1, footer::hint(&["[", "]"], "env")));
         items.insert(0, (2, footer::hint(&["Esc"], "overview")));
     }
     items

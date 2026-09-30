@@ -45,6 +45,10 @@ pub(super) fn plan_help_sections(
             "[ / ]",
             "previous / next environment",
         ));
+        move_actions.push(help_dialog::HelpAction::new(
+            "b",
+            "show or hide the environments",
+        ));
     }
     move_actions.extend([
         help_dialog::HelpAction::new("↑ / ↓ / j / k", "scroll vertically"),

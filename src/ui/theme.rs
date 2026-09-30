@@ -12,6 +12,18 @@ pub(crate) fn footer_text_style() -> Style {
     Style::default().fg(Color::Rgb(0xc0, 0xb8, 0xb8))
 }
 
+pub(crate) fn header_label_style() -> Style {
+    Style::default().fg(Color::Rgb(0x90, 0x90, 0x90))
+}
+
+pub(crate) fn header_value_style() -> Style {
+    body_style()
+}
+
+pub(crate) fn header_target_style() -> Style {
+    body_style().add_modifier(Modifier::BOLD)
+}
+
 pub(crate) fn body_style() -> Style {
     Style::default().fg(Color::Rgb(0xe9, 0xdb, 0xdb))
 }

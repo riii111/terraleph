@@ -13,7 +13,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::app::session::ReviewSessionState;
+use crate::app::{review::PlanReview, session::ReviewSessionState};
 use crate::ui::primitives::{
     atoms::{copy_flash, scrollbar, separator},
     molecules::terminal_notice,
@@ -45,6 +45,16 @@ const MIN_HEIGHT: u16 = 6;
 enum ReviewNavigation {
     Standalone,
     Environments,
+}
+
+impl ReviewNavigation {
+    // The environment screen already shows the tool version in its own header row.
+    const fn header_tool(self) -> header::PlanHeaderTool {
+        match self {
+            Self::Standalone => header::PlanHeaderTool::Shown,
+            Self::Environments => header::PlanHeaderTool::Hidden,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -196,7 +206,12 @@ fn render_for_navigation(
         return false;
     }
     view.reconcile_scroll(layout.max_vertical(), layout.max_horizontal());
-    header::render_plan_review(frame, layout.shell.header(), state.review());
+    header::render_plan_review(
+        frame,
+        layout.shell.header(),
+        state.review(),
+        navigation.header_tool(),
+    );
     frame.render_widget(
         Block::new().style(theme::body_style()),
         layout.shell.content(),
@@ -281,6 +296,28 @@ fn render_for_navigation(
 
 fn filter_active(searching: bool, state: &ReviewSessionState) -> bool {
     searching || !state.review().search_query().is_empty()
+}
+
+/// Returns the address of the resource block at the first visible row of the plan.
+pub(crate) fn top_resource_address(
+    state: &ReviewSessionState,
+    view: &PlanReviewViewState,
+) -> Option<String> {
+    let content = view_content(state, view);
+    status::top_resource(state, &content, view.scroll().0)
+        .map(|resource| resource.address().to_owned())
+}
+
+/// Returns the row of the unfiltered plan body that shows `line` of the plan text. Rows leave out
+/// the introduction and start with any diagnostics, so a line number is not a row.
+pub(crate) fn unfiltered_row_for_source_line(
+    review: &PlanReview,
+    view: &PlanReviewViewState,
+    line: usize,
+) -> usize {
+    view.content_cache()
+        .get(review, false, "")
+        .row_for_source_line(line)
 }
 
 // Renders and keys share the view's prepared body, so moving through a large plan does not
