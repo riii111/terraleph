@@ -180,7 +180,7 @@ impl EnvironmentView {
         let inner = pane_inner(Rect::new(0, 0, width, 1000));
         let content = self.matrix_content_layout(inner, state);
         usize::from(content.context_height + content.detail_height)
-            + matrix::body_height(&self.matrix, inner.width)
+            + matrix::body_height(&self.matrix, inner.width).max(usize::from(MATRIX_MIN_ROWS))
             + 2
     }
 
@@ -630,6 +630,9 @@ fn overview_detail(plan: &EnvironmentPlan) -> String {
     notes.join(" ")
 }
 
+// The matrix keeps this many rows before the notes above it take any.
+const MATRIX_MIN_ROWS: u16 = 5;
+
 fn section_heights(area: Rect, context: &str, detail: &str) -> (u16, u16) {
     let context_height = u16::try_from(
         Paragraph::new(context)
@@ -637,7 +640,7 @@ fn section_heights(area: Rect, context: &str, detail: &str) -> (u16, u16) {
             .line_count(area.width.max(1)),
     )
     .unwrap_or(u16::MAX)
-    .min(area.height.saturating_sub(5));
+    .min(area.height.saturating_sub(MATRIX_MIN_ROWS));
     let detail_height = u16::try_from(
         Paragraph::new(detail)
             .wrap(Wrap { trim: false })
@@ -645,7 +648,7 @@ fn section_heights(area: Rect, context: &str, detail: &str) -> (u16, u16) {
     )
     .unwrap_or(u16::MAX)
     .min(3)
-    .min(area.height.saturating_sub(context_height + 5));
+    .min(area.height.saturating_sub(context_height + MATRIX_MIN_ROWS));
     (context_height, detail_height)
 }
 

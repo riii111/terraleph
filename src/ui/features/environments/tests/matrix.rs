@@ -4,6 +4,7 @@ use rstest::rstest;
 
 use super::*;
 use crate::app::environments::overview::OverviewRowId;
+use crate::app::plan::test_support::output_change;
 use crate::app::{
     execution::{ExecutionContext, SensitiveValue},
     plan::{
@@ -471,6 +472,23 @@ mod raw_plan {
         assert_eq!(
             (view.selection.raw, view.reviews[0].scroll().0),
             (Some(0), 4)
+        );
+
+        press_at(&mut view, &mut state, KeyCode::Char(']'), size);
+        for _ in 0..2 {
+            press_at(&mut view, &mut state, KeyCode::Down, size);
+        }
+        let scrolled = view.reviews[1].scroll().0;
+        let input = view.handle_key(
+            KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE),
+            size,
+            &state,
+        );
+
+        assert!(input.is_none());
+        assert_eq!(
+            (view.selection.raw, view.reviews[1].scroll().0),
+            (Some(1), scrolled)
         );
     }
 
@@ -1204,6 +1222,43 @@ mod relations {
 
 mod layout {
     use super::*;
+
+    #[test]
+    fn output_only_plan_keeps_its_note_above_a_matrix_that_keeps_five_rows() {
+        let mut state = session(&["dev"]);
+        let index = state.start_next().expect("pending environment");
+        let directory = state.plans()[index].directory().to_owned();
+        let review = PlanReview::new(
+            directory.clone(),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                String::new(),
+                vec![PlanBlock::new(0..1, PlanBlockKind::Common)],
+                Vec::new(),
+            ),
+            Plan {
+                output_changes: vec![output_change("endpoint", PlanAction::Update)],
+                ..Plan::empty()
+            },
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+        .with_context(ExecutionContext::loading(directory).with_workspace("default"))
+        .with_apply_entry(false);
+        state.complete(
+            index,
+            PlanResult::Ready {
+                review: Box::new(review),
+                changed: true,
+            },
+            Vec::new(),
+        );
+        let mut view = EnvironmentView::default();
+
+        let text = render_text(&mut view, &state, (160, 60));
+
+        assert!(text.contains("Other changes: output changes."), "{text}");
+    }
 
     #[test]
     fn compare_pane_ends_after_its_legend_and_leaves_the_rest_to_relations() {
