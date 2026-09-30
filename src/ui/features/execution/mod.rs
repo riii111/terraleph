@@ -128,7 +128,7 @@ impl ExecutionViewState {
     }
 
     // Measures the entries appended since the last call. Rendering measures any entries this has
-    // not seen yet on every frame, so the runtime calls this whenever the apply log or the
+    // not seen yet on every frame, so callers refresh this cache when the apply log or the
     // selected target changes. A plan view never calls it: the plan log holds at most the read
     // failure, which rendering measures directly. A view belongs to one execution; the runtime
     // resets it when an apply starts.
