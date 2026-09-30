@@ -21,7 +21,7 @@ const REVIEW_HEADER_SEPARATOR: &str = " ";
 const PRODUCTION_SUFFIX: &str = " [PROD]";
 const GAP: &str = "  ";
 
-/// Whether the plan header names the tool. A screen that already shows the tool elsewhere hides it.
+// A screen that shows the tool version elsewhere hides it here.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlanHeaderTool {
     Shown,

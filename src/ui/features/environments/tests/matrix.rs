@@ -11,7 +11,7 @@ use crate::app::{
         ProviderSchema, ProviderSchemas, RelationEndpoint, RelationEvidence, RelationSource,
         ResourceChange, ResourceChangeKind, ResourceMode, ResourceSchema, StateRelationStatus,
     },
-    review::{PlanBlock, PlanBlockKind, PlanDocument},
+    review::{PlanBlock, PlanBlockKind, PlanDocument, PlanLineKind},
 };
 use crate::ui::test_support::buffer_visual_snapshot;
 
@@ -104,8 +104,7 @@ fn complete_with_schemas(
     complete_with_plan_document_and_relations_and_schemas(
         state,
         changes,
-        lines.join("\n"),
-        blocks,
+        PlanDocument::with_blocks_and_line_kinds(lines.join("\n"), blocks, Vec::new()),
         Vec::new(),
         relations,
         provider_schemas,
@@ -115,8 +114,7 @@ fn complete_with_schemas(
 fn complete_with_plan_document_and_relations_and_schemas(
     state: &mut EnvironmentSession,
     changes: Vec<ResourceChange>,
-    text: String,
-    blocks: Vec<PlanBlock>,
+    document: PlanDocument,
     sensitive_values: Vec<SensitiveValue>,
     relations: PlanRelations,
     provider_schemas: Option<ProviderSchemas>,
@@ -127,7 +125,7 @@ fn complete_with_plan_document_and_relations_and_schemas(
     let review = PlanReview::new(
         directory.clone(),
         "default".to_owned(),
-        PlanDocument::with_blocks_and_line_kinds(text, blocks, Vec::new()),
+        document,
         Plan {
             resource_changes: changes,
             ..Plan::empty()
@@ -308,8 +306,7 @@ mod raw_plan {
         complete_with_plan_document_and_relations_and_schemas(
             state,
             changes,
-            text,
-            blocks,
+            PlanDocument::with_blocks_and_line_kinds(text, blocks, Vec::new()),
             sensitive_values,
             PlanRelations::not_collected(),
             None,
@@ -371,26 +368,60 @@ mod raw_plan {
 
     const TALL_PLAN: [&str; 10] = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9"];
 
+    // Plan text as Terraform prints it: introduction lines the body leaves out, then one
+    // three-line block per resource.
+    fn complete_with_introduction(state: &mut EnvironmentSession, names: &[&str]) {
+        const INTRODUCTION: usize = 3;
+        let changes = resources(names);
+        let mut lines =
+            vec!["Terraform will perform the following actions:".to_owned(); INTRODUCTION];
+        let mut blocks = vec![PlanBlock::new(0..INTRODUCTION, PlanBlockKind::Common)];
+        for change in &changes {
+            let start = lines.len();
+            lines.extend([
+                format!("# {} will change", change.address),
+                "~ input = old -> new".to_owned(),
+                String::new(),
+            ]);
+            blocks.push(PlanBlock::with_addresses(
+                start..lines.len(),
+                PlanBlockKind::Resource,
+                vec![change.address.clone()],
+            ));
+        }
+        let mut line_kinds = vec![PlanLineKind::Body; lines.len()];
+        line_kinds[..INTRODUCTION].fill(PlanLineKind::Intro);
+        complete_with_plan_document_and_relations_and_schemas(
+            state,
+            changes,
+            PlanDocument::with_blocks_and_line_kinds(lines.join("\n"), blocks, line_kinds),
+            Vec::new(),
+            PlanRelations::not_collected(),
+            None,
+        );
+    }
+
     #[test]
     fn brackets_open_the_next_plan_at_the_resource_that_is_on_top() {
         let mut state = session(&["dev", "stg", "prod"]);
-        complete(&mut state, resources(&TALL_PLAN));
-        complete(&mut state, resources(&TALL_PLAN));
-        complete(&mut state, resources(&["r1"]));
+        complete_with_introduction(&mut state, &TALL_PLAN);
+        complete_with_introduction(&mut state, &TALL_PLAN);
+        complete_with_introduction(&mut state, &["r1"]);
         let mut view = EnvironmentView::default();
         let size = Size::new(80, 24);
 
         press_at(&mut view, &mut state, KeyCode::Char('v'), size);
-        for _ in 0..8 {
+        for _ in 0..7 {
             press_at(&mut view, &mut state, KeyCode::Down, size);
         }
-        assert_eq!(view.reviews[0].scroll().0, 8);
+        // The body starts at plan line 3 and each block takes three rows, so row 7 is in r2.
+        assert_eq!(view.reviews[0].scroll().0, 7);
         press_at(&mut view, &mut state, KeyCode::Char(']'), size);
 
-        // Line 8 of the plan text is where the r2 block starts.
+        // r2 starts at plan line 9, which is body row 6.
         assert_eq!(
             (view.selection.raw, view.reviews[1].scroll().0),
-            (Some(1), 8)
+            (Some(1), 6)
         );
 
         press_at(&mut view, &mut state, KeyCode::Char(']'), size);
@@ -399,6 +430,23 @@ mod raw_plan {
             (view.selection.raw, view.reviews[2].scroll().0),
             (Some(2), 0)
         );
+    }
+
+    #[test]
+    fn full_plan_hides_the_environment_list_on_narrow_terminals_and_b_does_nothing() {
+        let mut state = session(&["dev", "stg"]);
+        complete(&mut state, resources(&["r0"]));
+        complete(&mut state, resources(&["r0"]));
+        let mut view = EnvironmentView::default();
+        let size = Size::new(80, 24);
+        press_at(&mut view, &mut state, KeyCode::Char('v'), size);
+
+        press_at(&mut view, &mut state, KeyCode::Char('b'), size);
+        let text = render_text(&mut view, &state, (80, 24));
+
+        assert!(!text.contains("[1] Envs"), "{text}");
+        assert!(plan_text_column(&text) < 5, "{text}");
+        assert_eq!(view.sidebar, SidebarSetting::Closed);
     }
 
     #[test]

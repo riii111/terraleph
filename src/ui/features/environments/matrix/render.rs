@@ -801,6 +801,7 @@ mod tests {
     use crate::ui::features::overview::OverviewInput;
     use crate::ui::test_support::{buffer_text, render_to_buffer};
     use ratatui::style::Color;
+    use rstest::rstest;
 
     fn matrix_view(first_column: usize) -> MatrixView {
         let mut view = MatrixView::default();
@@ -808,6 +809,64 @@ mod tests {
         view.environments = vec![0, 1, 2];
         view.selected_environment = Some(2);
         view
+    }
+
+    #[rstest]
+    #[case::narrow(40)]
+    #[case::just_below_wide(63)]
+    #[case::wide(64)]
+    #[case::roomy(120)]
+    fn counted_body_lines_match_the_lines_that_are_built(#[case] width: u16) {
+        use super::super::view::{ChangeCounts, SameChangeSummary};
+
+        let row = |difference: Option<DifferenceReason>, child: bool, has_unknown: bool| Row {
+            address: "terraform_data.server[*]".to_owned(),
+            group: None,
+            group_members: Vec::new(),
+            selection: None,
+            child,
+            cells: Vec::new(),
+            difference,
+            summary: None,
+            has_unknown,
+        };
+        let summary = |has_unknown, instance_counts_differ| Row {
+            summary: Some(SameChangeSummary {
+                rows: 2,
+                actions: ChangeCounts::default(),
+                has_unknown,
+                instance_counts_differ,
+            }),
+            ..row(None, false, false)
+        };
+        let mut view = matrix_view(0);
+        view.environments = Vec::new();
+        let state = EnvironmentSession::new(Vec::new(), false);
+        let layouts = [
+            vec![],
+            vec![row(Some(DifferenceReason::Value), false, true)],
+            vec![row(None, false, false), row(None, true, true)],
+            vec![
+                row(Some(DifferenceReason::Action), false, false),
+                row(Some(DifferenceReason::Value), true, true),
+                summary(true, true),
+                row(None, false, true),
+            ],
+            vec![summary(false, false), row(None, false, false)],
+        ];
+
+        for rows in layouts {
+            view.rows = rows;
+            let wide = width >= WIDE_WIDTH;
+            let built = content_lines(&view, &state, width, wide, &[], 0, false).0;
+
+            assert_eq!(
+                content_line_count(&view, width),
+                built.len(),
+                "{} rows at width {width}",
+                view.rows.len()
+            );
+        }
     }
 
     #[test]

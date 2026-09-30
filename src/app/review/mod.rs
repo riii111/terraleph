@@ -120,7 +120,6 @@ impl<'a> ResourcePosition<'a> {
         self.address
     }
 
-    /// Returns the 1-based place of the block among the resource blocks.
     #[must_use]
     pub(crate) const fn number(self) -> usize {
         self.number
