@@ -1,4 +1,5 @@
 mod input;
+mod keys;
 mod render;
 
 use crate::app::execution::ExecutionProgress;
@@ -25,7 +26,7 @@ enum VerticalScroll {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExecutionTargetMove {
+enum ExecutionTargetMove {
     Previous,
     Next,
 }
@@ -87,7 +88,7 @@ impl ExecutionViewState {
         self.vertical = VerticalScroll::Manual(offset);
     }
 
-    pub(crate) fn apply_target_scroll(
+    fn apply_target_scroll(
         &mut self,
         action: ExecutionScroll,
         current_offset: usize,
@@ -127,7 +128,7 @@ impl ExecutionViewState {
     }
 
     // Measures the entries appended since the last call. Rendering measures any entries this has
-    // not seen yet on every frame, so the runtime calls this whenever the apply log or the
+    // not seen yet on every frame, so callers refresh this cache when the apply log or the
     // selected target changes. A plan view never calls it: the plan log holds at most the read
     // failure, which rendering measures directly. A view belongs to one execution; the runtime
     // resets it when an apply starts.
@@ -159,7 +160,7 @@ impl ExecutionViewState {
         })
     }
 
-    pub(crate) const fn end(&mut self) {
+    const fn end(&mut self) {
         self.vertical = VerticalScroll::FollowLatest;
         self.target_vertical = VerticalScroll::FollowLatest;
     }
@@ -170,11 +171,11 @@ impl ExecutionViewState {
         self.horizontal = 0;
     }
 
-    pub(crate) const fn close_logs(&mut self) {
+    const fn close_logs(&mut self) {
         self.logs_open = false;
     }
 
-    pub(crate) const fn toggle_focus(&mut self) {
+    const fn toggle_focus(&mut self) {
         if self.logs_open {
             self.close_logs();
         } else {
@@ -204,7 +205,7 @@ impl ExecutionViewState {
         self.target_vertical = VerticalScroll::Initial;
     }
 
-    pub(crate) fn select_target(&mut self, direction: ExecutionTargetMove, targets: &[usize]) {
+    fn select_target(&mut self, direction: ExecutionTargetMove, targets: &[usize]) {
         if targets.is_empty() {
             self.selected_target = None;
             return;
@@ -231,7 +232,7 @@ impl ExecutionViewState {
         self.vertical = VerticalScroll::Initial;
     }
 
-    pub(crate) fn ensure_target_visible(&mut self, position: usize, height: u16, max: usize) {
+    fn ensure_target_visible(&mut self, position: usize, height: u16, max: usize) {
         let current = self.target_vertical_offset(0, max);
         let next =
             scroll::offset_showing_range(current, (position, position), usize::from(height.max(1)));
@@ -296,12 +297,14 @@ impl ExecutionViewState {
     }
 }
 
-pub(crate) use input::{ExecutionInput, execution_key_to_input};
-pub(crate) use render::{
-    execution_horizontal_scroll_position_with_view, execution_layout_with_view,
-    execution_scroll_position_with_view, execution_target_scroll_position_with_view,
-    render_execution_with_quit_confirmation,
-};
+pub(crate) use render::render_execution_with_quit_confirmation;
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    pub(crate) use super::render::{
+        execution_layout_with_view, execution_scroll_position_with_view,
+    };
+}
 
 #[cfg(test)]
 mod tests {

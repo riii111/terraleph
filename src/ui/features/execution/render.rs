@@ -664,7 +664,7 @@ pub(crate) fn execution_scroll_position_with_view(
     (current, max)
 }
 
-pub(crate) const fn execution_target_scroll_position_with_view(
+pub(super) const fn execution_target_scroll_position_with_view(
     view: ExecutionViewState,
     layout: &ExecutionLayout,
 ) -> (usize, usize) {
@@ -672,7 +672,7 @@ pub(crate) const fn execution_target_scroll_position_with_view(
     (current, layout.target_max_vertical())
 }
 
-pub(crate) fn execution_horizontal_scroll_position_with_view(
+pub(super) fn execution_horizontal_scroll_position_with_view(
     view: ExecutionViewState,
     layout: &ExecutionLayout,
 ) -> (usize, usize) {

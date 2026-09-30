@@ -7,7 +7,7 @@ use crate::ui::input::normalize_key;
 use super::{ExecutionScroll, ExecutionTargetMove};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ExecutionInput {
+pub(super) enum ExecutionInput {
     Action(ExecutionAction),
     SelectTarget(ExecutionTargetMove),
     ToggleFocus,
@@ -19,7 +19,7 @@ pub(crate) enum ExecutionInput {
     Quit,
 }
 
-pub(crate) fn execution_key_to_input(
+pub(super) fn execution_key_to_input(
     key: KeyEvent,
     stage: ExecutionStage,
     logs_open: bool,
