@@ -109,7 +109,6 @@ impl PlanReviewViewState {
         }
     }
 
-    /// Scrolls the unfiltered plan so `line`, a line of the plan text, is the first row shown.
     pub(crate) fn jump_to_source_line(&mut self, review: &PlanReview, line: usize) {
         let row = unfiltered_row_for_source_line(review, self, line);
         self.jump_to_line(row, usize::MAX);

@@ -140,7 +140,6 @@ impl EnvironmentView {
         shell::review_layout(area, self.sidebar_width, self.sidebar_visible(area.width))
     }
 
-    // The list only shows which environment the plan belongs to; keys stay with the plan.
     fn render_review_environments(
         &self,
         frame: &mut Frame<'_>,
@@ -175,7 +174,6 @@ impl EnvironmentView {
         )
     }
 
-    // The border, the notes above the matrix, and the matrix itself.
     fn matrix_pane_rows(&self, width: u16, state: &EnvironmentSession) -> usize {
         let inner = pane_inner(Rect::new(0, 0, width, 1000));
         let content = self.matrix_content_layout(inner, state);

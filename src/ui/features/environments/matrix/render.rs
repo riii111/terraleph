@@ -234,14 +234,11 @@ fn content_lines(
     (lines, selected_lines)
 }
 
-/// Returns the rows the matrix needs inside a pane of `width` columns: the column headers, every
-/// body line, and the legend.
 pub(crate) fn body_height(view: &MatrixView, width: u16) -> usize {
     2 + content_line_count(view, width) + legend_height(width)
 }
 
-// Counts what `content_lines` builds without building it, so the layout can size the pane before
-// the rows are drawn.
+// Mirrors `content_lines` because the layout needs the height before the rows are drawn.
 fn content_line_count(view: &MatrixView, width: u16) -> usize {
     let wide = width >= WIDE_WIDTH;
     let mut count = 0;

@@ -102,11 +102,9 @@ pub(crate) struct PlanDocument {
     blocks: Vec<PlanBlock>,
     line_kinds: Vec<PlanLineKind>,
     address_blocks: BTreeMap<String, usize>,
-    // Indexes into `blocks` of the resource blocks, in plan order.
     resource_blocks: Vec<usize>,
 }
 
-/// The resource block that contains a plan line, with its place among the plan's resource blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ResourcePosition<'a> {
     address: &'a str,
@@ -270,7 +268,6 @@ impl PlanDocument {
             .and_then(|index| self.blocks.get(*index))
     }
 
-    /// Returns the resource block that contains `line`, or `None` for text outside resource blocks.
     #[must_use]
     pub(crate) fn resource_at_line(&self, line: usize) -> Option<ResourcePosition<'_>> {
         let index = self

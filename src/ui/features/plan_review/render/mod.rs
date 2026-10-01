@@ -298,7 +298,6 @@ fn filter_active(searching: bool, state: &ReviewSessionState) -> bool {
     searching || !state.review().search_query().is_empty()
 }
 
-/// Returns the address of the resource block at the first visible row of the plan.
 pub(crate) fn top_resource_address(
     state: &ReviewSessionState,
     view: &PlanReviewViewState,
@@ -308,8 +307,8 @@ pub(crate) fn top_resource_address(
         .map(|resource| resource.address().to_owned())
 }
 
-/// Returns the row of the unfiltered plan body that shows `line` of the plan text. Rows leave out
-/// the introduction and start with any diagnostics, so a line number is not a row.
+// Body rows leave out the introduction and start with any diagnostics, so a line number is not a
+// row.
 pub(crate) fn unfiltered_row_for_source_line(
     review: &PlanReview,
     view: &PlanReviewViewState,

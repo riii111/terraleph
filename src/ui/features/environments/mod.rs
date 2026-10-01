@@ -490,8 +490,7 @@ impl EnvironmentView {
                 if next == index {
                     return ControlFlow::Break(None);
                 }
-                // Comparing environments reads the same resource in each, so the next plan opens
-                // at the resource the current one is showing.
+                // Comparing environments reads the same resource in each.
                 let address = state.plans()[index].review().and_then(|review| {
                     plan_review::top_resource_address(review, &self.reviews[index])
                 });
@@ -717,8 +716,6 @@ impl EnvironmentView {
         self.open_near(state, index, None)
     }
 
-    // Opens the plan of `index` scrolled to the block of `address`, or from the top when the plan
-    // has no such block.
     fn open_near(
         &mut self,
         state: &EnvironmentSession,
@@ -749,7 +746,7 @@ impl EnvironmentView {
         Some(self.open_at(state, index, line, None))
     }
 
-    // `line` is a line of the plan text; without one the plan opens from the top.
+    // `line` is a line of the plan text, not a row of its body.
     fn open_at(
         &mut self,
         state: &EnvironmentSession,

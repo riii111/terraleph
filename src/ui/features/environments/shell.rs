@@ -61,9 +61,8 @@ impl EnvironmentSelection {
     }
 }
 
-/// The matrix takes at most four tenths of the right column and only the rows it needs, so a short
-/// matrix does not keep blank rows the relations could use. `matrix_rows` returns the rows the
-/// matrix pane needs at a given width.
+/// The matrix takes at most four tenths of the right column and only the rows it needs, so the
+/// rows a short matrix does not use go to the relations.
 pub(super) fn overview_layout(
     area: Rect,
     sidebar_width: u16,
@@ -137,11 +136,10 @@ pub(super) fn overview_layout(
     }
 }
 
-// Keeps the plan text off the environment list's border.
 const REVIEW_GAP: u16 = 1;
 
 /// The full plan keeps the environment list where the overview draws it, so the plan starts near
-/// the column where the overview panes start.
+/// where the overview panes start.
 pub(super) struct ReviewLayout {
     pub(super) header: Rect,
     pub(super) environments: Rect,

@@ -36,9 +36,8 @@ pub(super) fn render_status(
     );
 }
 
-/// Returns the resource block being read at `row`, the first visible plan row. A block keeps the
-/// blank lines after it, but a reader scrolled onto them is about to read the next block, so the
-/// first line with text picks the block.
+// A block keeps the blank lines after it, but a reader scrolled onto them is about to read the next
+// block, so the first line with text picks the block.
 pub(super) fn top_resource<'a>(
     state: &'a ReviewSessionState,
     content: &PlanContent,
