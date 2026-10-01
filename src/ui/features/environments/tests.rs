@@ -673,12 +673,16 @@ mod layout {
     }
 
     #[test]
-    fn environment_layout_reserves_the_sidebar_and_four_six_right_panes() {
-        let layout =
-            shell::overview_layout(ratatui::layout::Rect::new(0, 0, 160, 53), 41, true, None);
-        assert_eq!(layout.environments.width, 41);
-        assert_eq!(layout.matrix.height, 20);
-        assert_eq!(layout.relations.height, 30);
+    fn environment_layout_reserves_the_sidebar_and_gives_a_short_matrix_less_than_four_tenths() {
+        let area = ratatui::layout::Rect::new(0, 0, 160, 53);
+        let long = shell::overview_layout(area, 41, true, None, |_| 100);
+        assert_eq!(long.environments.width, 41);
+        assert_eq!(long.matrix.height, 20);
+        assert_eq!(long.relations.height, 30);
+
+        let short = shell::overview_layout(area, 41, true, None, |_| 12);
+        assert_eq!(short.matrix.height, 12);
+        assert_eq!(short.relations.height, 38);
 
         assert_eq!(shell::sidebar_width(partial_session().plans()), 24);
 
@@ -1894,7 +1898,7 @@ mod apply {
         let lines = text.lines().collect::<Vec<_>>();
         let first_plan_row = raw_lines
             .iter()
-            .position(|line| line.starts_with("b-prod line 10"))
+            .position(|line| line.contains("b-prod line 10"))
             .expect("the scrolled review should show its first visible plan line");
         assert_eq!(
             lines[..=first_plan_row],

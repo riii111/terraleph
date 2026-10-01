@@ -3,13 +3,14 @@ use ratatui::layout::{Rect, Size};
 
 use crate::app::{
     copy::CopyTarget,
+    review::PlanReview,
     session::{Action, ReviewSessionState, SessionState},
 };
 use crate::ui::features::overview::{self, OverviewCommand};
 
 use super::{
     PlanReviewInput, PlanReviewViewState, key_to_input, layout, layout_with_quit_confirmation,
-    overview_detail_layout,
+    overview_detail_layout, unfiltered_row_for_source_line,
 };
 
 impl PlanReviewViewState {
@@ -108,6 +109,11 @@ impl PlanReviewViewState {
         }
     }
 
+    pub(crate) fn jump_to_source_line(&mut self, review: &PlanReview, line: usize) {
+        let row = unfiltered_row_for_source_line(review, self, line);
+        self.jump_to_line(row, usize::MAX);
+    }
+
     fn jump_to_overview_address(
         &mut self,
         overview: &ReviewSessionState,
@@ -117,7 +123,8 @@ impl PlanReviewViewState {
         let line = address
             .and_then(|address| overview.review().document().block_for_address(address))
             .map_or(0, |block| block.lines().start);
+        let row = unfiltered_row_for_source_line(overview.review(), self, line);
         let layout = overview_detail_layout(Rect::from(size), self, overview.review());
-        self.jump_to_line(line, layout.max_vertical());
+        self.jump_to_line(row, layout.max_vertical());
     }
 }

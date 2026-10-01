@@ -953,7 +953,7 @@ fn apply_confirmation_footer_enables_apply_only_for_the_expected_input() {
 
     for (buffer, foreground) in [
         (&disabled, Color::Rgb(0x6c, 0x70, 0x78)),
-        (&enabled, Color::Rgb(0xe9, 0xdb, 0xdb)),
+        (&enabled, Color::Rgb(0xf4, 0x9e, 0x4c)),
     ] {
         assert_text_prefix_uses_style(
             buffer,
@@ -4413,5 +4413,111 @@ mod control_characters {
 
         let copied = plan_effect(state.review());
         assert_eq!(copied.text(), PLAN.join("\n"));
+    }
+}
+
+mod resource_status {
+    use super::*;
+
+    // Blocks the way the plan parser cuts them: each resource block keeps the blank line after it.
+    fn addressed_review() -> PlanReview {
+        let resource = |lines: std::ops::Range<usize>, address: &str| {
+            PlanBlock::with_addresses(lines, PlanBlockKind::Resource, vec![address.to_owned()])
+        };
+        let mut line_kinds = vec![PlanLineKind::Body; 43];
+        line_kinds[..2].fill(PlanLineKind::Intro);
+        PlanReview::new(
+            PathBuf::from("/repo/environments/production/main"),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(
+                PLAN_TEXT.to_owned(),
+                vec![
+                    PlanBlock::new(0..2, PlanBlockKind::Common),
+                    resource(2..9, "terraform_data.api"),
+                    resource(9..16, "terraform_data.worker"),
+                    resource(16..21, "terraform_data.old"),
+                    resource(21..26, "terraform_data.new"),
+                    PlanBlock::new(26..43, PlanBlockKind::Common),
+                ],
+                line_kinds,
+            ),
+            Plan::empty(),
+            PlanMetadata::new(true),
+            Vec::new(),
+        )
+    }
+
+    fn status_row_text(state: &ReviewSessionState, view: &PlanReviewViewState) -> String {
+        let buffer = render_to_buffer((80, 24), |frame| render(frame, state, view, Instant::now()));
+        let text = buffer_text(&buffer);
+        // The status row sits directly above the separator that opens the plan body.
+        let lines = text.lines().collect::<Vec<_>>();
+        let separator = lines
+            .iter()
+            .position(|line| line.starts_with('─'))
+            .expect("the separator above the plan body");
+        lines[separator - 1].trim_end().to_owned()
+    }
+
+    #[test]
+    fn status_row_names_the_resource_block_at_the_top_of_the_view() {
+        let state = review_state(addressed_review());
+        let mut view = PlanReviewViewState::default();
+
+        let at_top = status_row_text(&state, &view);
+        view.jump_to_source_line(state.review(), 16);
+        let scrolled = status_row_text(&state, &view);
+
+        assert_eq!(at_top, "terraform_data.api  1/4");
+        assert_eq!(scrolled, "terraform_data.old  3/4");
+    }
+
+    #[test]
+    fn status_row_names_the_next_block_when_blank_lines_lead_the_view() {
+        let state = review_state(addressed_review());
+        let mut view = PlanReviewViewState::default();
+
+        // Source line 8 is the blank line that ends the api block.
+        view.jump_to_source_line(state.review(), 8);
+        let status = status_row_text(&state, &view);
+
+        assert_eq!(status, "terraform_data.worker  2/4");
+    }
+
+    #[test]
+    fn status_row_is_empty_outside_resource_blocks() {
+        let state = review_state(addressed_review());
+        let mut view = PlanReviewViewState::default();
+
+        view.jump_to_source_line(state.review(), 30);
+        let status = status_row_text(&state, &view);
+
+        assert_eq!(status, "");
+    }
+
+    #[test]
+    fn top_resource_address_follows_the_scrolled_block() {
+        let state = review_state(addressed_review());
+        let mut view = PlanReviewViewState::default();
+
+        view.jump_to_source_line(state.review(), 21);
+
+        assert_eq!(
+            top_resource_address(&state, &view).as_deref(),
+            Some("terraform_data.new")
+        );
+    }
+
+    #[test]
+    fn jump_to_source_line_skips_the_introduction_rows_the_body_leaves_out() {
+        let state = review_state(addressed_review());
+        let mut view = PlanReviewViewState::default();
+
+        view.jump_to_source_line(state.review(), 2);
+        let first_block = view.scroll().0;
+        view.jump_to_source_line(state.review(), 9);
+        let second_block = view.scroll().0;
+
+        assert_eq!((first_block, second_block), (0, 7));
     }
 }

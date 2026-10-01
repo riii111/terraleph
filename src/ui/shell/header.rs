@@ -21,6 +21,13 @@ const REVIEW_HEADER_SEPARATOR: &str = " ";
 const PRODUCTION_SUFFIX: &str = " [PROD]";
 const GAP: &str = "  ";
 
+// A screen that shows the tool version elsewhere hides it here.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlanHeaderTool {
+    Shown,
+    Hidden,
+}
+
 struct HeaderField {
     label: &'static str,
     value: String,
@@ -56,33 +63,38 @@ pub(crate) fn render_overview_review(frame: &mut Frame<'_>, area: Rect, review: 
     );
 }
 
-pub(crate) fn render_plan_review(frame: &mut Frame<'_>, area: Rect, review: &PlanReview) {
+pub(crate) fn render_plan_review(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    review: &PlanReview,
+    tool: PlanHeaderTool,
+) {
     frame.render_widget(
-        Paragraph::new(plan_review_lines(review, area.width))
+        Paragraph::new(plan_review_lines(review, area.width, tool))
             .wrap(Wrap { trim: false })
             .style(theme::secondary_style()),
         area,
     );
 }
 
-pub(crate) fn plan_review_height(review: &PlanReview, width: u16) -> u16 {
+pub(crate) fn plan_review_height(review: &PlanReview, width: u16, tool: PlanHeaderTool) -> u16 {
     u16::try_from(
-        Paragraph::new(plan_review_lines(review, width))
+        Paragraph::new(plan_review_lines(review, width, tool))
             .wrap(Wrap { trim: false })
             .line_count(width.max(1)),
     )
     .unwrap_or(u16::MAX)
 }
 
-fn plan_review_lines(review: &PlanReview, width: u16) -> Vec<Line<'static>> {
-    let mut context = plan_review_header_line(review, u16::MAX);
+fn plan_review_lines(review: &PlanReview, width: u16, tool: PlanHeaderTool) -> Vec<Line<'static>> {
+    let mut context = plan_review_header_line(review, u16::MAX, tool);
     let changes = plan_review_changes_line(review);
     if context.width() + GAP.len() + changes.width() <= usize::from(width) {
         context.push_span(GAP);
         context.extend(changes.spans);
         vec![context]
     } else {
-        vec![plan_review_header_line(review, width), changes]
+        vec![plan_review_header_line(review, width, tool), changes]
     }
 }
 
@@ -120,42 +132,43 @@ fn review_header_values(review: &PlanReview) -> [String; 4] {
     ]
 }
 
-fn plan_review_header_line(review: &PlanReview, width: u16) -> Line<'static> {
-    let [target_name, workspace, tool, directory] = review_header_values(review);
-    fit_header(
-        &[
-            HeaderField {
-                label: "Target: ",
-                minimum_value_width: 8,
-                value: target_name,
-                kind: HeaderFieldKind::Target,
-            },
-            HeaderField {
-                label: "Workspace: ",
-                minimum_value_width: display_width(&workspace).min(7),
-                value: workspace,
-                kind: HeaderFieldKind::Workspace,
-            },
-            HeaderField {
-                label: "Tool: ",
-                minimum_value_width: display_width(&tool),
-                value: tool,
-                kind: HeaderFieldKind::Tool,
-            },
-            HeaderField {
-                label: "Dir: ",
-                minimum_value_width: display_width(&directory).min(7),
-                value: directory,
-                kind: HeaderFieldKind::Directory,
-            },
-        ],
-        width,
-    )
+fn plan_review_header_line(review: &PlanReview, width: u16, tool: PlanHeaderTool) -> Line<'static> {
+    let [target_name, workspace, tool_name, directory] = review_header_values(review);
+    let tool_field = HeaderField {
+        label: "Tool: ",
+        minimum_value_width: display_width(&tool_name),
+        value: tool_name,
+        kind: HeaderFieldKind::Tool,
+    };
+    let mut fields = vec![
+        HeaderField {
+            label: "Target: ",
+            minimum_value_width: 8,
+            value: target_name,
+            kind: HeaderFieldKind::Target,
+        },
+        HeaderField {
+            label: "Workspace: ",
+            minimum_value_width: display_width(&workspace).min(7),
+            value: workspace,
+            kind: HeaderFieldKind::Workspace,
+        },
+    ];
+    if tool == PlanHeaderTool::Shown {
+        fields.push(tool_field);
+    }
+    fields.push(HeaderField {
+        label: "Dir: ",
+        minimum_value_width: display_width(&directory).min(7),
+        value: directory,
+        kind: HeaderFieldKind::Directory,
+    });
+    fit_header(&fields, width)
 }
 
 fn plan_review_changes_line(review: &PlanReview) -> Line<'static> {
     let counts = review.summary();
-    let mut line = Line::from(Span::styled("Changes", theme::secondary_style()));
+    let mut line = Line::from(Span::styled("Changes", theme::header_label_style()));
     for change in changes::change_counts(counts) {
         if change.count > 0 {
             line.push_span(Span::styled("  ", theme::secondary_style()));
@@ -211,13 +224,21 @@ fn fit_header(fields: &[HeaderField], width: u16) -> Line<'static> {
     } else {
         allocate_header_fields(fields, width, separator_width)
     };
-    let value = allocations
-        .into_iter()
-        .map(|(field, allocation)| format_header_field(field, allocation))
-        .filter(|field| !field.is_empty())
-        .collect::<Vec<_>>()
-        .join(REVIEW_HEADER_SEPARATOR);
-    Line::from(Span::styled(value, theme::secondary_style()))
+    let mut spans = Vec::new();
+    for (field, allocation) in allocations {
+        let field_spans = format_header_field(field, allocation);
+        if field_spans.is_empty() {
+            continue;
+        }
+        if !spans.is_empty() {
+            spans.push(Span::styled(
+                REVIEW_HEADER_SEPARATOR,
+                theme::header_label_style(),
+            ));
+        }
+        spans.extend(field_spans);
+    }
+    Line::from(spans)
 }
 
 fn allocate_header_fields(
@@ -264,19 +285,39 @@ fn header_field_width(field: &HeaderField) -> usize {
     display_width(field.label).saturating_add(display_width(&field.value))
 }
 
-fn format_header_field(field: &HeaderField, allocation: usize) -> String {
+fn format_header_field(field: &HeaderField, allocation: usize) -> Vec<Span<'static>> {
     let label_width = display_width(field.label);
     if allocation < label_width {
-        return truncate_middle(field.label.trim_end(), allocation);
+        let label = truncate_middle(field.label.trim_end(), allocation);
+        return if label.is_empty() {
+            Vec::new()
+        } else {
+            vec![Span::styled(label, theme::header_label_style())]
+        };
     }
     let value_width = allocation.saturating_sub(label_width);
-    let value = match field.kind {
-        HeaderFieldKind::Target => truncate_target(&field.value, value_width),
-        HeaderFieldKind::Workspace => truncate_middle(&field.value, value_width),
-        HeaderFieldKind::Tool => truncate_tool(&field.value, value_width),
-        HeaderFieldKind::Directory => truncate_directory(&field.value, value_width),
+    let (value, style) = match field.kind {
+        HeaderFieldKind::Target => (
+            truncate_target(&field.value, value_width),
+            theme::header_target_style(),
+        ),
+        HeaderFieldKind::Workspace => (
+            truncate_middle(&field.value, value_width),
+            theme::header_value_style(),
+        ),
+        HeaderFieldKind::Tool => (
+            truncate_tool(&field.value, value_width),
+            theme::header_value_style(),
+        ),
+        HeaderFieldKind::Directory => (
+            truncate_directory(&field.value, value_width),
+            theme::header_value_style(),
+        ),
     };
-    format!("{}{value}", field.label)
+    vec![
+        Span::styled(field.label, theme::header_label_style()),
+        Span::styled(value, style),
+    ]
 }
 
 fn truncate_tool(value: &str, max_width: usize) -> String {
@@ -590,7 +631,7 @@ mod tests {
                 .map(|span| (span.content.as_ref(), span.style))
                 .collect::<Vec<_>>(),
             [
-                ("Changes", theme::secondary_style()),
+                ("Changes", theme::header_label_style()),
                 ("  ", theme::secondary_style()),
                 ("+1 add", theme::success_style()),
                 ("  ", theme::secondary_style()),
@@ -626,13 +667,13 @@ mod tests {
             PlanMetadata::new(false),
             Vec::new(),
         );
-        assert_eq!(plan_review_height(&review, 240), 1);
-        let height = plan_review_height(&review, 40);
+        assert_eq!(plan_review_height(&review, 240, PlanHeaderTool::Shown), 1);
+        let height = plan_review_height(&review, 40, PlanHeaderTool::Shown);
         assert!(height > 2);
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, height)).unwrap();
         terminal
-            .draw(|frame| render_plan_review(frame, frame.area(), &review))
+            .draw(|frame| render_plan_review(frame, frame.area(), &review, PlanHeaderTool::Shown))
             .unwrap();
         let rendered = terminal
             .backend()
@@ -683,6 +724,26 @@ mod tests {
         assert!(value.starts_with("Target: "), "{value}");
         assert!(value.contains("PROD"), "{value}");
         assert!(line.width() <= 24, "{value}");
+    }
+
+    #[test]
+    fn plan_header_names_the_tool_only_when_the_screen_shows_it() {
+        let review = PlanReview::new(
+            "/dev".into(),
+            "default".to_owned(),
+            PlanDocument::with_blocks_and_line_kinds(String::new(), Vec::new(), Vec::new()),
+            Plan::empty(),
+            PlanMetadata::new(false),
+            Vec::new(),
+        );
+
+        let shown = plan_review_header_line(&review, 200, PlanHeaderTool::Shown).to_string();
+        let hidden = plan_review_header_line(&review, 200, PlanHeaderTool::Hidden).to_string();
+
+        assert!(shown.contains("Tool: "), "{shown}");
+        assert!(!hidden.contains("Tool: "), "{hidden}");
+        assert!(hidden.contains("Workspace: "), "{hidden}");
+        assert!(hidden.contains("Dir: "), "{hidden}");
     }
 
     #[test]

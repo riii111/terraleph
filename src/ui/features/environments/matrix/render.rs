@@ -234,6 +234,36 @@ fn content_lines(
     (lines, selected_lines)
 }
 
+pub(crate) fn body_height(view: &MatrixView, width: u16) -> usize {
+    2 + content_line_count(view, width) + legend_height(width)
+}
+
+// Mirrors `content_lines` because the layout needs the height before the rows are drawn.
+fn content_line_count(view: &MatrixView, width: u16) -> usize {
+    let wide = width >= WIDE_WIDTH;
+    let mut count = 0;
+    let mut section = None;
+    let mut summary_seen = false;
+    for row in &view.rows {
+        if let Some(summary) = &row.summary {
+            count += usize::from(section.is_some()) + 1 + summary_note_lines(summary, width).len();
+            section = Some(false);
+            summary_seen = true;
+            continue;
+        }
+        if row.difference.is_some() && !row.child && section != Some(true) {
+            count += usize::from(section.is_some()) + 1;
+            section = Some(true);
+        } else if row.difference.is_none() && !row.child && !summary_seen && section != Some(false)
+        {
+            count += usize::from(section.is_some()) + 1;
+            section = Some(false);
+        }
+        count += 1 + usize::from(!wide && row.has_unknown);
+    }
+    count.max(1)
+}
+
 fn same_section_title(view: &MatrixView, state: &EnvironmentSession) -> &'static str {
     let filtered = view.environments.len() != state.plans().len();
     let partial = view
@@ -768,6 +798,7 @@ mod tests {
     use crate::ui::features::overview::OverviewInput;
     use crate::ui::test_support::{buffer_text, render_to_buffer};
     use ratatui::style::Color;
+    use rstest::rstest;
 
     fn matrix_view(first_column: usize) -> MatrixView {
         let mut view = MatrixView::default();
@@ -775,6 +806,64 @@ mod tests {
         view.environments = vec![0, 1, 2];
         view.selected_environment = Some(2);
         view
+    }
+
+    #[rstest]
+    #[case::narrow(40)]
+    #[case::just_below_wide(63)]
+    #[case::wide(64)]
+    #[case::roomy(120)]
+    fn counted_body_lines_match_the_lines_that_are_built(#[case] width: u16) {
+        use super::super::view::{ChangeCounts, SameChangeSummary};
+
+        let row = |difference: Option<DifferenceReason>, child: bool, has_unknown: bool| Row {
+            address: "terraform_data.server[*]".to_owned(),
+            group: None,
+            group_members: Vec::new(),
+            selection: None,
+            child,
+            cells: Vec::new(),
+            difference,
+            summary: None,
+            has_unknown,
+        };
+        let summary = |has_unknown, instance_counts_differ| Row {
+            summary: Some(SameChangeSummary {
+                rows: 2,
+                actions: ChangeCounts::default(),
+                has_unknown,
+                instance_counts_differ,
+            }),
+            ..row(None, false, false)
+        };
+        let mut view = matrix_view(0);
+        view.environments = Vec::new();
+        let state = EnvironmentSession::new(Vec::new(), false);
+        let layouts = [
+            vec![],
+            vec![row(Some(DifferenceReason::Value), false, true)],
+            vec![row(None, false, false), row(None, true, true)],
+            vec![
+                row(Some(DifferenceReason::Action), false, false),
+                row(Some(DifferenceReason::Value), true, true),
+                summary(true, true),
+                row(None, false, true),
+            ],
+            vec![summary(false, false), row(None, false, false)],
+        ];
+
+        for rows in layouts {
+            view.rows = rows;
+            let wide = width >= WIDE_WIDTH;
+            let built = content_lines(&view, &state, width, wide, &[], 0, false).0;
+
+            assert_eq!(
+                content_line_count(&view, width),
+                built.len(),
+                "{} rows at width {width}",
+                view.rows.len()
+            );
+        }
     }
 
     #[test]

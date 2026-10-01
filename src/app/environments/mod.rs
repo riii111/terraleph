@@ -342,6 +342,13 @@ impl EnvironmentPlan {
         self.session().and_then(SessionState::review)
     }
 
+    /// The reviewed plan, which the apply confirmation keeps while it hides the raw plan.
+    pub(crate) fn plan_review(&self) -> Option<&PlanReview> {
+        self.review()
+            .or_else(|| self.session().and_then(SessionState::apply_confirmation))
+            .map(ReviewSessionState::review)
+    }
+
     pub(crate) fn session(&self) -> Option<&SessionState> {
         match &self.state {
             EnvironmentState::Ready { session, .. } => Some(session),

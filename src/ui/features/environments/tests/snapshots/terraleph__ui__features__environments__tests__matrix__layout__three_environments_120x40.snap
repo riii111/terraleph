@@ -13,8 +13,6 @@ terraleph ▸ dev                                                               
 │  [x] prod [PROD]     ││                                                                                              │
 │    ✓ Ready     ~10   ││  ▸ Same change across envs: 1 pattern                                                        │
 │    -1                ││    instance counts differ                                                                    │
-│                      ││                                                                                              │
-│                      ││                                                                                              │
 │                      ││blank: absent   .: unchanged   ?: plan unavailable                                            │
 │                      │└──────────────────────────────────────────────────────────────────────────────────────────────┘
 │                      │┌  [3] Relations · dev · whole env─────────────────────────────────────────────────────────────┐
@@ -24,6 +22,8 @@ terraleph ▸ dev                                                               
 │                      ││                                                                                              │
 │                      ││! differs across envs                                                                         │
 │                      ││? unresolved means a relationship could not be determined                                     │
+│                      ││                                                                                              │
+│                      ││                                                                                              │
 │                      ││                                                                                              │
 │                      ││                                                                                              │
 │                      ││                                                                                              │

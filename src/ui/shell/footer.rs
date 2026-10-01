@@ -19,7 +19,7 @@ pub(crate) fn hint(alternative_keys: &[&'static str], description: &'static str)
                 theme::footer_key_separator_style(),
             ));
         }
-        spans.push(Span::styled(*key, theme::body_style()));
+        spans.push(Span::styled(*key, theme::accent_style()));
     }
     spans.push(Span::styled(
         format!(" {description}"),
@@ -261,9 +261,7 @@ mod tests {
     #[rstest]
     #[case::single_row(80)]
     #[case::wrapped_rows(16)]
-    fn rendered_keys_and_descriptions_use_rgb_colors_independent_of_ansi_palette(
-        #[case] width: u16,
-    ) {
+    fn rendered_keys_use_the_accent_and_descriptions_use_rgb_colors(#[case] width: u16) {
         let backend = ratatui::backend::TestBackend::new(width, 2);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -284,7 +282,7 @@ mod tests {
             buffer,
             "[",
             0,
-            Color::Rgb(0xe9, 0xdb, 0xdb),
+            Color::Rgb(0xf4, 0x9e, 0x4c),
             Color::Reset,
             Modifier::empty(),
         );
@@ -292,7 +290,7 @@ mod tests {
             buffer,
             "]",
             0,
-            Color::Rgb(0xe9, 0xdb, 0xdb),
+            Color::Rgb(0xf4, 0x9e, 0x4c),
             Color::Reset,
             Modifier::empty(),
         );
@@ -308,7 +306,7 @@ mod tests {
             buffer,
             "/",
             2,
-            Color::Rgb(0xe9, 0xdb, 0xdb),
+            Color::Rgb(0xf4, 0x9e, 0x4c),
             Color::Reset,
             Modifier::empty(),
         );

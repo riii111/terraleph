@@ -102,6 +102,31 @@ pub(crate) struct PlanDocument {
     blocks: Vec<PlanBlock>,
     line_kinds: Vec<PlanLineKind>,
     address_blocks: BTreeMap<String, usize>,
+    resource_blocks: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResourcePosition<'a> {
+    address: &'a str,
+    number: usize,
+    total: usize,
+}
+
+impl<'a> ResourcePosition<'a> {
+    #[must_use]
+    pub(crate) const fn address(self) -> &'a str {
+        self.address
+    }
+
+    #[must_use]
+    pub(crate) const fn number(self) -> usize {
+        self.number
+    }
+
+    #[must_use]
+    pub(crate) const fn total(self) -> usize {
+        self.total
+    }
 }
 
 struct FilteredLine<'a> {
@@ -144,6 +169,12 @@ impl PlanDocument {
                 address_blocks.entry(address.clone()).or_insert(index);
             }
         }
+        let resource_blocks = blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.kind == PlanBlockKind::Resource)
+            .map(|(index, _)| index)
+            .collect();
         let line_starts = std::iter::once(0)
             .chain(text.match_indices('\n').map(|(index, _)| index + 1))
             .collect();
@@ -153,6 +184,7 @@ impl PlanDocument {
             blocks,
             line_kinds,
             address_blocks,
+            resource_blocks,
         }
     }
 
@@ -234,6 +266,23 @@ impl PlanDocument {
         self.address_blocks
             .get(address)
             .and_then(|index| self.blocks.get(*index))
+    }
+
+    #[must_use]
+    pub(crate) fn resource_at_line(&self, line: usize) -> Option<ResourcePosition<'_>> {
+        let index = self
+            .blocks
+            .partition_point(|block| block.lines.start <= line)
+            .checked_sub(1)?;
+        let block = &self.blocks[index];
+        if block.kind != PlanBlockKind::Resource || !block.lines.contains(&line) {
+            return None;
+        }
+        Some(ResourcePosition {
+            address: block.addresses.first()?,
+            number: self.resource_blocks.binary_search(&index).ok()? + 1,
+            total: self.resource_blocks.len(),
+        })
     }
 }
 
@@ -751,6 +800,52 @@ mod tests {
         assert_eq!(
             filtered.matching_resources() + filtered.matching_outputs(),
             0
+        );
+    }
+
+    #[test]
+    fn resource_at_line_names_the_resource_block_and_counts_only_resource_blocks() {
+        let document = plan_document_with_blocks(
+            "preamble\n# api\napi value\n\n# worker\nworker value\nOutputs:\nendpoint\n".to_owned(),
+            vec![
+                PlanBlock::new(0..1, PlanBlockKind::Common),
+                PlanBlock::with_addresses(
+                    1..4,
+                    PlanBlockKind::Resource,
+                    vec!["terraform_data.api".to_owned()],
+                ),
+                PlanBlock::with_addresses(
+                    4..6,
+                    PlanBlockKind::Resource,
+                    vec!["terraform_data.worker".to_owned()],
+                ),
+                PlanBlock::new(6..7, PlanBlockKind::Common),
+                PlanBlock::new(7..8, PlanBlockKind::Output),
+            ],
+        );
+
+        let positions = (0..10)
+            .map(|line| {
+                document
+                    .resource_at_line(line)
+                    .map(|position| (position.address(), position.number(), position.total()))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            positions,
+            [
+                None,
+                Some(("terraform_data.api", 1, 2)),
+                Some(("terraform_data.api", 1, 2)),
+                Some(("terraform_data.api", 1, 2)),
+                Some(("terraform_data.worker", 2, 2)),
+                Some(("terraform_data.worker", 2, 2)),
+                None,
+                None,
+                None,
+                None,
+            ]
         );
     }
 

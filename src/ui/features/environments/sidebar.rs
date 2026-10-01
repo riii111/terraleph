@@ -101,10 +101,7 @@ fn environment_lines(
     let status = status_line(plan, width);
     match plan.state() {
         EnvironmentState::Ready { .. } => {
-            let review = plan
-                .review()
-                .expect("ready environment has a review")
-                .review();
+            let review = plan.plan_review().expect("ready environment has a review");
             if !review.has_changes() {
                 let mut line = status;
                 line.push_span(Span::styled("  No changes", theme::overview_muted_style()));
