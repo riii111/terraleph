@@ -501,7 +501,7 @@ mod tests {
             Tool::OpenTofu,
             root,
             &arguments,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
         ) else {
             panic!("state should be read");
@@ -530,7 +530,7 @@ mod tests {
             Tool::Terraform,
             Path::new("/workspace"),
             &[],
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
         ) else {
             panic!("failed state pull should be an execution error");
@@ -547,7 +547,7 @@ mod tests {
             Tool::Terraform,
             Path::new("/workspace"),
             &[],
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
         );
 
@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn cancellation_interrupts_and_reaps_state_pull() {
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let mut runner = runner(b"synthetic-secret", ProcessStatus::Exited(0));
         runner.cancellation = Some(cancellation.clone());
 

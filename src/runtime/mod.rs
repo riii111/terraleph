@@ -168,7 +168,7 @@ fn run_saved_plan_review(
             return ExitCode::from(EXECUTION_FAILURE);
         }
     };
-    let cancellation = CancellationToken::new();
+    let cancellation = CancellationToken::default();
     let (sender, receiver) = mpsc::channel();
     let history = HistoryStore::platform();
     let context = ExecutionContext::loading(review_root)
@@ -674,7 +674,7 @@ mod tests {
     fn normal_exit_joins_both_workers_before_removing_the_saved_plan() {
         let saved_plan = temporary_saved_plan();
         let plan_path = saved_plan.path().to_owned();
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (mut plan_worker, plan_observed) =
             plan_reading_worker(plan_path.clone(), &cancellation, false);
         let (mut apply_worker, apply_observed) =
@@ -701,7 +701,7 @@ mod tests {
     fn ui_error_cancels_and_joins_the_worker_before_removing_the_saved_plan() {
         let saved_plan = temporary_saved_plan();
         let plan_path = saved_plan.path().to_owned();
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (mut plan_worker, plan_observed) =
             plan_reading_worker(plan_path.clone(), &cancellation, true);
         let mut apply_worker = idle_worker(&cancellation);
@@ -725,7 +725,7 @@ mod tests {
     fn worker_panic_fails_the_review_and_still_removes_the_saved_plan() {
         let saved_plan = temporary_saved_plan();
         let plan_path = saved_plan.path().to_owned();
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let mut plan_worker = WorkerGuard {
             cancellation: cancellation.clone(),
             handle: Some(thread::spawn(|| panic!("secret panic payload"))),

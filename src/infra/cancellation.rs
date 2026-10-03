@@ -9,11 +9,6 @@ pub(crate) struct CancellationToken {
 }
 
 impl CancellationToken {
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }

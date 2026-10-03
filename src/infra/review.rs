@@ -492,7 +492,7 @@ mod tests {
         run_review_with_dependencies(
             root,
             compare_ref,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
             None,
             &mut |_| {},
@@ -515,7 +515,7 @@ mod tests {
         run_review_with_dependencies(
             root,
             None,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
             Some(&mut after_git_diff),
             &mut |_| {},
@@ -535,7 +535,7 @@ mod tests {
             "main.tf",
             "resource \"terraform_data\" \"value\" {\n  input = \"after\"\n}\n",
         );
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let mut cancel_after_git_diff = || cancellation.cancel();
         let runner = FakeRunner::new(plan_output(None), None);
 
@@ -570,7 +570,7 @@ mod tests {
         let review = run_review_with_dependencies(
             &repository.path,
             None,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &FakeRunner::new(plan_output(None), None),
             None,
             &mut |event| events.push(event),
@@ -602,7 +602,7 @@ mod tests {
         let review = run_review_with_dependencies(
             &root,
             None,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &FakeRunner::new(plan_output(None), None),
             None,
             &mut |event| events.push(event),
@@ -643,7 +643,7 @@ mod tests {
         let result = run_review(
             &directory,
             None,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &mut ignore_event,
         );
         let cleanup = Command::new("python3")

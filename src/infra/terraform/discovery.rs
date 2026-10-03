@@ -105,7 +105,7 @@ mod tests {
         }
 
         fn discover(&self, tool: Tool, runner: &WorkspaceRunner) -> Vec<Environment> {
-            discover(&self.0, tool, &CancellationToken::new(), runner).unwrap()
+            discover(&self.0, tool, &CancellationToken::default(), runner).unwrap()
         }
     }
     impl Drop for Fixture {
