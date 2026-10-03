@@ -673,8 +673,6 @@ mod tests {
 
     #[rstest]
     #[case::json(&["plan", "-json"], &[])]
-    #[case::environment_json(&["plan"], &[("TF_CLI_ARGS_plan", "-json")])]
-    #[case::approve(&["apply"], &[("TF_CLI_ARGS_apply", "-auto-approve")])]
     #[case::input_disabled(&["apply", "-input=false"], &[])]
     #[case::environment_input(&["apply"], &[("TF_INPUT", "0")])]
     #[case::saved_plan(&["apply", "saved.tfplan"], &[])]

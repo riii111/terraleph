@@ -1666,21 +1666,6 @@ mod tests {
         }
 
         #[test]
-        fn renders_long_addresses_at_all_supported_sizes() {
-            for &(width, height) in &SIZES {
-                let (state, now) = long_address_state();
-                let buffer = render_to_buffer((width, height), |frame| {
-                    render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
-                });
-
-                snapshot(
-                    &format!("preview_{width}x{height}_apply-long-address"),
-                    &buffer,
-                );
-            }
-        }
-
-        #[test]
         fn target_columns_line_up_and_addresses_shrink_only_when_the_panel_is_narrow() {
             let mut long_address_texts = Vec::new();
             for (long_addresses, fixture, target_count) in [
@@ -1698,6 +1683,10 @@ mod tests {
                         );
                     });
                     if long_addresses {
+                        snapshot(
+                            &format!("preview_{width}x{height}_apply-long-address"),
+                            &buffer,
+                        );
                         long_address_texts.push(buffer_text(&buffer));
                     }
                     let rows = table_rows(&buffer, target_count);
