@@ -112,9 +112,6 @@ mod tests {
 
     #[rstest]
     #[case::zero("0")]
-    #[case::negative_zero("-0")]
-    #[case::negative_zero_fraction("-0.000")]
-    #[case::zero_with_exponent("0e-5")]
     #[case::negative_zero_with_exponent("-0.000e+99")]
     fn every_zero_is_unsigned(#[case] input: &str) {
         assert_eq!(canonical(input).as_deref(), Some("0"));

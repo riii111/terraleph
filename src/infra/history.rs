@@ -4,7 +4,7 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 #[cfg(unix)]
@@ -63,13 +63,11 @@ impl HistoryStore {
         let lock = self.lock_file()?;
         lock_history(&lock)?;
 
-        let recorded_at = unix_millis();
         for success in successes {
             let path = self.record_path(&success.key);
             let document = json!({
                 "version": HISTORY_VERSION,
                 "duration_ms": duration_millis(success.duration),
-                "recorded_at_unix_ms": recorded_at,
             });
             write_atomically(&path, &document)?;
         }
@@ -188,14 +186,6 @@ fn duration_millis(duration: Duration) -> u64 {
     duration.as_millis().try_into().unwrap_or(u64::MAX)
 }
 
-fn unix_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| {
-            duration.as_millis().try_into().unwrap_or(u64::MAX)
-        })
-}
-
 #[cfg(unix)]
 fn set_directory_permissions(path: &Path) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
@@ -310,7 +300,6 @@ mod tests {
             .expect("record should be JSON");
         assert_eq!(document["version"], HISTORY_VERSION);
         assert_eq!(document["duration_ms"], 5678);
-        assert!(document.get("recorded_at_unix_ms").is_some());
         #[cfg(unix)]
         {
             assert_eq!(
@@ -344,6 +333,22 @@ mod tests {
             .expect("corrupt history should be written");
 
         assert_eq!(load(&store, &key), None);
+    }
+
+    #[test]
+    fn record_with_legacy_timestamp_still_reads_the_duration() {
+        let fixture = TempDir::new().expect("test directory should be created");
+        let root = fixture.path().join("history");
+        let store = HistoryStore::new(root.clone());
+        let key = key("terraform_data.api", Tool::Terraform);
+        fs::create_dir_all(&root).expect("root should exist");
+        fs::write(
+            root.join(format!("{}.json", key.file_stem())),
+            br#"{"version":1,"duration_ms":42,"recorded_at_unix_ms":1700000000000}"#,
+        )
+        .expect("legacy history should be written");
+
+        assert_eq!(load(&store, &key), Some(Duration::from_millis(42)));
     }
 
     #[test]
