@@ -42,54 +42,25 @@ pub(crate) fn run_invocation(
     invocation: &invocation::Invocation,
     variable_sources: VariableSources,
 ) -> ExitCode {
-    run_managed_invocation(
-        executable,
-        invocation.tool(),
-        invocation.launch_root(),
-        invocation.directory(),
-        invocation.global_arguments(),
-        &invocation.plan_arguments(),
-        &invocation.apply_arguments(),
-        invocation.is_apply(),
-        invocation.detailed_exitcode(),
-        invocation.initial_overview(),
-        variable_sources,
-    )
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the managed invocation keeps launch, display, and Terraform argument boundaries"
-)]
-fn run_managed_invocation(
-    executable: &Path,
-    tool: Tool,
-    launch_root: &Path,
-    display_root: &Path,
-    global_arguments: &[OsString],
-    plan_arguments: &[OsString],
-    apply_arguments: &[OsString],
-    apply_entry: bool,
-    detailed_exitcode: bool,
-    initial_overview: bool,
-    variable_sources: VariableSources,
-) -> ExitCode {
+    let tool = invocation.tool();
     prepare_saved_plan_lifecycle();
-    let (saved_plan, plan_arguments) =
-        match terraform::saved_plan_for_plan(display_root, plan_arguments) {
-            Ok(result) => result,
-            Err(error) => {
-                report_error(&format!(
-                    "failed to prepare the {} plan: {error}",
-                    tool.display_name()
-                ));
-                return ExitCode::from(EXECUTION_FAILURE);
-            }
-        };
+    let (saved_plan, plan_arguments) = match terraform::saved_plan_for_plan(
+        invocation.directory(),
+        &invocation.plan_arguments(),
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            report_error(&format!(
+                "failed to prepare the {} plan: {error}",
+                tool.display_name()
+            ));
+            return ExitCode::from(EXECUTION_FAILURE);
+        }
+    };
     let status = match terraform::run_passthrough_plan(
         executable,
-        launch_root,
-        global_arguments,
+        invocation.launch_root(),
+        invocation.global_arguments(),
         &plan_arguments,
     ) {
         Ok(result) => result,
@@ -122,40 +93,21 @@ fn run_managed_invocation(
         let _ = saved_plan.cleanup();
         return ExitCode::from(exit);
     }
-    run_saved_plan_review(
-        tool,
-        launch_root,
-        display_root,
-        global_arguments,
-        apply_arguments,
-        apply_entry,
-        saved_plan,
-        status,
-        planned_at,
-        detailed_exitcode,
-        initial_overview,
-        variable_sources,
-    )
+    run_saved_plan_review(invocation, saved_plan, status, planned_at, variable_sources)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the runtime passes each execution boundary to the review worker"
-)]
 fn run_saved_plan_review(
-    tool: Tool,
-    launch_root: &Path,
-    display_root: &Path,
-    global_arguments: &[OsString],
-    apply_arguments: &[OsString],
-    apply_entry: bool,
+    invocation: &invocation::Invocation,
     saved_plan: terraform::SavedPlan,
     plan_status: terraform::ProcessStatus,
     planned_at: Instant,
-    detailed_exitcode: bool,
-    initial_overview: bool,
     variable_sources: VariableSources,
 ) -> ExitCode {
+    let tool = invocation.tool();
+    let launch_root = invocation.launch_root();
+    let display_root = invocation.directory();
+    let apply_entry = invocation.is_apply();
+    let apply_arguments = invocation.apply_arguments();
     let changed = plan_status.has_plan_changes();
     let review_root = match fs::canonicalize(display_root) {
         Ok(root) => root,
@@ -179,7 +131,7 @@ fn run_saved_plan_review(
         tool,
         display_root,
         launch_root,
-        global_arguments,
+        invocation.global_arguments(),
         saved_plan.path(),
         changed,
         planned_at,
@@ -209,8 +161,8 @@ fn run_saved_plan_review(
         tool,
         root: launch_root,
         display_root,
-        global_arguments,
-        apply_arguments,
+        global_arguments: invocation.global_arguments(),
+        apply_arguments: &apply_arguments,
         sender: &sender,
         plan_path: Some(saved_plan.path()),
         cancellation: &cancellation,
@@ -218,7 +170,13 @@ fn run_saved_plan_review(
         apply_worker: &mut apply_worker,
         history: history.as_ref(),
     };
-    let ui_result = run_interactive(context, &receiver, &mut worker, effects, initial_overview);
+    let ui_result = run_interactive(
+        context,
+        &receiver,
+        &mut worker,
+        effects,
+        invocation.initial_overview(),
+    );
     let (ui_result, cleanup_result) = finish_review(
         ui_result,
         &cancellation,
@@ -226,7 +184,12 @@ fn run_saved_plan_review(
         &mut worker,
         saved_plan,
     );
-    let primary_exit = review_exit(ui_result, apply_entry, detailed_exitcode, changed);
+    let primary_exit = review_exit(
+        ui_result,
+        apply_entry,
+        invocation.detailed_exitcode(),
+        changed,
+    );
     if let Err(error) = cleanup_result {
         report_error(&format!(
             "failed to remove the temporary {} plan: {error}",

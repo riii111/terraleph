@@ -251,7 +251,7 @@ fn parse_for_tool(
         _ => return None,
     };
     let mut effective_arguments = Vec::new();
-    for name in tool.cli_argument_environment_names(command) {
+    for name in ["TF_CLI_ARGS".to_owned(), format!("TF_CLI_ARGS_{command}")] {
         if let Some(value) = lookup(&name) {
             effective_arguments.extend(
                 split_arguments(value.to_str()?)?

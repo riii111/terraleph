@@ -88,28 +88,6 @@ impl ExecutionViewState {
         self.vertical = VerticalScroll::Manual(offset);
     }
 
-    fn apply_target_scroll(
-        &mut self,
-        action: ExecutionScroll,
-        current_offset: usize,
-        max_offset: usize,
-        page_height: u16,
-    ) {
-        let page_height = usize::from(page_height.max(1));
-        let offset = match action {
-            ExecutionScroll::Up => current_offset.saturating_sub(1),
-            ExecutionScroll::Down => current_offset.saturating_add(1).min(max_offset),
-            ExecutionScroll::PageUp => current_offset.saturating_sub(page_height),
-            ExecutionScroll::PageDown => current_offset.saturating_add(page_height).min(max_offset),
-            ExecutionScroll::Top => 0,
-            ExecutionScroll::Left
-            | ExecutionScroll::Right
-            | ExecutionScroll::LeftEdge
-            | ExecutionScroll::RightEdge => current_offset,
-        };
-        self.target_vertical = VerticalScroll::Manual(offset);
-    }
-
     pub(crate) fn apply_horizontal_scroll(
         &mut self,
         action: ExecutionScroll,

@@ -26,12 +26,6 @@ impl Tool {
     pub(crate) const fn display_name(self) -> &'static str {
         self.executable_name()
     }
-
-    #[must_use]
-    pub(crate) fn cli_argument_environment_names(self, command: &str) -> [String; 2] {
-        let _ = self;
-        ["TF_CLI_ARGS".to_owned(), format!("TF_CLI_ARGS_{command}")]
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
