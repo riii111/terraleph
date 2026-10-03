@@ -54,7 +54,7 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
     super::prepare_saved_plan_lifecycle();
     let mut state = EnvironmentSession::new(environments, invocation.detailed_exitcode())
         .with_exploration_root(invocation.directory().to_owned());
-    let cancellation = CancellationToken::new();
+    let cancellation = CancellationToken::default();
     let (sender, receiver) = mpsc::channel();
     let mut plans: Vec<Option<terraform::SavedPlan>> =
         (0..state.plans().len()).map(|_| None).collect();
@@ -314,7 +314,7 @@ impl ApplyRuntime {
     }
 
     fn new(invocation: &Invocation) -> Self {
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (sender, receiver) = mpsc::channel();
         Self {
             apply_arguments: invocation.apply_arguments(),
@@ -658,7 +658,7 @@ mod tests {
                 while !worker.is_finished() {
                     thread::yield_now();
                 }
-                let cancellation = CancellationToken::new();
+                let cancellation = CancellationToken::default();
                 let (sender, receiver) = mpsc::channel();
                 Self {
                     sender,

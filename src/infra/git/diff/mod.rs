@@ -779,12 +779,12 @@ mod tests {
     static NEXT_REPOSITORY: AtomicU64 = AtomicU64::new(0);
 
     fn collect_diff(root: &Path) -> GitDiff {
-        collect_diff_with_cancellation(root, &CancellationToken::new())
+        collect_diff_with_cancellation(root, &CancellationToken::default())
             .expect("Git diff should not be interrupted")
     }
 
     fn collect_diff_against_ref(root: &Path, compare_ref: &str) -> GitDiff {
-        collect_diff_against_ref_with_cancellation(root, compare_ref, &CancellationToken::new())
+        collect_diff_against_ref_with_cancellation(root, compare_ref, &CancellationToken::default())
             .expect("Git diff should not be interrupted")
     }
 

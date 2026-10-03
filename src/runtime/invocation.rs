@@ -114,7 +114,7 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
             let environments = discovery::discover(
                 invocation.directory(),
                 tool,
-                &CancellationToken::new(),
+                &CancellationToken::default(),
                 &terraform::SystemProcessRunner,
             )?;
             validate_discovery(&environments)?;

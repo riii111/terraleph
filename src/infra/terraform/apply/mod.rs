@@ -151,7 +151,7 @@ mod tests {
             ))),
             arguments: RefCell::new(Vec::new()),
         };
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let mut events = Vec::new();
 
         let result = run_apply_with_arguments(
@@ -220,7 +220,7 @@ mod tests {
             &[],
             &[OsString::from("-no-color")],
             Path::new("/project/review.tfplan"),
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &failed_runner,
             &mut |event| events.push(event),
         )
@@ -235,7 +235,7 @@ mod tests {
             }) if summary == "apply failed" && address == "terraform_data.api"
         )));
 
-        let cancelled = CancellationToken::new();
+        let cancelled = CancellationToken::default();
         cancelled.cancel();
         let interrupted = run_apply_with_arguments(
             Tool::Terraform,
@@ -267,7 +267,7 @@ mod tests {
             &[],
             &[OsString::from("-no-color")],
             Path::new("/project/review.tfplan"),
-            &CancellationToken::new(),
+            &CancellationToken::default(),
             &runner,
             &mut |_| {},
         )

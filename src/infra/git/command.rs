@@ -434,7 +434,7 @@ exit 0
             operation: &'static str,
             environment: &[(&'static str, &str)],
         ) -> Self {
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let worker_cancellation = cancellation.clone();
             let path = directory.path().to_owned();
             let mut environment = environment
@@ -545,7 +545,7 @@ exit 0
         let directory = TestDirectory::new();
         directory.install_fake_git();
         let pid_file = directory.path().join("pid");
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         cancellation.cancel();
 
         let error = run_git_with_env(

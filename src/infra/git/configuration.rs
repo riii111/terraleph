@@ -382,7 +382,7 @@ mod tests {
     static NEXT_REPOSITORY: AtomicU64 = AtomicU64::new(0);
 
     fn collect_diff(root: &Path) -> GitDiff {
-        super::super::diff::collect_diff_with_cancellation(root, &CancellationToken::new())
+        super::super::diff::collect_diff_with_cancellation(root, &CancellationToken::default())
             .expect("Git diff should not be interrupted")
     }
 
@@ -390,13 +390,13 @@ mod tests {
         super::super::diff::collect_diff_against_ref_with_cancellation(
             root,
             compare_ref,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
         )
         .expect("Git diff should not be interrupted")
     }
 
     fn capture_working_tree_configuration(root: &Path) -> ConfigurationSnapshot {
-        capture_working_tree_configuration_with_cancellation(root, &CancellationToken::new())
+        capture_working_tree_configuration_with_cancellation(root, &CancellationToken::default())
             .expect("working tree configuration should not be interrupted")
     }
 
@@ -409,7 +409,7 @@ mod tests {
             repository_root,
             root,
             revision,
-            &CancellationToken::new(),
+            &CancellationToken::default(),
         )
         .expect("Git configuration should not be interrupted")
     }
@@ -418,7 +418,7 @@ mod tests {
         diff: &GitDiff,
         working_tree: &ConfigurationSnapshot,
     ) -> ConfigurationComparisons {
-        compare_configurations_with_cancellation(diff, working_tree, &CancellationToken::new())
+        compare_configurations_with_cancellation(diff, working_tree, &CancellationToken::default())
             .expect("Git configuration should not be interrupted")
     }
 

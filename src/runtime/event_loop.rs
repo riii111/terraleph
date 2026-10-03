@@ -678,7 +678,7 @@ mod tests {
             };
             let key = HistoryKey::for_target(&context, &target).expect("workspace is known");
             let (sender, _messages) = mpsc::channel();
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut apply_worker = worker_guard(None);
             let mut effects =
@@ -711,7 +711,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -750,7 +750,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(None);
             let mut apply_worker = worker_guard(Some(handle));
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -785,7 +785,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -815,7 +815,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -832,7 +832,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(None);
             let mut apply_worker = worker_guard(Some(handle));
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -860,7 +860,7 @@ mod tests {
             });
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -916,7 +916,7 @@ mod tests {
             });
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -985,7 +985,7 @@ mod tests {
             });
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -1060,7 +1060,7 @@ mod tests {
             wait_for_finished(&handle);
             let mut plan_worker = worker_guard(Some(handle));
             let mut apply_worker = worker_guard(None);
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut effects =
                 test_effects(&sender, &cancellation, &mut clipboard, &mut apply_worker);
@@ -2378,7 +2378,7 @@ mod tests {
             assert!(copied_horizontal > 0);
 
             let (sender, _messages) = std::sync::mpsc::channel();
-            let cancellation = CancellationToken::new();
+            let cancellation = CancellationToken::default();
             let mut clipboard = TestClipboard;
             let mut apply_worker = WorkerGuard {
                 cancellation: cancellation.clone(),
@@ -2488,7 +2488,7 @@ mod tests {
 
     fn worker_guard(handle: Option<JoinHandle<()>>) -> WorkerGuard {
         WorkerGuard {
-            cancellation: CancellationToken::new(),
+            cancellation: CancellationToken::default(),
             handle,
         }
     }

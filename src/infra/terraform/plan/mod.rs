@@ -802,7 +802,7 @@ mod tests {
     #[test]
     fn runs_plan_then_show_in_explicit_root_with_argument_boundaries() {
         let runner = FakeRunner::new([successful_process(), show_process()]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
         let plan_path = saved_plan.path().to_owned();
 
@@ -852,7 +852,7 @@ mod tests {
             ),
             show_process(),
         ]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
         let mut events = Vec::new();
 
@@ -904,7 +904,7 @@ mod tests {
     #[test]
     fn distinguishes_plan_launch_failure_and_skips_show() {
         let runner = FakeRunner::new([FakeResponse::LaunchError("not found")]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
 
         let error =
@@ -930,7 +930,7 @@ mod tests {
                 b"secret diagnostic".to_vec(),
             ),
         }]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
 
         let error =
@@ -953,7 +953,7 @@ mod tests {
             successful_process(),
             FakeResponse::LaunchError("show unavailable"),
         ]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
 
         let error =
@@ -979,7 +979,7 @@ mod tests {
                 output: ProcessOutput::new(Vec::new(), b"show failed".to_vec()),
             },
         ]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
 
         let error =
@@ -998,7 +998,7 @@ mod tests {
 
     #[test]
     fn interrupts_and_reaps_plan_before_cleanup_without_starting_show() {
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let interrupt_count = Rc::new(Cell::new(0));
         let runner = FakeRunner::new([FakeResponse::Pending {
             cancellation: cancellation.clone(),
@@ -1028,7 +1028,7 @@ mod tests {
 
     #[test]
     fn interrupts_and_reaps_show_before_cleanup() {
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let interrupt_count = Rc::new(Cell::new(0));
         let runner = FakeRunner::new([
             successful_process(),
@@ -1062,7 +1062,7 @@ mod tests {
     #[test]
     fn reports_cleanup_failure_separately() {
         let runner = FakeRunner::new([FakeResponse::MakePlanPathDirectory, show_process()]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
         let plan_path = saved_plan.path().to_owned();
 
@@ -1092,7 +1092,7 @@ mod tests {
                 ),
             },
         ]);
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let (saved_plan, directory) = saved_plan_with_space();
 
         let error = run_fake(&runner, saved_plan, &cancellation)
@@ -1126,7 +1126,7 @@ mod tests {
                 .trim(),
         );
 
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         let mut ignore_event = |_| {};
         let result = run_plan(
             &directory,

@@ -343,7 +343,7 @@ pub(crate) mod tests {
         compare_ref: &str,
         environment: &[(&str, &str)],
     ) -> Option<String> {
-        let cancellation = CancellationToken::new();
+        let cancellation = CancellationToken::default();
         resolve_compare_ref_with_env_and_cancellation(
             repository_root,
             compare_ref,
