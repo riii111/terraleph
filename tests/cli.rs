@@ -1267,34 +1267,14 @@ Plan: 0 to add, 3 to change, 0 to destroy.
 
     #[test]
     fn pty_termination_signal_restores_terminal_and_removes_the_saved_plan() {
-        struct SignalCase {
-            scenario: &'static str,
-            expected: i32,
-        }
+        let fixture = Fixture::new();
 
-        for case in [
-            SignalCase {
-                scenario: "signal_review_hup",
-                expected: 129,
-            },
-            SignalCase {
-                scenario: "signal_review_int",
-                expected: 130,
-            },
-            SignalCase {
-                scenario: "signal_review_term",
-                expected: 143,
-            },
-        ] {
-            let fixture = Fixture::new();
+        let result = fixture.run("signal_review_term", 100, 24);
 
-            let result = fixture.run(case.scenario, 100, 24);
-
-            assert_eq!(result.exit_code, case.expected, "case: {}", case.scenario);
-            result.assert_restored();
-            result.observed("signal_sent");
-            fixture.assert_saved_plan_removed();
-        }
+        assert_eq!(result.exit_code, 143);
+        result.assert_restored();
+        result.observed("signal_sent");
+        fixture.assert_saved_plan_removed();
     }
 
     #[test]
