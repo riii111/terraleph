@@ -1,9 +1,6 @@
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CanonicalNumber(String);
 
-// The input must be JSON number text as serde_json scanned it from the plan, so the
-// mantissa is already digits with an optional fraction. Text built from any other source
-// must be validated at that boundary before it reaches here.
 // Terraform and OpenTofu print numbers as plain decimals from big.Float, so only other
 // notation reaches the i128 exponent limit. Values beyond it are not normalized, and
 // callers handle them conservatively instead of comparing them as numbers.
@@ -13,6 +10,9 @@ pub(super) fn canonical_number(value: &str) -> Option<CanonicalNumber> {
         .map_or(("", value), |unsigned| ("-", unsigned));
     let (mantissa, exponent) = unsigned.split_once(['e', 'E']).unwrap_or((unsigned, "0"));
     let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    if !is_digits(integer) || (mantissa.contains('.') && !is_digits(fraction)) {
+        return None;
+    }
     let exponent = exponent.parse::<i128>().ok()?;
 
     let digits = format!("{integer}{fraction}");
@@ -25,6 +25,10 @@ pub(super) fn canonical_number(value: &str) -> Option<CanonicalNumber> {
         - i128::try_from(fraction.len()).ok()?;
     let scale = exponent.checked_add(shift)?;
     Some(CanonicalNumber(format!("{sign}{trimmed}e{scale}")))
+}
+
+fn is_digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -158,5 +162,10 @@ mod tests {
         for input in inputs {
             assert_eq!(canonical(&input), None, "{input}");
         }
+    }
+
+    #[test]
+    fn rejects_text_outside_the_decimal_number_grammar() {
+        assert_eq!(canonical("NaN"), None);
     }
 }
