@@ -21,7 +21,7 @@ impl ExecutionViewState {
     ) -> Option<Action> {
         match execution_key_to_input(key, state.stage(), self.logs_open()) {
             Some(ExecutionInput::Quit) => Some(Action::Quit),
-            Some(ExecutionInput::Action(action)) => Some(Action::Execution(action)),
+            Some(ExecutionInput::RequestCancellation) => Some(Action::RequestCancellation),
             Some(ExecutionInput::SelectTarget(direction)) => {
                 self.move_target_selection(state, direction, size);
                 None

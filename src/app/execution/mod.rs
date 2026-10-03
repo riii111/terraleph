@@ -53,11 +53,6 @@ pub(crate) enum ApplyStatus {
     Interrupted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExecutionAction {
-    RequestCancellation,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExecutionState {
     stage: ExecutionStage,
@@ -150,10 +145,8 @@ impl ExecutionState {
         }
     }
 
-    pub(crate) const fn apply(&mut self, action: ExecutionAction) {
-        match action {
-            ExecutionAction::RequestCancellation => self.cancellation_requested = true,
-        }
+    pub(crate) const fn request_cancellation(&mut self) {
+        self.cancellation_requested = true;
     }
 
     pub(crate) fn record(&mut self, event: ExecutionEvent) {
@@ -592,7 +585,7 @@ mod tests {
         let started_at = Instant::now();
         let mut state = ExecutionState::new(started_at);
 
-        state.apply(ExecutionAction::RequestCancellation);
+        state.request_cancellation();
         assert!(state.is_cancelling());
 
         state.record(event(

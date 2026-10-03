@@ -1,14 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::copy::CopyTarget;
-use crate::app::execution::{ExecutionAction, ExecutionStage};
+use crate::app::execution::ExecutionStage;
 use crate::ui::input::normalize_key;
 
 use super::{ExecutionScroll, ExecutionTargetMove};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ExecutionInput {
-    Action(ExecutionAction),
+    RequestCancellation,
     SelectTarget(ExecutionTargetMove),
     ToggleFocus,
     Scroll(ExecutionScroll),
@@ -46,7 +46,7 @@ pub(super) fn execution_key_to_input(
         return Some(if finished {
             ExecutionInput::Quit
         } else {
-            ExecutionInput::Action(ExecutionAction::RequestCancellation)
+            ExecutionInput::RequestCancellation
         });
     }
 
@@ -145,7 +145,7 @@ mod tests {
                 "control_c_cancels_running",
                 key(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 ExecutionStage::Reading,
-                Some(ExecutionInput::Action(ExecutionAction::RequestCancellation)),
+                Some(ExecutionInput::RequestCancellation),
             ),
             (
                 "q_is_ignored_while_running",
@@ -276,7 +276,7 @@ mod tests {
                 ExecutionStage::Applying,
                 false,
             ),
-            Some(ExecutionInput::Action(ExecutionAction::RequestCancellation))
+            Some(ExecutionInput::RequestCancellation)
         );
         assert_eq!(
             execution_key_to_input(
@@ -284,7 +284,7 @@ mod tests {
                 ExecutionStage::Applying,
                 true,
             ),
-            Some(ExecutionInput::Action(ExecutionAction::RequestCancellation))
+            Some(ExecutionInput::RequestCancellation)
         );
         assert_eq!(
             execution_key_to_input(
