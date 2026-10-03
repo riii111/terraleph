@@ -880,18 +880,14 @@ mod tests {
 
     #[test]
     fn indexes_resource_headers_without_prefix_collisions_or_unknown_matches() {
-        let resource_addresses = [
-            "terraform_data.api".to_owned(),
-            "terraform_data.api_extra".to_owned(),
-            "module.service[\"a, b\"]".to_owned(),
-            "module.service[\"will be here\"]".to_owned(),
-            "terraform_data.moved_new".to_owned(),
-            "terraform_data.moved_old".to_owned(),
-        ];
-        let mut resource_indices = HashMap::new();
-        for (index, address) in resource_addresses.iter().enumerate() {
-            resource_indices.entry(address.as_str()).or_insert(index);
-        }
+        let resource_indices = HashMap::from([
+            ("terraform_data.api", 0),
+            ("terraform_data.api_extra", 1),
+            ("module.service[\"a, b\"]", 2),
+            ("module.service[\"will be here\"]", 3),
+            ("terraform_data.moved_new", 4),
+            ("terraform_data.moved_old", 5),
+        ]);
 
         for (case_name, line, expected) in [
             (
@@ -935,11 +931,7 @@ mod tests {
 
     #[test]
     fn indexes_output_headers_with_the_existing_action_and_assignment_rules() {
-        let output_names = ["endpoint".to_owned(), "endpoint_extra".to_owned()];
-        let mut output_indices = HashMap::new();
-        for (index, name) in output_names.iter().enumerate() {
-            output_indices.entry(name.as_str()).or_insert(index);
-        }
+        let output_indices = HashMap::from([("endpoint", 0), ("endpoint_extra", 1)]);
 
         for (case_name, line, expected) in [
             (

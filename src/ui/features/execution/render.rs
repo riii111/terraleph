@@ -664,14 +664,6 @@ pub(crate) fn execution_scroll_position_with_view(
     (current, max)
 }
 
-pub(super) const fn execution_target_scroll_position_with_view(
-    view: ExecutionViewState,
-    layout: &ExecutionLayout,
-) -> (usize, usize) {
-    let current = view.target_vertical_offset(0, layout.target_max_vertical());
-    (current, layout.target_max_vertical())
-}
-
 pub(super) fn execution_horizontal_scroll_position_with_view(
     view: ExecutionViewState,
     layout: &ExecutionLayout,
@@ -1225,10 +1217,9 @@ mod tests {
     use super::*;
     use crate::app::copy::{CopyResult, CopyTarget};
     use crate::app::execution::{
-        ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionAction,
-        ExecutionContext, ExecutionEvent, ExecutionEventKind, ExecutionLogLine,
-        ExecutionTargetSpec, ResourceAction, ResourceEvent, ResourceEventKind,
-        test_support::log_event,
+        ApplyStatus, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExecutionContext,
+        ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionTargetSpec, ResourceAction,
+        ResourceEvent, ResourceEventKind, test_support::log_event,
     };
     use crate::app::session::{self, Action, SessionState};
     use crate::ui::features::execution::ExecutionScroll;
@@ -1481,7 +1472,7 @@ mod tests {
             snapshot(&format!("ux12r_{width}x{height}_apply-progress"), &compact);
 
             let mut stopping_state = state.clone();
-            stopping_state.apply(ExecutionAction::RequestCancellation);
+            stopping_state.request_cancellation();
             let stopping = render_to_buffer((width, height), |frame| {
                 render_execution_with_view(
                     frame,
@@ -1519,7 +1510,7 @@ mod tests {
     fn apply_stopping_at_minimum_size_shows_resize_notice() {
         let (state, now) = applying_state_with_content(1, 1);
         let mut stopping_state = state;
-        stopping_state.apply(ExecutionAction::RequestCancellation);
+        stopping_state.request_cancellation();
         let buffer = render_to_buffer((32, 9), |frame| {
             render_execution_with_view(frame, &stopping_state, ExecutionViewState::default(), now);
         });
@@ -1675,21 +1666,6 @@ mod tests {
         }
 
         #[test]
-        fn renders_long_addresses_at_all_supported_sizes() {
-            for &(width, height) in &SIZES {
-                let (state, now) = long_address_state();
-                let buffer = render_to_buffer((width, height), |frame| {
-                    render_execution_with_view(frame, &state, ExecutionViewState::default(), now);
-                });
-
-                snapshot(
-                    &format!("preview_{width}x{height}_apply-long-address"),
-                    &buffer,
-                );
-            }
-        }
-
-        #[test]
         fn target_columns_line_up_and_addresses_shrink_only_when_the_panel_is_narrow() {
             let mut long_address_texts = Vec::new();
             for (long_addresses, fixture, target_count) in [
@@ -1707,6 +1683,10 @@ mod tests {
                         );
                     });
                     if long_addresses {
+                        snapshot(
+                            &format!("preview_{width}x{height}_apply-long-address"),
+                            &buffer,
+                        );
                         long_address_texts.push(buffer_text(&buffer));
                     }
                     let rows = table_rows(&buffer, target_count);
@@ -3016,7 +2996,7 @@ mod tests {
                 received_at: started_at,
                 kind: log_event(EventStream::Stdout, "Applying saved plan...".to_owned()),
             });
-            state.apply(ExecutionAction::RequestCancellation);
+            state.request_cancellation();
 
             let compact = render_to_buffer((80, 24), |frame| {
                 render_execution_with_view(
@@ -3594,7 +3574,7 @@ mod tests {
                 let (short_state, _) = applying_state_with_content(1, 1);
                 let (long_state, _) = applying_state_with_content(40, 1);
                 let mut stopping_state = short_state.clone();
-                stopping_state.apply(ExecutionAction::RequestCancellation);
+                stopping_state.request_cancellation();
                 let area = Rect::new(0, 0, width, height);
                 let empty_layout = execution_layout(area, &empty_state);
                 let short_layout = execution_layout(area, &short_state);
