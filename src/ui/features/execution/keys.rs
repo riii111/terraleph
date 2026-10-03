@@ -8,7 +8,7 @@ use super::{
     input::{ExecutionInput, execution_key_to_input},
     render::{
         execution_horizontal_scroll_position_with_view, execution_layout_with_view,
-        execution_scroll_position_with_view, execution_target_scroll_position_with_view,
+        execution_scroll_position_with_view,
     },
 };
 
@@ -77,11 +77,6 @@ impl ExecutionViewState {
 
     fn scroll(&mut self, state: &ExecutionState, scroll: ExecutionScroll, size: Size) {
         let layout = execution_layout_with_view(Rect::from(size), state, *self);
-        if state.is_apply() && !self.logs_open() {
-            let (current, max) = execution_target_scroll_position_with_view(*self, &layout);
-            self.apply_target_scroll(scroll, current, max, layout.target_body().height);
-            return;
-        }
         let (current_vertical, _) = execution_scroll_position_with_view(state, *self, &layout);
         match scroll {
             ExecutionScroll::Left
