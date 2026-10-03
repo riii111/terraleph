@@ -124,62 +124,52 @@ pub(super) fn execution_key_to_input(
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyEventKind, KeyEventState};
     use rstest::rstest;
 
     use super::*;
-
-    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers,
-            kind: KeyEventKind::Press,
-            state: KeyEventState::NONE,
-        }
-    }
 
     #[test]
     fn key_mapping_respects_execution_stage() {
         let cases = [
             (
                 "control_c_cancels_running",
-                key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 ExecutionStage::Reading,
                 Some(ExecutionInput::RequestCancellation),
             ),
             (
                 "q_is_ignored_while_running",
-                key(KeyCode::Char('q'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
                 ExecutionStage::Reading,
                 None,
             ),
             (
                 "q_quits_failed",
-                key(KeyCode::Char('q'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
                 ExecutionStage::Failed,
                 Some(ExecutionInput::Quit),
             ),
             (
                 "control_c_quits_failed",
-                key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 ExecutionStage::Failed,
                 Some(ExecutionInput::Quit),
             ),
             (
                 "y_copies_diagnostic_after_failure",
-                key(KeyCode::Char('y'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
                 ExecutionStage::Failed,
                 Some(ExecutionInput::Copy(CopyTarget::Diagnostic)),
             ),
             (
                 "alt_v_pages_up",
-                key(KeyCode::Char('v'), KeyModifiers::ALT),
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::ALT),
                 ExecutionStage::Reading,
                 Some(ExecutionInput::Scroll(ExecutionScroll::PageUp)),
             ),
             (
                 "control_v_pages_down",
-                key(KeyCode::Char('v'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
                 ExecutionStage::Reading,
                 Some(ExecutionInput::Scroll(ExecutionScroll::PageDown)),
             ),
@@ -198,7 +188,7 @@ mod tests {
     fn uppercase_y_does_not_copy_after_failure() {
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('Y'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::NONE),
                 ExecutionStage::Failed,
                 false,
             ),
@@ -211,7 +201,11 @@ mod tests {
     #[case::uppercase(KeyCode::Char('Y'), KeyModifiers::NONE)]
     fn copy_keys_are_ignored_while_running(#[case] code: KeyCode, #[case] modifiers: KeyModifiers) {
         assert_eq!(
-            execution_key_to_input(key(code, modifiers), ExecutionStage::Reading, false),
+            execution_key_to_input(
+                KeyEvent::new(code, modifiers),
+                ExecutionStage::Reading,
+                false
+            ),
             None
         );
     }
@@ -220,7 +214,7 @@ mod tests {
     fn plain_v_opens_and_closes_apply_logs_without_changing_other_v_keys() {
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('v'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 false,
             ),
@@ -228,7 +222,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('v'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 true,
             ),
@@ -236,7 +230,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Esc, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 true,
             ),
@@ -244,7 +238,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('v'), KeyModifiers::ALT),
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::ALT),
                 ExecutionStage::Applying,
                 false,
             ),
@@ -256,7 +250,7 @@ mod tests {
     fn focus_switches_target_selection_and_cancellation_remain_available_while_running() {
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Tab, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 false,
             ),
@@ -264,7 +258,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Down, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 false,
             ),
@@ -272,7 +266,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 ExecutionStage::Applying,
                 false,
             ),
@@ -280,7 +274,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 ExecutionStage::Applying,
                 true,
             ),
@@ -288,7 +282,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Down, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
                 ExecutionStage::Applying,
                 true,
             ),
@@ -296,7 +290,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Tab, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
                 ExecutionStage::ApplySucceeded,
                 false,
             ),
@@ -304,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             execution_key_to_input(
-                key(KeyCode::Down, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
                 ExecutionStage::ApplySucceeded,
                 false,
             ),
