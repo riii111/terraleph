@@ -617,8 +617,8 @@ mod tests {
     use crate::app::{
         copy::CopyTarget,
         execution::{
-            ApplyStatus, EventStream, ExecutionAction, ExecutionContext, ExecutionEvent,
-            ExecutionEventKind, ExecutionTargetSpec, HistoryKey, SuccessfulTarget,
+            ApplyStatus, EventStream, ExecutionContext, ExecutionEvent, ExecutionEventKind,
+            ExecutionTargetSpec, HistoryKey, SuccessfulTarget,
         },
         plan::{
             Plan, PlanAction, ResourceChangeKind,
@@ -998,7 +998,7 @@ mod tests {
             assert!(
                 dispatch(
                     &mut state,
-                    Action::Execution(ExecutionAction::RequestCancellation),
+                    Action::RequestCancellation,
                     &mut execution_view,
                     &mut effects,
                 )

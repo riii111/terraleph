@@ -4,10 +4,7 @@ use std::time::Instant;
 use super::{
     copy::{self, CopyEffect, CopyFeedback, CopyResult, CopyTarget},
     environments::overview::SingleEnvironmentOverview,
-    execution::{
-        ApplyStatus, ExecutionAction, ExecutionEvent, ExecutionStage, ExecutionState,
-        SuccessfulTarget,
-    },
+    execution::{ApplyStatus, ExecutionEvent, ExecutionStage, ExecutionState, SuccessfulTarget},
     plan::PlanSummary,
     review::{PlanReview, PlanReviewMessage},
 };
@@ -163,7 +160,7 @@ impl ReviewSessionState {
     reason = "review completion carries the complete plan into the session"
 )]
 pub(crate) enum Action {
-    Execution(ExecutionAction),
+    RequestCancellation,
     WorkerEvent(ExecutionEvent),
     ApplyWorkerEvent(ExecutionEvent),
     ReviewCompleted(PlanReview),
@@ -319,7 +316,7 @@ impl SessionState {
 )]
 pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> Option<Effect> {
     match action {
-        Action::Execution(ExecutionAction::RequestCancellation) => {
+        Action::RequestCancellation => {
             let (SessionState::Execution(execution) | SessionState::Apply(execution)) = state
             else {
                 return None;
@@ -327,7 +324,7 @@ pub(crate) fn update(state: &mut SessionState, action: Action, now: Instant) -> 
             if execution.cancellation_requested() {
                 return None;
             }
-            execution.apply(ExecutionAction::RequestCancellation);
+            execution.request_cancellation();
             Some(Effect::CancelExecution)
         }
         Action::WorkerEvent(event) => {
@@ -754,21 +751,10 @@ mod tests {
         ));
 
         assert!(matches!(
-            update(
-                &mut state,
-                Action::Execution(ExecutionAction::RequestCancellation),
-                now
-            ),
+            update(&mut state, Action::RequestCancellation, now),
             Some(Effect::CancelExecution)
         ));
-        assert!(
-            update(
-                &mut state,
-                Action::Execution(ExecutionAction::RequestCancellation),
-                now
-            )
-            .is_none()
-        );
+        assert!(update(&mut state, Action::RequestCancellation, now).is_none());
         assert!(matches!(
             update(&mut state, Action::ReviewCompleted(review()), now),
             Some(Effect::Finish(SessionOutcome::Interrupted))
@@ -1248,11 +1234,7 @@ mod tests {
         )));
 
         assert!(matches!(
-            update(
-                &mut state,
-                Action::Execution(ExecutionAction::RequestCancellation),
-                now,
-            ),
+            update(&mut state, Action::RequestCancellation, now),
             Some(Effect::CancelExecution)
         ));
         assert!(state.apply().is_some_and(ExecutionState::is_cancelling));
