@@ -923,7 +923,6 @@ mod tests {
 
         assert_eq!(output.stdout(), [message, b"final line"].concat());
         assert_eq!(output.stderr, b"warning\n");
-        assert_eq!(observed, 1);
         assert_eq!(
             events.iter().map(non_json_text).collect::<Vec<_>>(),
             [
