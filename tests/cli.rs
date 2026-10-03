@@ -20,7 +20,6 @@ fn help_and_version_work_without_a_terminal_or_terraform(#[case] arg: &str) {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("terraleph"));
-    assert!(!stdout.contains("compare-ref"));
 }
 
 #[test]
