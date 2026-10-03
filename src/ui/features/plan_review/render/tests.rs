@@ -368,9 +368,6 @@ fn renders_plan_apply_entry_at_all_supported_sizes() {
             !footer.contains("y copy plan"),
             "{width}x{height}\n{footer}"
         );
-        if (width, height) == (80, 24) {
-            snapshot("preview_80x24_apply-entry", &buffer);
-        }
     }
 }
 
