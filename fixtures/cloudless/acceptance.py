@@ -169,6 +169,7 @@ def accept_tui(name, tool, binary):
         if name in ("sensitive", "diagnostics"):
             env.pop("TF_DATA_DIR", None)
         env.pop("TF_IN_AUTOMATION", None)
+        env.pop("CI", None)
         if name in ("lock", "stale"):
             scenario.install_apply_hook(directory, tool, env, name)
         driver = scenario.FIXTURES.parents[1] / "tests/support/cli/pty_driver.py"
