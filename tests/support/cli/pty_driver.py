@@ -994,6 +994,46 @@ try:
             "review screen after cancelling apply",
         )
         exit_code = quit_with_enter()
+    elif scenario in ("cloudless_sensitive", "cloudless_diagnostics"):
+        observe_current_or_wait("Not planned", "cloudless_unplanned")
+        send_key(b"P")
+        if scenario == "cloudless_sensitive":
+            wait_environment("dev", "Ready", timeout=60)
+            wait_environment("prod", "Ready", timeout=60)
+            send_key(b"v")
+            wait_parts(["terraform_data.nested", "a apply"], "cloudless_sensitive_review")
+            if b"synthetic-secret-never-use" in output or b"synthetic-prod-secret-never-use" in output:
+                observed.append("sensitive_value_visible")
+                print("sensitive_value_visible=true")
+            send_key(b"\x1b")
+            wait_new("Address", "cloudless_sensitive_overview")
+        else:
+            wait_environment("error", "Error", timeout=60)
+            wait_environment("warning", "Ready", timeout=60)
+            send_key(b"\r")
+            wait_new("Synthetic precondition error", "cloudless_plan_error")
+            send_key(b"\x1b")
+            wait_new("Address", "cloudless_error_closed")
+        exit_code = quit_with_enter()
+    elif scenario == "cloudless_large":
+        wait_parts(["terraform_data.server", "a apply"], "cloudless_large_review", timeout=60)
+        send_key(b"s")
+        wait_new("Address", "cloudless_large_overview")
+        exit_code = quit_with_enter()
+    elif scenario.startswith("cloudless_apply_"):
+        wait_new("a apply", "cloudless_plan_ready", timeout=60)
+        send_key(b"a")
+        wait_parts(["Apply this reviewed plan?", "To confirm, type"], "cloudless_confirmation")
+        send_text(re.search(r'To confirm, type "([^"]+)" below', screen.text()).group(1))
+        send_key(b"\r")
+        wait_new("Apply failed", "cloudless_apply_failed", timeout=60)
+        message = {
+            "cloudless_apply_failure": "synthetic apply failure",
+            "cloudless_apply_lock": "Error acquiring the state lock",
+            "cloudless_apply_stale": "Saved plan is stale",
+        }[scenario]
+        observe_current_or_wait(message, "cloudless_error_log", timeout=30)
+        exit_code = quit_with_enter()
     elif scenario == "diagnostic_success":
         wait_screen(
             plan_status_is_above_plan_text,
