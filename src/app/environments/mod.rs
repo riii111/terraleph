@@ -516,7 +516,6 @@ fn output_line(event: &ExecutionEvent) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-// Named targets can be the root or outside it, so `.` and `..` keep same-named paths distinct.
 fn relative_display_path(directory: &Path, root: &Path) -> String {
     let shared = directory
         .components()

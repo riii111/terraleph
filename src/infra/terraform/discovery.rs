@@ -40,13 +40,11 @@ pub(crate) fn discover(root: &Path, tool: Tool, max_depth: usize) -> io::Result<
             pending.extend(children.into_iter().map(|child| (child, depth + 1)));
         }
     }
-    // A called module stays reusable code even when it declares a backend.
     environments.retain(|environment| !module_sources.contains(environment.directory()));
     environments.sort_by(|left, right| left.directory().cmp(right.directory()));
     Ok(environments)
 }
 
-// Named directories need configuration but not a backend block.
 pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result<Vec<Environment>> {
     let mut seen = BTreeSet::new();
     let mut environments = Vec::new();

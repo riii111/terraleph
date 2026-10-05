@@ -6,12 +6,12 @@ use terraleph::EnvironmentTargets;
 const AFTER_HELP: &str = "\
 Arguments after a command are passed to Terraform or OpenTofu unchanged.
 Run with no command in an interactive terminal to open the change overview.
-Terraleph options go before the command, so they never reach Terraform.
+Terraleph options go before the command.
 
 Examples:
   terraleph                           Open the change overview
   terraleph plan -var-file=prod.tfvars
-  terraleph --env-dir live/prod --env-dir live/stg plan
+  terraleph --env-dir envs/prod --env-dir envs/stg
   terraleph --max-depth 6
   terraleph apply
   terraleph tofu plan
@@ -23,13 +23,13 @@ struct Cli {
     #[arg(
         long = "env-dir",
         value_name = "DIR",
-        help = "Offer this configuration directory as an environment instead of searching (repeatable)"
+        help = "Use this directory as an environment (repeatable)"
     )]
     env_dirs: Vec<PathBuf>,
     #[arg(
         long,
         value_name = "LEVELS",
-        help = "Search this many directory levels below the current directory for environments [default: 4]"
+        help = "Directory levels to search for environments [default: 4]"
     )]
     max_depth: Option<usize>,
     #[command(subcommand)]

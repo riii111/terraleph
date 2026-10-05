@@ -211,7 +211,6 @@ fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) ->
     Ok(Entry::Multiple)
 }
 
-// A large tree can take a while to read before the screen opens.
 fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
     let notice = format!(
         "Searching for environments in {} (up to {max_depth} levels)...",

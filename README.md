@@ -56,16 +56,13 @@ terraleph apply
 # Use OpenTofu
 terraleph tofu plan
 terraleph tofu apply
-```
 
-Run from your configuration directory, or from a directory above it to compare environments. From above, Terraleph finds directories with a `backend` or `cloud` block up to 4 levels down, skipping hidden directories, symlinks, and local modules. Nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
-
-If the search misses an environment or picks the wrong ones, name them or search deeper. These options go before the command:
-
-```sh
-terraleph --env-dir live/prod --env-dir live/stg plan
+# Choose environments, or search deeper than 4 levels
+terraleph --env-dir envs/prod --env-dir envs/stg
 terraleph --max-depth 6
 ```
+
+Run from your configuration directory, or a directory above it to compare environments. From above, nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
 
 To use Terraleph with your usual commands:
 

@@ -12,7 +12,6 @@ pub struct EnvironmentTargets {
 }
 
 impl EnvironmentTargets {
-    // Only arguments before the command word are read, so forwarded arguments never match.
     /// # Errors
     ///
     /// Returns a usage message when an option lacks a value or the values conflict.
