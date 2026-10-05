@@ -2127,6 +2127,39 @@ mod target_selection {
     }
 
     #[test]
+    fn unplanned_discovery_results_point_to_their_own_next_step() {
+        let state = EnvironmentSession::new(
+            vec![
+                Environment {
+                    tool: Tool::Terraform,
+                    availability: EnvironmentAvailability::Error {
+                        directory: PathBuf::from("/synthetic/broken"),
+                        message: "Synthetic configuration error".to_owned(),
+                    },
+                },
+                Environment {
+                    tool: Tool::Terraform,
+                    availability: EnvironmentAvailability::ExcludedHcp {
+                        directory: PathBuf::from("/synthetic/hcp"),
+                    },
+                },
+            ],
+            false,
+        );
+        let mut view = EnvironmentView::default();
+
+        for (column, expected) in [
+            (0, "broken is not planned. r retries it."),
+            (1, "cannot run here"),
+        ] {
+            view.select_environment(column);
+            let text = render_text(&mut view, &state, (160, 40));
+            assert!(text.contains(expected), "column {column}: {text}");
+            assert!(!text.contains("p plans it"), "column {column}: {text}");
+        }
+    }
+
+    #[test]
     fn plan_keys_request_only_unplanned_environments() {
         let mut state = unplanned_session(&["dev", "prod"]);
         let mut view = EnvironmentView::default();

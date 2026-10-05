@@ -967,9 +967,19 @@ fn target_indexes(plans: &[EnvironmentPlan]) -> Vec<usize> {
 
 fn not_planned_notice(plan: &EnvironmentPlan) -> String {
     format!(
-        "{} is not planned, so it has nothing to compare. p plans it.",
-        plan.display_name()
+        "{} is not planned, so it has nothing to compare. {}",
+        plan.display_name(),
+        unplanned_next_step(plan)
     )
+}
+
+// Only an unselected candidate accepts p; discovery failures retry and HCP candidates stay out.
+const fn unplanned_next_step(plan: &EnvironmentPlan) -> &'static str {
+    match plan.state() {
+        EnvironmentState::Error => "r retries it.",
+        EnvironmentState::ExcludedHcp => "HCP performs its execution, so it cannot run here.",
+        _ => "p plans it.",
+    }
 }
 
 fn copy_plan(index: usize) -> EnvironmentInput {

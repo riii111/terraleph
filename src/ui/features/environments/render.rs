@@ -560,10 +560,16 @@ fn overview_context(view: &EnvironmentView, state: &EnvironmentSession) -> Strin
         .get(view.selection.column)
         .filter(|plan| !plan.is_target())
     {
-        return if state.plans().iter().any(EnvironmentPlan::is_target) {
-            format!("{} is not planned. p plans it.", plan.display_name())
-        } else {
+        return if matches!(plan.state(), EnvironmentState::Unselected)
+            && !state.plans().iter().any(EnvironmentPlan::is_target)
+        {
             "Nothing is planned yet. p plans the selected environment; P plans all.".to_owned()
+        } else {
+            format!(
+                "{} is not planned. {}",
+                plan.display_name(),
+                super::unplanned_next_step(plan)
+            )
         };
     }
     if !view
