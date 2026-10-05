@@ -130,6 +130,8 @@ jobs:
       - run: cargo build --locked --bin terraleph
       - name: Verify single and repeated-resource plans
         run: python3 fixtures/basic/plan.py accept --tool '${{ matrix.tool }}'
+      - name: Verify cloudless failures, sensitivity, scale and diagnostics
+        run: python3 fixtures/cloudless/acceptance.py --tool '${{ matrix.tool }}' --binary target/debug/terraleph
       - name: Verify multi-environment CLI retry
         run: python3 fixtures/environments/acceptance.py --binary target/debug/terraleph --tool '${{ matrix.tool }}'
       - name: Verify Terraform-backed Rust integration tests
