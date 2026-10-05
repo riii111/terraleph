@@ -602,8 +602,10 @@ fn matrix_pane_name(view: &EnvironmentView, state: &EnvironmentSession) -> Strin
 }
 
 fn overview_detail(plan: &EnvironmentPlan) -> String {
-    if matches!(plan.state(), EnvironmentState::Error) {
-        return plan.diagnostic().text().to_owned();
+    match plan.state() {
+        EnvironmentState::Error => return shell::failure_detail(plan),
+        EnvironmentState::Running => return shell::preparation_detail(plan),
+        _ => {}
     }
     let Some(review) = plan.review().map(ReviewSessionState::review) else {
         return String::new();
@@ -624,6 +626,9 @@ fn overview_detail(plan: &EnvironmentPlan) -> String {
     let drift = review.noted_drift();
     if drift > 0 {
         notes.push(format!("Drift detected in {drift} resource(s)."));
+    }
+    if let Some(change) = plan.preparation().lock_file() {
+        notes.push(change.message().to_owned());
     }
     notes.join(" ")
 }
@@ -750,7 +755,11 @@ fn environment_status_help(multiple: bool) -> help_dialog::HelpSection {
     if multiple {
         actions.extend([
             help_dialog::HelpAction::new("✗ Error", "acquisition failed; r retries the plan"),
-            help_dialog::HelpAction::new("Pending / Running", "plan acquisition is incomplete"),
+            help_dialog::HelpAction::new("Pending", "plan acquisition has not started"),
+            help_dialog::HelpAction::new(
+                "In progress",
+                "Initializing, Planning, or Reading the plan",
+            ),
             help_dialog::HelpAction::new("Excluded", "HCP performs the plan execution"),
         ]);
     }

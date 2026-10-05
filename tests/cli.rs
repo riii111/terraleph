@@ -1251,6 +1251,61 @@ Plan: 0 to add, 3 to change, 0 to destroy.
     }
 
     #[test]
+    fn pty_uninitialized_backend_runs_init_before_the_plan() {
+        let fixture = Fixture::new();
+        fs::write(
+            fixture.root.join("main.tf"),
+            "terraform {\n  backend \"local\" {}\n}\n",
+        )
+        .unwrap();
+
+        let result = fixture.run("full_text", 100, 24);
+
+        assert_eq!(result.exit_code, 0);
+        result.assert_restored();
+        let arguments = fixture.invocation_arguments();
+        assert_eq!(arguments[0], "init -input=false -no-color");
+        assert!(arguments[1].starts_with("plan -detailed-exitcode -out="));
+        assert_eq!(arguments.len(), 6);
+        fixture.assert_saved_plan_removed();
+    }
+
+    #[test]
+    fn pty_plan_requesting_init_initializes_once_and_plans_again() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run("single_reinit", 100, 24);
+
+        assert_eq!(result.exit_code, 0);
+        result.assert_restored();
+        let arguments = fixture.invocation_arguments();
+        assert!(arguments[0].starts_with("plan -detailed-exitcode -out="));
+        assert_eq!(arguments[1], "init -input=false -backend=false -no-color");
+        assert_eq!(arguments[2], arguments[0]);
+        assert_eq!(arguments.len(), 7);
+        fixture.assert_saved_plan_removed();
+    }
+
+    #[test]
+    fn pty_init_failure_stops_before_the_plan_without_opening_review() {
+        let fixture = Fixture::new();
+        fs::write(
+            fixture.root.join("main.tf"),
+            "terraform {\n  backend \"local\" {}\n}\n",
+        )
+        .unwrap();
+
+        let result = fixture.run("init_failure", 100, 24);
+
+        assert_eq!(result.exit_code, 1);
+        result.assert_no_tui();
+        assert_eq!(
+            fixture.invocation_arguments(),
+            ["init -input=false -no-color"]
+        );
+    }
+
+    #[test]
     fn pty_ctrl_c_reaps_terraform_cleans_the_plan_and_returns_130() {
         let fixture = Fixture::new();
         let result = fixture.run("interrupt", 100, 24);

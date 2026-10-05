@@ -239,3 +239,75 @@ pub(crate) struct ExecutionEvent {
     pub(crate) received_at: Instant,
     pub(crate) kind: ExecutionEventKind,
 }
+
+// Progress of preparing one environment's saved plan, sent while init, plan, and the review read
+// run so the environment shows its current step instead of waiting for the final result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PreparationEvent {
+    Initializing(InitializationReason),
+    Planning,
+    Reading,
+    LockFile(LockFileChange),
+    Output(ExecutionEvent),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PreparationStage {
+    Initializing,
+    Planning,
+    Reading,
+}
+
+impl PreparationStage {
+    #[must_use]
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::Initializing => "Initializing",
+            Self::Planning => "Planning",
+            Self::Reading => "Reading",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InitializationReason {
+    NotInitialized,
+    BackendNotInitialized,
+    LockFileUnreadable,
+    ProviderNotInstalled { provider: String },
+    ModuleNotInstalled { name: String },
+    // Only the fixed summary prefix that triggered the retry is kept, never Terraform's text.
+    PlanRequested { summary: &'static str },
+}
+
+impl InitializationReason {
+    #[must_use]
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::NotInitialized => "the directory has not been initialized".to_owned(),
+            Self::BackendNotInitialized => "the backend has not been initialized".to_owned(),
+            Self::LockFileUnreadable => "the dependency lock file could not be read".to_owned(),
+            Self::ProviderNotInstalled { provider } => {
+                format!("provider {provider} is not installed")
+            }
+            Self::ModuleNotInstalled { name } => format!("module \"{name}\" is not installed"),
+            Self::PlanRequested { summary } => format!("plan reported \"{summary}\""),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LockFileChange {
+    Created,
+    Updated,
+}
+
+impl LockFileChange {
+    #[must_use]
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::Created => "Init created the dependency lock file .terraform.lock.hcl.",
+            Self::Updated => "Init updated the dependency lock file .terraform.lock.hcl.",
+        }
+    }
+}

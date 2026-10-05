@@ -51,6 +51,7 @@ esac
 
 case "$1" in
   init)
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = single_reinit ]; then : > initialized; fi
     printf 'Initializing the backend...\n'
     printf 'Initializing provider plugins...\n' >&2
     if [ "${TERRALEPH_FAKE_MODE:-success}" = init_failure ]; then
@@ -79,6 +80,10 @@ case "$1" in
           ;;
       esac
     done
+    if [ "${TERRALEPH_FAKE_MODE:-success}" = single_reinit ] && [ ! -f initialized ]; then
+      printf '\033[31m│\033[0m \033[1m\033[31mError: \033[0m\033[1mModule not installed\033[0m\n' >&2
+      exit 1
+    fi
     printf '%s\n' "$plan_path" > "$TERRALEPH_FAKE_PLAN_PATH"
     : > "$plan_path"
     case "${TERRALEPH_FAKE_MODE:-success}" in

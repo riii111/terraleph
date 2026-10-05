@@ -41,7 +41,7 @@ Prebuilt binaries are also available on the [Releases](https://github.com/riii11
 
 ## Usage
 
-Run in an interactive terminal with Terraform or OpenTofu initialized and credentials configured.
+Run in an interactive terminal with Terraform or OpenTofu installed and credentials configured. When a directory needs `init`, Terraleph runs it before the plan. It never passes `-migrate-state`, `-reconfigure`, or `-upgrade`; run `init` yourself when a change needs one of them.
 
 ```sh
 # Open the change overview

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     ffi::OsStr,
     fs, io,
     path::{Path, PathBuf},
@@ -22,6 +23,36 @@ pub(crate) struct Configuration {
 
 pub(crate) fn has_configuration(root: &Path, tool: Tool) -> io::Result<bool> {
     Ok(!configuration_files(root, tool)?.is_empty())
+}
+
+// Only the root module's own calls are listed; nested calls are installed with their parent.
+pub(crate) fn module_calls(root: &Path, tool: Tool) -> io::Result<BTreeSet<String>> {
+    let mut names = BTreeSet::new();
+    for path in configuration_files(root, tool)? {
+        let source = fs::read_to_string(&path)?;
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            let value: Value =
+                serde_json::from_str(&source).map_err(|_| invalid_configuration())?;
+            if let Some(modules) = value.get("module") {
+                for_json_block(modules, |calls| {
+                    names.extend(calls.keys().cloned());
+                    Ok(())
+                })?;
+            }
+        } else {
+            let body: Body = hcl::from_str(&source).map_err(|_| invalid_configuration())?;
+            names.extend(
+                body.blocks()
+                    .filter(|block| block.identifier() == "module")
+                    .filter_map(|block| block.labels().first())
+                    .map(|label| label.as_str().to_owned()),
+            );
+        }
+    }
+    Ok(names)
 }
 
 pub(crate) fn execution_location_for_tool(
