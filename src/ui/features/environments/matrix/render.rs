@@ -46,6 +46,11 @@ pub(crate) fn render(
         );
         return;
     }
+    // Before any environment is planned there is no column to compare; the pane context above
+    // already tells the user how to plan one.
+    if view.environments.is_empty() && view.rows.is_empty() {
+        return;
+    }
     let wide = area.width >= WIDE_WIDTH;
     let address_width = address_width(area, view);
     let column_widths = column_widths(state, view);

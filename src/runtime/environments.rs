@@ -141,6 +141,12 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
                         state.interrupt();
                         break;
                     }
+                    EnvironmentInput::Plan(index) => {
+                        state.request_plan(index);
+                    }
+                    EnvironmentInput::PlanAll => {
+                        state.request_all_plans();
+                    }
                     EnvironmentInput::Retry(index) => {
                         state.retry(index);
                     }
@@ -623,7 +629,7 @@ mod tests {
     use crate::{
         app::{
             copy::{CopyResult, CopyTarget},
-            environments::{EnvironmentAvailability, EnvironmentIdentity, EnvironmentState},
+            environments::{EnvironmentAvailability, EnvironmentState},
             execution::PreparationStage,
             plan::Plan,
             review::{PlanMetadata, PlanReview, test_support::plan_document},
@@ -635,10 +641,9 @@ mod tests {
     fn available(name: &str) -> Environment {
         Environment {
             tool: Tool::Terraform,
-            availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+            availability: EnvironmentAvailability::Available {
                 directory: PathBuf::from(name),
-                workspace: "default".to_owned(),
-            }),
+            },
         }
     }
 
@@ -658,6 +663,7 @@ mod tests {
 
     fn ready_session() -> EnvironmentSession {
         let mut state = EnvironmentSession::new(vec![available("a")], false);
+        assert!(state.request_all_plans());
         let index = state.start_next().expect("environment should start");
         assert!(state.complete(index, ready(), Vec::new()));
         state
@@ -829,6 +835,7 @@ mod tests {
 
         fn running_session() -> EnvironmentSession {
             let mut state = EnvironmentSession::new(vec![available("a")], false);
+            assert!(state.request_all_plans());
             assert_eq!(state.start_next(), Some(0));
             state
         }
@@ -926,6 +933,7 @@ mod tests {
 
         let planned_at = Instant::now();
         let mut state = EnvironmentSession::new(vec![available("a")], false);
+        assert!(state.request_all_plans());
         let index = state.start_next().expect("environment should start");
         let review = PlanReview::new(
             PathBuf::from("/test"),
@@ -1063,6 +1071,7 @@ mod tests {
     #[test]
     fn acquisition_draws_during_poll_and_retry_and_completion_request_a_draw() {
         let mut state = EnvironmentSession::new(vec![available("a")], false);
+        assert!(state.request_all_plans());
         let mut view = EnvironmentView::default();
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         let mut dirty = true;

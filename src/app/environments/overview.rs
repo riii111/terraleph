@@ -491,10 +491,7 @@ mod tests {
 
     use super::*;
     use crate::app::{
-        environments::{
-            Environment, EnvironmentAvailability, EnvironmentIdentity, EnvironmentSession,
-            PlanResult,
-        },
+        environments::{Environment, EnvironmentAvailability, EnvironmentSession, PlanResult},
         execution::Tool,
         plan::{
             AttributeType, Plan, PlanAction, PlanValue, ProviderSchema, ProviderSchemas,
@@ -1113,18 +1110,19 @@ mod tests {
     }
 
     fn pending_session(count: usize) -> EnvironmentSession {
-        EnvironmentSession::new(
+        let mut session = EnvironmentSession::new(
             (0..count)
                 .map(|index| Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from(format!("/synthetic/env{index:02}")),
-                        workspace: "default".to_owned(),
-                    }),
+                    },
                 })
                 .collect(),
             false,
-        )
+        );
+        session.request_all_plans();
+        session
     }
 
     fn ready_session<const N: usize>(changes: [Vec<ResourceChange>; N]) -> EnvironmentSession {

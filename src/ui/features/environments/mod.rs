@@ -20,7 +20,7 @@ use crate::{
     app::{
         copy::CopyTarget,
         environments::{
-            EnvironmentSession, EnvironmentState,
+            EnvironmentPlan, EnvironmentSession, EnvironmentState,
             comparison::{CellState, EnvironmentSelection as ComparisonSelection},
             overview::{
                 EnvironmentOverviewWithRelations, environment_overview_with_relations_for_selection,
@@ -101,6 +101,8 @@ fn overview_navigation_alias(key: KeyEvent, pane: EnvironmentPane) -> KeyEvent {
 }
 
 pub(crate) enum EnvironmentInput {
+    Plan(usize),
+    PlanAll,
     Retry(usize),
     Review(usize, Box<Action>),
     Quit,
@@ -242,7 +244,7 @@ impl EnvironmentView {
     fn sync(&mut self, state: &EnvironmentSession) {
         self.reviews
             .resize_with(state.plans().len(), PlanReviewViewState::default);
-        let environments = self.compared_environments(state.plans().len());
+        let environments = self.compared_environments(state.plans());
         self.relation_scrolls.resize(
             state.plans().len(),
             RelationGraphScroll {
@@ -250,8 +252,7 @@ impl EnvironmentView {
                 horizontal: 0,
             },
         );
-        let selection =
-            ComparisonSelection::new(self.selected_environments.clone(), state.plans().len());
+        let selection = ComparisonSelection::new(Some(environments.clone()), state.plans().len());
         if self.relation_revision != Some(state.revision())
             || self.relation_environments != selection.indexes()
         {
@@ -273,7 +274,7 @@ impl EnvironmentView {
 
     fn selected_relation_node(&self, state: &EnvironmentSession) -> Option<&RelationNodeId> {
         if !self
-            .compared_environments(state.plans().len())
+            .compared_environments(state.plans())
             .contains(&self.selection.column)
         {
             return None;
@@ -385,6 +386,12 @@ impl EnvironmentView {
                 let index = adjacent_environment(self.selection.column, delta, state.plans().len());
                 self.select_environment(index);
                 return ControlFlow::Break(None);
+            }
+            KeyCode::Char('p') => {
+                return ControlFlow::Break(self.request_plan(state));
+            }
+            KeyCode::Char('P') => {
+                return ControlFlow::Break(self.request_all_plans(state));
             }
             KeyCode::Char('r') => {
                 let index = self.selection.column;
@@ -538,8 +545,8 @@ impl EnvironmentView {
                 let last = state.plans().len().saturating_sub(1);
                 self.select_environment(self.selection.column.saturating_add(5).min(last));
             }
-            KeyCode::Char(' ') => self.toggle_comparison(state.plans().len()),
-            KeyCode::Char('o') => self.select_only_environment(state.plans().len()),
+            KeyCode::Char(' ') => self.toggle_comparison(state.plans()),
+            KeyCode::Char('o') => self.select_only_environment(state.plans()),
             KeyCode::Char('a') => self.select_all_environments(),
             KeyCode::Enter | KeyCode::Char('v') => {
                 return ControlFlow::Break(self.open(state, self.selection.column));
@@ -665,10 +672,12 @@ impl EnvironmentView {
             .filter(|pane| *pane != EnvironmentPane::Environments || width >= 90)
     }
 
-    fn compared_environments(&self, count: usize) -> Vec<usize> {
+    // Without an explicit choice the comparison follows the chosen targets, so a candidate that
+    // was never planned is not mistaken for one taken out of the comparison.
+    fn compared_environments(&self, plans: &[EnvironmentPlan]) -> Vec<usize> {
         self.selected_environments
             .clone()
-            .unwrap_or_else(|| (0..count).collect())
+            .unwrap_or_else(|| target_indexes(plans))
     }
 
     fn select_environment(&mut self, index: usize) {
@@ -678,8 +687,11 @@ impl EnvironmentView {
         }
     }
 
-    fn toggle_comparison(&mut self, count: usize) {
-        let mut selected = self.compared_environments(count);
+    fn toggle_comparison(&mut self, plans: &[EnvironmentPlan]) {
+        if self.reject_untargeted_comparison(plans) {
+            return;
+        }
+        let mut selected = self.compared_environments(plans);
         if let Some(position) = selected
             .iter()
             .position(|index| *index == self.selection.column)
@@ -694,11 +706,25 @@ impl EnvironmentView {
             selected.push(self.selection.column);
             selected.sort_unstable();
         }
-        self.set_comparison(selected, count);
+        self.set_comparison(selected, plans);
     }
 
-    fn select_only_environment(&mut self, count: usize) {
-        self.set_comparison(vec![self.selection.column], count);
+    fn select_only_environment(&mut self, plans: &[EnvironmentPlan]) {
+        if self.reject_untargeted_comparison(plans) {
+            return;
+        }
+        self.set_comparison(vec![self.selection.column], plans);
+    }
+
+    fn reject_untargeted_comparison(&mut self, plans: &[EnvironmentPlan]) -> bool {
+        let Some(plan) = plans
+            .get(self.selection.column)
+            .filter(|plan| !plan.is_target())
+        else {
+            return false;
+        };
+        self.notice = Some(not_planned_notice(plan));
+        true
     }
 
     fn select_all_environments(&mut self) {
@@ -706,9 +732,44 @@ impl EnvironmentView {
         self.notice = None;
     }
 
-    fn set_comparison(&mut self, selected: Vec<usize>, count: usize) {
-        let all = selected.len() == count && selected.iter().copied().eq(0..count);
+    fn set_comparison(&mut self, selected: Vec<usize>, plans: &[EnvironmentPlan]) {
+        let all = selected == target_indexes(plans);
         self.selected_environments = (!all).then_some(selected);
+        self.notice = None;
+    }
+
+    fn request_plan(&mut self, state: &EnvironmentSession) -> Option<EnvironmentInput> {
+        let index = self.selection.column;
+        let plan = state.plans().get(index)?;
+        if !matches!(plan.state(), EnvironmentState::Unselected) {
+            return None;
+        }
+        self.include_in_comparison([index]);
+        Some(EnvironmentInput::Plan(index))
+    }
+
+    fn request_all_plans(&mut self, state: &EnvironmentSession) -> Option<EnvironmentInput> {
+        let unselected = state
+            .plans()
+            .iter()
+            .enumerate()
+            .filter(|(_, plan)| matches!(plan.state(), EnvironmentState::Unselected))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if unselected.is_empty() {
+            return None;
+        }
+        self.include_in_comparison(unselected);
+        Some(EnvironmentInput::PlanAll)
+    }
+
+    // A narrowed comparison would otherwise hide the plan the user has just asked for.
+    fn include_in_comparison(&mut self, indexes: impl IntoIterator<Item = usize>) {
+        if let Some(selected) = &mut self.selected_environments {
+            selected.extend(indexes);
+            selected.sort_unstable();
+            selected.dedup();
+        }
         self.notice = None;
     }
 
@@ -726,16 +787,26 @@ impl EnvironmentView {
         if plan.review().is_none() {
             self.selection.raw = None;
             self.select_environment(index);
+            let (detail, closing) = match plan.state() {
+                EnvironmentState::Error => (
+                    shell::failure_detail(plan),
+                    "   r retries Error after closing",
+                ),
+                EnvironmentState::Unselected => (
+                    "This environment is not planned yet. Init runs first when it is needed."
+                        .to_owned(),
+                    "   p plans it after closing",
+                ),
+                _ => (
+                    "Only Ready environments have a reviewable plan.".to_owned(),
+                    "",
+                ),
+            };
             self.show_dialog(format!(
-                "{}: {}\n{}\n{}\n\nEsc close   r retries Error after closing",
+                "{}: {}\n{}\n{detail}\n\nEsc close{closing}",
                 plan.display_name(),
                 shell::status(plan),
                 shell::context(plan),
-                if matches!(plan.state(), EnvironmentState::Error) {
-                    shell::failure_detail(plan)
-                } else {
-                    "Only Ready environments have a reviewable plan.".to_owned()
-                }
             ));
             return None;
         }
@@ -883,6 +954,22 @@ impl EnvironmentView {
         self.confirming_quit = true;
         None
     }
+}
+
+fn target_indexes(plans: &[EnvironmentPlan]) -> Vec<usize> {
+    plans
+        .iter()
+        .enumerate()
+        .filter(|(_, plan)| plan.is_target())
+        .map(|(index, _)| index)
+        .collect()
+}
+
+fn not_planned_notice(plan: &EnvironmentPlan) -> String {
+    format!(
+        "{} is not planned, so it has nothing to compare. p plans it.",
+        plan.display_name()
+    )
 }
 
 fn copy_plan(index: usize) -> EnvironmentInput {

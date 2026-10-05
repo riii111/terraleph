@@ -14,7 +14,8 @@ reference from `server[0]` to `api`, plus a dotted block-level reference from
 change causes or apply order; the `server[0]` link may cover only part of the
 grouped `server[*]` node.
 
-Press `2`/`3` to focus Compare/Relations, `[`/`]` to change environment, and
+The candidates open as `Not planned`; press `P` to plan all three, or `p` to
+plan only the selected one. Press `2`/`3` to focus Compare/Relations, `[`/`]` to change environment, and
 `↑`/`↓` to select rows. Press `Space` to expand a selected summary or group,
 `Enter` to open the plan, `Esc` to return to Overview, and `q` to quit.
 
