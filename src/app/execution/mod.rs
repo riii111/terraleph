@@ -15,8 +15,9 @@ pub(crate) use context::{
 pub(crate) use event::{
     Diagnostic, DiagnosticPoint, DiagnosticPosition, DiagnosticSeverity, DiagnosticSource,
     EventStream, ExecutionEvent, ExecutionEventKind, ExecutionLogLine, ExecutionSummary,
-    ExecutionTargetSpec, ProcessExitStatus, ProcessTermination, ResourceAction, ResourceEvent,
-    ResourceEventKind, SensitiveValue,
+    ExecutionTargetSpec, InitializationReason, LockFileChange, PreparationEvent, PreparationStage,
+    ProcessExitStatus, ProcessTermination, ResourceAction, ResourceEvent, ResourceEventKind,
+    SensitiveValue,
 };
 pub(crate) use history::{HistoryKey, SuccessfulTarget};
 pub(crate) use log_index::LogLineIndex;

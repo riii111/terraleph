@@ -9,7 +9,8 @@ use std::{
 pub(crate) use temporary::remove_orphaned_plans;
 
 use crate::app::execution::{
-    Diagnostic, ExecutionContext, ExecutionEvent, ExecutionEventKind, Tool,
+    Diagnostic, DiagnosticSource, EventStream, ExecutionContext, ExecutionEvent,
+    ExecutionEventKind, InitializationReason, PreparationEvent, Tool,
 };
 use crate::app::{plan::StateRelationStatus, review::PlanReview};
 use crate::infra::CancellationToken;
@@ -88,23 +89,40 @@ pub(crate) fn run_passthrough_plan(
     run_passthrough(executable, launch_root, &arguments)
 }
 
+// Each acquisition initializes at most once: before the plan when the directory needs it, or
+// after a plan that reports missing initialization. A plan that fails again is not retried.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the environment worker passes its plan, initialization, and progress boundaries"
+)]
 pub(crate) fn run_environment_plan(
     tool: Tool,
     root: &Path,
     plan_arguments: &[OsString],
+    initialization: Option<InitializationReason>,
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
     diagnostics: &mut Vec<Diagnostic>,
+    progress: &mut dyn FnMut(PreparationEvent),
 ) -> Result<bool, TerraformExecutionError> {
     use super::command::{interrupted_error, non_zero_error, run_command};
-    let mut initialized = super::init::needed(root);
-    if initialized {
-        initialize_environment(tool, root, cancellation, runner, diagnostics)?;
+    let mut initialized = initialization.is_some();
+    if let Some(reason) = initialization {
+        initialize_environment(
+            tool,
+            root,
+            &reason,
+            cancellation,
+            runner,
+            diagnostics,
+            progress,
+        )?;
     }
     let mut arguments = vec![OsString::from("plan")];
     arguments.extend_from_slice(plan_arguments);
     arguments.extend(["-json", "-input=false", "-detailed-exitcode"].map(OsString::from));
     loop {
+        progress(PreparationEvent::Planning);
         let mut attempt_diagnostics = Vec::new();
         let process = run_command(
             tool,
@@ -114,12 +132,15 @@ pub(crate) fn run_environment_plan(
             cancellation,
             runner,
             Some(&mut |event| {
-                if let ExecutionEventKind::Diagnostic(diagnostic) = event.kind {
-                    attempt_diagnostics.push(diagnostic);
+                if let ExecutionEventKind::Diagnostic(diagnostic) = &event.kind {
+                    attempt_diagnostics.push(diagnostic.clone());
                 }
+                progress(PreparationEvent::Output(event));
             }),
         )?;
-        let reinit = attempt_diagnostics.iter().any(requires_init);
+        let reinit = attempt_diagnostics
+            .iter()
+            .find_map(|diagnostic| super::init::plan_reason(&diagnostic.summary));
         if process.interrupted {
             diagnostics.extend(attempt_diagnostics);
             return Err(interrupted_error(tool, TerraformCommand::Plan));
@@ -128,12 +149,23 @@ pub(crate) fn run_environment_plan(
             diagnostics.extend(attempt_diagnostics);
             return Ok(process.status.has_plan_changes());
         }
-        if !initialized && reinit {
-            initialized = true;
-            initialize_environment(tool, root, cancellation, runner, diagnostics)?;
-        } else {
-            diagnostics.extend(attempt_diagnostics);
-            return Err(non_zero_error(tool, TerraformCommand::Plan, process.status));
+        match reinit {
+            Some(reason) if !initialized => {
+                initialized = true;
+                initialize_environment(
+                    tool,
+                    root,
+                    &reason,
+                    cancellation,
+                    runner,
+                    diagnostics,
+                    progress,
+                )?;
+            }
+            _ => {
+                diagnostics.extend(attempt_diagnostics);
+                return Err(non_zero_error(tool, TerraformCommand::Plan, process.status));
+            }
         }
     }
 }
@@ -269,32 +301,42 @@ pub(crate) fn read_saved_plan_review(
 fn initialize_environment(
     tool: Tool,
     root: &Path,
+    reason: &InitializationReason,
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
     diagnostics: &mut Vec<Diagnostic>,
+    progress: &mut dyn FnMut(PreparationEvent),
 ) -> Result<(), TerraformExecutionError> {
     let mut init_diagnostics = Vec::new();
-    let result = super::init::run(tool, root, cancellation, runner, &mut |event| {
-        if let ExecutionEventKind::Diagnostic(diagnostic) = event.kind {
-            init_diagnostics.push(diagnostic);
+    progress(PreparationEvent::Initializing(reason.clone()));
+    let result = super::init::run(tool, root, reason, cancellation, runner, &mut |event| {
+        if let ExecutionEventKind::Diagnostic(diagnostic) = &event.kind {
+            init_diagnostics.push(diagnostic.clone());
         }
+        progress(PreparationEvent::Output(event));
     });
-    if result.is_err() {
-        diagnostics.extend(init_diagnostics);
+    match result {
+        Ok(lock_file) => {
+            if let Some(change) = lock_file {
+                progress(PreparationEvent::LockFile(change));
+            }
+            Ok(())
+        }
+        Err(error) => {
+            // Init reports its cause on stderr; its stdout only narrates the steps it took.
+            let stderr = DiagnosticSource::NonJson {
+                stream: EventStream::Stderr,
+            };
+            if init_diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.source == stderr)
+            {
+                init_diagnostics.retain(|diagnostic| diagnostic.source == stderr);
+            }
+            diagnostics.extend(init_diagnostics);
+            Err(error)
+        }
     }
-    result
-}
-
-fn requires_init(diagnostic: &Diagnostic) -> bool {
-    [
-        "Backend initialization required",
-        "Required plugins are not installed",
-        "Inconsistent dependency lock file",
-        "Module not installed",
-        "Module source has changed",
-    ]
-    .iter()
-    .any(|summary| diagnostic.summary.starts_with(summary))
 }
 
 impl Drop for SavedPlan {
@@ -436,9 +478,7 @@ mod tests {
     };
     use super::test_support::{execute_plan, finish_plan, run_plan};
     use super::*;
-    use crate::app::execution::{
-        DiagnosticSource, EventStream, ProcessExitStatus, ProcessTermination,
-    };
+    use crate::app::execution::{ProcessExitStatus, ProcessTermination};
     use crate::app::plan::Plan;
     use std::{
         env,
@@ -1150,5 +1190,161 @@ mod tests {
         assert_eq!(plan.summary().updates, 2);
         assert_eq!(plan.summary().replaces, 1);
         assert_eq!(plan.summary().deletes, 1);
+    }
+    mod environment_plan {
+        use super::*;
+
+        const MODULE_NOT_INSTALLED: &[u8] = br#"{"@level":"error","@message":"Error: Module not installed","type":"diagnostic","diagnostic":{"severity":"error","summary":"Module not installed","detail":"Run init."}}
+"#;
+
+        struct Run {
+            result: Result<bool, TerraformExecutionError>,
+            diagnostics: Vec<Diagnostic>,
+            events: Vec<PreparationEvent>,
+        }
+
+        fn run(runner: &FakeRunner, initialization: Option<InitializationReason>) -> Run {
+            let mut diagnostics = Vec::new();
+            let mut events = Vec::new();
+            let result = run_environment_plan(
+                Tool::Terraform,
+                Path::new("/synthetic/environment"),
+                &[],
+                initialization,
+                &CancellationToken::default(),
+                runner,
+                &mut diagnostics,
+                &mut |event| events.push(event),
+            );
+            Run {
+                result,
+                diagnostics,
+                events,
+            }
+        }
+
+        fn steps(events: &[PreparationEvent]) -> Vec<String> {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    PreparationEvent::Initializing(reason) => {
+                        Some(format!("Initializing: {}", reason.message()))
+                    }
+                    PreparationEvent::Planning => Some("Planning".to_owned()),
+                    PreparationEvent::Reading => Some("Reading".to_owned()),
+                    PreparationEvent::LockFile(_) | PreparationEvent::Output(_) => None,
+                })
+                .collect()
+        }
+
+        fn commands(runner: &FakeRunner) -> Vec<Vec<String>> {
+            runner
+                .invocations
+                .borrow()
+                .iter()
+                .map(|invocation| {
+                    invocation
+                        .arguments
+                        .iter()
+                        .map(|argument| argument.to_string_lossy().into_owned())
+                        .collect()
+                })
+                .collect()
+        }
+
+        #[test]
+        fn needed_init_runs_before_the_plan_and_streams_its_output() {
+            let runner = FakeRunner::new([
+                streaming_process(
+                    ProcessStatus::Exited(0),
+                    [b"Initializing provider plugins...\n".to_vec()],
+                    [],
+                ),
+                FakeResponse::Exit {
+                    status: ProcessStatus::Exited(2),
+                    output: ProcessOutput::new(Vec::new(), Vec::new()),
+                },
+            ]);
+
+            let run = run(&runner, Some(InitializationReason::NotInitialized));
+
+            assert!(run.result.expect("plan should succeed"));
+            assert_eq!(
+                steps(&run.events),
+                [
+                    "Initializing: the directory has not been initialized",
+                    "Planning"
+                ]
+            );
+            assert!(run.events.iter().any(|event| matches!(
+                event,
+                PreparationEvent::Output(ExecutionEvent {
+                    kind: ExecutionEventKind::Diagnostic(diagnostic),
+                    ..
+                }) if diagnostic.summary == "Initializing provider plugins..."
+            )));
+            let commands = commands(&runner);
+            assert_eq!(commands[0], ["init", "-input=false", "-no-color"]);
+            assert_eq!(commands[1][0], "plan");
+            assert!(run.diagnostics.is_empty());
+        }
+
+        #[test]
+        fn failed_init_skips_the_plan_and_keeps_only_its_error_output() {
+            let runner = FakeRunner::new([streaming_process(
+                ProcessStatus::Exited(1),
+                [b"Initializing the backend...\n".to_vec()],
+                [b"Error: No valid credential sources found\n".to_vec()],
+            )]);
+
+            let run = run(&runner, Some(InitializationReason::BackendNotInitialized));
+
+            let error = run.result.expect_err("init should fail");
+            assert_eq!(
+                error.to_string(),
+                "terraform init failed with exit status 1"
+            );
+            assert_eq!(commands(&runner).len(), 1);
+            assert_eq!(
+                run.diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.summary.as_str())
+                    .collect::<Vec<_>>(),
+                ["Error: No valid credential sources found"]
+            );
+            assert!(!steps(&run.events).contains(&"Planning".to_owned()));
+        }
+
+        #[test]
+        fn plan_requesting_init_initializes_once_and_keeps_the_backend() {
+            let failed_plan = || FakeResponse::Exit {
+                status: ProcessStatus::Exited(1),
+                output: ProcessOutput::new(MODULE_NOT_INSTALLED.to_vec(), Vec::new()),
+            };
+            let runner = FakeRunner::new([failed_plan(), successful_process(), failed_plan()]);
+
+            let run = run(&runner, None);
+
+            let error = run.result.expect_err("the second plan should fail");
+            assert_eq!(
+                error.to_string(),
+                "terraform plan failed with exit status 1"
+            );
+            assert_eq!(
+                steps(&run.events),
+                [
+                    "Planning",
+                    "Initializing: plan reported \"Module not installed\"",
+                    "Planning"
+                ]
+            );
+            let commands = commands(&runner);
+            assert_eq!(commands.len(), 3);
+            assert_eq!(
+                commands[1],
+                ["init", "-input=false", "-backend=false", "-no-color"]
+            );
+            assert_eq!(run.diagnostics.len(), 1);
+        }
     }
 }

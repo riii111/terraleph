@@ -239,7 +239,35 @@ pub(crate) fn sanitize_text(text: &str, sensitive_values: &[SensitiveValue]) -> 
             }),
         },
     );
-    sanitized.replace(PROTECTED_REDACTION, REDACTION_TEXT)
+    transform_unmasked(&sanitized, redact_url_credentials)
+        .replace(PROTECTED_REDACTION, REDACTION_TEXT)
+}
+
+// Init prints module and provider sources as written, and a source URL can carry credentials in
+// its user information even when no plan value is known to be sensitive yet.
+fn redact_url_credentials(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(scheme_end) = rest.find("://") {
+        let authority_start = scheme_end + 3;
+        let authority_end = rest[authority_start..]
+            .find(|character: char| {
+                character.is_whitespace()
+                    || matches!(character, '/' | '?' | '#' | '"' | '\'' | '`' | '<' | '>')
+            })
+            .map_or(rest.len(), |offset| authority_start + offset);
+        result.push_str(&rest[..authority_start]);
+        let authority = &rest[authority_start..authority_end];
+        if let Some(at) = authority.rfind('@') {
+            result.push_str(PROTECTED_REDACTION);
+            result.push_str(&authority[at..]);
+        } else {
+            result.push_str(authority);
+        }
+        rest = &rest[authority_end..];
+    }
+    result.push_str(rest);
+    result
 }
 
 fn transform_unmasked(text: &str, transform: impl Fn(&str) -> String) -> String {
@@ -451,6 +479,21 @@ mod tests {
             sanitize_text("terraform_data.api\nrequest xabcx failed\nsafe", &sensitive),
             "terraform_data.api\n(sensitive value)\nsafe"
         );
+    }
+
+    #[test]
+    fn url_user_information_is_redacted_without_known_sensitive_values() {
+        let text = "Downloading git::https://deploy:token@git.example.test/modules.git?ref=v1\n\
+                    Fetching https://registry.example.test/v1 for user@example.test";
+
+        let sanitized = sanitize_text(text, &[]);
+
+        assert_eq!(
+            sanitized,
+            "Downloading git::https://(sensitive value)@git.example.test/modules.git?ref=v1\n\
+             Fetching https://registry.example.test/v1 for user@example.test"
+        );
+        assert_eq!(sanitize_text(&sanitized, &[]), sanitized);
     }
 
     #[test]

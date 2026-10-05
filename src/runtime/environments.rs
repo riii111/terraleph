@@ -14,7 +14,7 @@ use ratatui::{Terminal, backend::Backend};
 use crate::{
     app::{
         environments::{Environment, EnvironmentSession, PlanResult},
-        execution::{Diagnostic, ExecutionContext, Tool},
+        execution::{Diagnostic, ExecutionContext, PreparationEvent, Tool},
         review::PlanReviewMessage,
         session::{Effect, SessionOutcome, SessionState},
     },
@@ -40,10 +40,16 @@ use super::{
     terminal::{self, TerminalInput},
 };
 
-struct Completion {
-    index: usize,
-    result: PlanResult,
-    diagnostics: Vec<Diagnostic>,
+enum WorkerMessage {
+    Progress {
+        index: usize,
+        event: PreparationEvent,
+    },
+    Completed {
+        index: usize,
+        result: PlanResult,
+        diagnostics: Vec<Diagnostic>,
+    },
 }
 
 #[expect(
@@ -96,20 +102,7 @@ pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io
                 }
                 continue;
             }
-            if let Ok(completion) = receiver.try_recv() {
-                worker
-                    .join()
-                    .map_err(|_| io::Error::other("environment worker panicked"))?;
-                accept_completion(&mut state, completion);
-                dirty = true;
-            } else if let Some(result) = worker.poll_finished() {
-                result.map_err(|_| io::Error::other("environment worker panicked"))?;
-                let completion = receiver
-                    .try_recv()
-                    .map_err(|_| io::Error::other("environment worker returned no result"))?;
-                accept_completion(&mut state, completion);
-                dirty = true;
-            }
+            dirty |= receive_worker(&receiver, &mut worker, &mut state)?;
             if cancellation.is_cancelled() {
                 state.interrupt();
                 break;
@@ -434,8 +427,45 @@ fn event_requires_draw(event: &Event) -> bool {
     }
 }
 
-fn accept_completion(state: &mut EnvironmentSession, completion: Completion) {
-    state.complete(completion.index, completion.result, completion.diagnostics);
+// The worker sends its progress before its completion on the same channel, so draining in order
+// applies every step of an acquisition before its result and never after it.
+fn receive_worker(
+    receiver: &mpsc::Receiver<WorkerMessage>,
+    worker: &mut WorkerGuard,
+    state: &mut EnvironmentSession,
+) -> io::Result<bool> {
+    let finished = worker.poll_finished();
+    if let Some(result) = &finished {
+        result
+            .as_ref()
+            .map_err(|_| io::Error::other("environment worker panicked"))?;
+    }
+    let mut updated = false;
+    let mut completed = false;
+    while let Ok(message) = receiver.try_recv() {
+        updated = true;
+        match message {
+            WorkerMessage::Progress { index, event } => {
+                state.record_preparation(index, event);
+            }
+            WorkerMessage::Completed {
+                index,
+                result,
+                diagnostics,
+            } => {
+                worker
+                    .join()
+                    .map_err(|_| io::Error::other("environment worker panicked"))?;
+                state.complete(index, result, diagnostics);
+                completed = true;
+                break;
+            }
+        }
+    }
+    if finished.is_some() && !completed {
+        return Err(io::Error::other("environment worker returned no result"));
+    }
+    Ok(updated)
 }
 
 fn start_worker(
@@ -444,7 +474,7 @@ fn start_worker(
     index: usize,
     plans: &mut [Option<terraform::SavedPlan>],
     worker: &mut WorkerGuard,
-    sender: &mpsc::Sender<Completion>,
+    sender: &mpsc::Sender<WorkerMessage>,
     history: Option<&HistoryStore>,
 ) -> io::Result<()> {
     if let Some(old_plan) = plans[index].take() {
@@ -466,6 +496,10 @@ fn start_worker(
             .name("terraleph-environment".to_owned())
             .spawn(move || {
                 let mut diagnostics = Vec::new();
+                let progress_sender = sender.clone();
+                let mut progress = |event| {
+                    let _ = progress_sender.send(WorkerMessage::Progress { index, event });
+                };
                 let result = acquire(
                     tool,
                     &root,
@@ -474,6 +508,7 @@ fn start_worker(
                     &plan_path,
                     &cancellation,
                     &mut diagnostics,
+                    &mut progress,
                 )
                 .map_or_else(PlanResult::Error, |result| match result {
                     PlanResult::Ready { review, changed } => PlanResult::Ready {
@@ -482,7 +517,7 @@ fn start_worker(
                     },
                     result => result,
                 });
-                let _ = sender.send(Completion {
+                let _ = sender.send(WorkerMessage::Completed {
                     index,
                     result,
                     diagnostics,
@@ -492,6 +527,10 @@ fn start_worker(
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the worker passes its plan, diagnostics, and progress boundaries"
+)]
 fn acquire(
     tool: Tool,
     root: &Path,
@@ -500,6 +539,7 @@ fn acquire(
     plan_path: &Path,
     cancellation: &CancellationToken,
     diagnostics: &mut Vec<Diagnostic>,
+    progress: &mut dyn FnMut(PreparationEvent),
 ) -> Result<PlanResult, String> {
     let config =
         configuration::read_configuration(root, tool, None).map_err(|error| error.to_string())?;
@@ -509,15 +549,22 @@ fn acquire(
     if !config.has_backend {
         return Err("The environment no longer has backend configuration.".to_owned());
     }
+    // Multiple environments reject TF_DATA_DIR, so each environment uses its own data directory.
+    let initialization = terraform::init::reason(tool, root, None).map_err(|error| {
+        format!("failed to check whether the environment needs initialization: {error}")
+    })?;
     let changed = terraform::run_environment_plan(
         tool,
         root,
         arguments,
+        initialization,
         cancellation,
         &terraform::SystemProcessRunner,
         diagnostics,
+        progress,
     )
     .map_err(|error| environment_failure(&error, cancellation))?;
+    progress(PreparationEvent::Reading);
     let planned_at = Instant::now();
     let variables =
         super::invocation::variable_sources(root, arguments).map_err(|error| error.to_string())?;
@@ -576,7 +623,8 @@ mod tests {
     use crate::{
         app::{
             copy::{CopyResult, CopyTarget},
-            environments::{EnvironmentAvailability, EnvironmentIdentity},
+            environments::{EnvironmentAvailability, EnvironmentIdentity, EnvironmentState},
+            execution::PreparationStage,
             plan::Plan,
             review::{PlanMetadata, PlanReview, test_support::plan_document},
             session::Action,
@@ -773,6 +821,102 @@ mod tests {
             assert!(outcome.is_none());
             assert!(redraw);
             assert!(fixture.reports_disconnect());
+        }
+    }
+
+    mod receive_worker {
+        use super::*;
+
+        fn running_session() -> EnvironmentSession {
+            let mut state = EnvironmentSession::new(vec![available("a")], false);
+            assert_eq!(state.start_next(), Some(0));
+            state
+        }
+
+        fn finished_worker() -> WorkerGuard {
+            let handle = thread::spawn(|| {});
+            while !handle.is_finished() {
+                thread::yield_now();
+            }
+            WorkerGuard {
+                cancellation: CancellationToken::default(),
+                handle: Some(handle),
+            }
+        }
+
+        fn progress(event: PreparationEvent) -> WorkerMessage {
+            WorkerMessage::Progress { index: 0, event }
+        }
+
+        #[test]
+        fn progress_reaches_a_running_environment_before_the_worker_finishes() {
+            let (sender, receiver) = mpsc::channel();
+            let (release, released) = mpsc::channel::<()>();
+            let mut worker = WorkerGuard {
+                cancellation: CancellationToken::default(),
+                handle: Some(thread::spawn(move || {
+                    let _ = released.recv();
+                })),
+            };
+            let mut state = running_session();
+            sender.send(progress(PreparationEvent::Planning)).unwrap();
+
+            let updated = receive_worker(&receiver, &mut worker, &mut state)
+                .expect("a running worker should not fail");
+
+            assert!(updated);
+            assert!(matches!(
+                state.plans()[0].state(),
+                EnvironmentState::Running
+            ));
+            assert_eq!(
+                state.plans()[0].preparation().stage(),
+                Some(PreparationStage::Planning)
+            );
+            release.send(()).unwrap();
+            worker.join().expect("the worker should finish");
+        }
+
+        #[test]
+        fn queued_progress_is_applied_before_the_completion() {
+            let (sender, receiver) = mpsc::channel();
+            let mut worker = finished_worker();
+            let mut state = running_session();
+            sender.send(progress(PreparationEvent::Reading)).unwrap();
+            sender
+                .send(WorkerMessage::Completed {
+                    index: 0,
+                    result: ready(),
+                    diagnostics: Vec::new(),
+                })
+                .unwrap();
+
+            let updated = receive_worker(&receiver, &mut worker, &mut state)
+                .expect("a finished worker with a result should succeed");
+
+            assert!(updated);
+            assert!(state.plans()[0].review().is_some());
+            assert_eq!(
+                state.plans()[0].preparation().stage(),
+                Some(PreparationStage::Reading)
+            );
+        }
+
+        #[test]
+        fn finished_worker_without_a_completion_fails_after_its_progress() {
+            let (sender, receiver) = mpsc::channel();
+            let mut worker = finished_worker();
+            let mut state = running_session();
+            sender.send(progress(PreparationEvent::Planning)).unwrap();
+
+            let error = receive_worker(&receiver, &mut worker, &mut state)
+                .expect_err("a worker without a result should fail the runtime");
+
+            assert_eq!(error.to_string(), "environment worker returned no result");
+            assert_eq!(
+                state.plans()[0].preparation().stage(),
+                Some(PreparationStage::Planning)
+            );
         }
     }
 

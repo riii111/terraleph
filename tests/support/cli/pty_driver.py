@@ -490,13 +490,13 @@ try:
             exit_code = wait_exit()
         elif scenario.startswith("env_signal_"):
             wait_environment("a-ready", "Ready")
-            wait_environment("z-slow", "Running")
+            wait_environment("z-slow", "Planning")
             wait_file(os.environ["TERRALEPH_FAKE_PID_PATH"], "active_process")
             send_termination_signal(scenario)
             exit_code = wait_exit()
         elif scenario in ("env_partial", "env_cancel"):
             wait_environment("a-ready", "Ready")
-            wait_environment("z-slow", "Running")
+            wait_environment("z-slow", "Planning")
             send_key(b"v")
             wait_new("terraform_data.api", "ready_review_while_running")
             send_key(b"0")
@@ -520,7 +520,7 @@ try:
                 exit_code = quit_with_enter()
         elif scenario == "env_real":
             wait_environment("dev", "Ready", row_only=True)
-            wait_environment("prod", "Running", row_only=True)
+            wait_environment("prod", "Planning", row_only=True)
             send_key(b"v")
             wait_new("terraform_data.api", "real_review_while_running")
             send_key(b"\x1b")
@@ -1033,7 +1033,7 @@ try:
         wait_new("Quit Terraleph?", "empty_filter_ctrl_c_again")
         send_key(b"\r")
         exit_code = wait_exit()
-    elif scenario == "failure":
+    elif scenario in ("failure", "init_failure"):
         observed.append("failed")
         exit_code = wait_exit()
     elif scenario == "interrupt":

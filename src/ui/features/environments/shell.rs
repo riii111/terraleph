@@ -8,7 +8,7 @@ use ratatui::{
 use crate::{
     app::{
         environments::{EnvironmentPlan, EnvironmentSession, EnvironmentState},
-        execution::{ToolVersion, directory_display_name},
+        execution::{PreparationStage, ToolVersion, directory_display_name},
     },
     ui::{primitives::atoms::ready_mark, shell::context::truncate_middle, theme},
 };
@@ -243,9 +243,45 @@ pub(super) fn context(plan: &EnvironmentPlan) -> String {
 pub(super) const fn status(plan: &EnvironmentPlan) -> &'static str {
     match plan.state() {
         EnvironmentState::Pending => "Pending",
-        EnvironmentState::Running => "Running",
+        EnvironmentState::Running => match plan.preparation().stage() {
+            Some(stage) => stage.title(),
+            None => "Running",
+        },
         EnvironmentState::Ready { .. } => "Ready",
         EnvironmentState::Error => "Error",
         EnvironmentState::ExcludedHcp => "Excluded: HCP execution",
     }
+}
+
+pub(super) fn preparation_detail(plan: &EnvironmentPlan) -> String {
+    let preparation = plan.preparation();
+    let mut lines = Vec::new();
+    if preparation.stage() == Some(PreparationStage::Initializing)
+        && let Some(reason) = preparation.initialization()
+    {
+        lines.push(format!("Initializing because {}.", reason.message()));
+    }
+    if let Some(change) = preparation.lock_file() {
+        lines.push(change.message().to_owned());
+    }
+    if let Some(output) = preparation.latest_output() {
+        lines.push(output.to_owned());
+    }
+    lines.join("\n")
+}
+
+// The failed step decides the next action; the diagnostic after it carries the tool's cause.
+pub(super) fn failure_detail(plan: &EnvironmentPlan) -> String {
+    let guidance = match plan.preparation().stage() {
+        Some(PreparationStage::Initializing) => {
+            "Init failed, so the plan did not run. Fix the cause, such as credentials or backend \
+             access, then retry. Run init yourself when it needs -migrate-state, -reconfigure, or \
+             -upgrade."
+        }
+        Some(PreparationStage::Planning) => {
+            "Plan failed. Fix the cause, such as missing credentials, then retry."
+        }
+        Some(PreparationStage::Reading) | None => "Fix the cause, then retry.",
+    };
+    format!("{guidance}\n{}", plan.diagnostic().text())
 }

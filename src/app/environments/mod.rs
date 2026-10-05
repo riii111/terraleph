@@ -5,7 +5,10 @@ use std::{
 
 use crate::app::{
     copy::{self, CopyEffect},
-    execution::{Diagnostic, ExecutionContext, Tool, directory_display_name},
+    execution::{
+        Diagnostic, ExecutionContext, ExecutionEvent, ExecutionEventKind, InitializationReason,
+        LockFileChange, PreparationEvent, PreparationStage, Tool, directory_display_name,
+    },
     review::PlanReview,
     session::{self, Action, Effect, ReviewSessionState, SessionState},
 };
@@ -56,8 +59,19 @@ pub(crate) struct EnvironmentPlan {
     directory: PathBuf,
     identity: Option<EnvironmentIdentity>,
     state: EnvironmentState,
+    preparation: Preparation,
     diagnostics: Vec<Diagnostic>,
     failure: Option<String>,
+}
+
+// The latest step of the current acquisition. It stays after completion, so a failure names the
+// step that failed and a ready plan still reports a lock file change made by its init.
+#[derive(Debug, Default)]
+pub(crate) struct Preparation {
+    stage: Option<PreparationStage>,
+    initialization: Option<InitializationReason>,
+    lock_file: Option<LockFileChange>,
+    latest_output: Option<String>,
 }
 
 pub(crate) enum PlanResult {
@@ -147,10 +161,21 @@ impl EnvironmentSession {
             return false;
         }
         plan.state = EnvironmentState::Pending;
+        plan.preparation = Preparation::default();
         plan.diagnostics.clear();
         plan.failure = None;
         self.revision += 1;
         true
+    }
+
+    pub(crate) fn record_preparation(&mut self, index: usize, event: PreparationEvent) -> bool {
+        let Some(plan) = self.plans.get_mut(index) else {
+            return false;
+        };
+        if self.interrupted || !matches!(plan.state, EnvironmentState::Running) {
+            return false;
+        }
+        plan.preparation.record(event)
     }
 
     pub(crate) fn complete(
@@ -302,6 +327,7 @@ impl EnvironmentPlan {
             directory,
             identity,
             state,
+            preparation: Preparation::default(),
             diagnostics: Vec::new(),
             failure,
         }
@@ -309,6 +335,10 @@ impl EnvironmentPlan {
 
     pub(crate) const fn state(&self) -> &EnvironmentState {
         &self.state
+    }
+
+    pub(crate) const fn preparation(&self) -> &Preparation {
+        &self.preparation
     }
 
     pub(crate) fn directory(&self) -> &Path {
@@ -378,6 +408,61 @@ impl EnvironmentPlan {
         }
         effect
     }
+}
+
+impl Preparation {
+    pub(crate) const fn stage(&self) -> Option<PreparationStage> {
+        self.stage
+    }
+
+    pub(crate) const fn initialization(&self) -> Option<&InitializationReason> {
+        self.initialization.as_ref()
+    }
+
+    pub(crate) const fn lock_file(&self) -> Option<LockFileChange> {
+        self.lock_file
+    }
+
+    pub(crate) fn latest_output(&self) -> Option<&str> {
+        self.latest_output.as_deref()
+    }
+
+    fn record(&mut self, event: PreparationEvent) -> bool {
+        match event {
+            PreparationEvent::Initializing(reason) => {
+                self.enter(PreparationStage::Initializing);
+                self.initialization = Some(reason);
+            }
+            PreparationEvent::Planning => self.enter(PreparationStage::Planning),
+            PreparationEvent::Reading => self.enter(PreparationStage::Reading),
+            PreparationEvent::LockFile(change) => self.lock_file = Some(change),
+            PreparationEvent::Output(event) => {
+                let Some(line) = output_line(&event) else {
+                    return false;
+                };
+                self.latest_output = Some(line);
+            }
+        }
+        true
+    }
+
+    fn enter(&mut self, stage: PreparationStage) {
+        self.stage = Some(stage);
+        self.latest_output = None;
+    }
+}
+
+// No plan value is known before the plan is read, so only the shared redaction applies here.
+fn output_line(event: &ExecutionEvent) -> Option<String> {
+    let text = match &event.kind {
+        ExecutionEventKind::Resource(resource) => resource.message.as_deref()?,
+        ExecutionEventKind::Diagnostic(diagnostic) => &diagnostic.summary,
+        ExecutionEventKind::Informational { message, .. } => message.as_deref()?,
+        ExecutionEventKind::Summary(summary) => summary.message.as_deref()?,
+        ExecutionEventKind::Workspace(_) | ExecutionEventKind::Terminated(_) => return None,
+    };
+    let line = copy::sanitize_text(text.lines().next()?.trim(), &[]);
+    (!line.is_empty()).then_some(line)
 }
 
 pub(crate) fn is_production_token(token: &str) -> bool {
@@ -738,6 +823,89 @@ mod tests {
                     .collect::<Vec<_>>(),
                 original_order
             );
+        }
+    }
+
+    mod preparation {
+        use super::*;
+        use crate::app::execution::{DiagnosticSeverity, DiagnosticSource, EventStream};
+        use std::time::Instant;
+
+        fn output(summary: &str) -> PreparationEvent {
+            PreparationEvent::Output(ExecutionEvent {
+                received_at: Instant::now(),
+                kind: ExecutionEventKind::Diagnostic(Diagnostic {
+                    severity: DiagnosticSeverity::Unknown,
+                    summary: summary.to_owned(),
+                    detail: None,
+                    address: None,
+                    position: None,
+                    source: DiagnosticSource::NonJson {
+                        stream: EventStream::Stdout,
+                    },
+                }),
+            })
+        }
+
+        #[test]
+        fn running_acquisition_records_steps_and_keeps_the_lock_change_after_completion() {
+            let mut state = EnvironmentSession::new(vec![available("a")], false);
+            let index = state.start_next().unwrap();
+
+            assert!(state.record_preparation(
+                index,
+                PreparationEvent::Initializing(InitializationReason::NotInitialized),
+            ));
+            assert!(state.record_preparation(
+                index,
+                output("- Downloading https://deploy:token@modules.example.test/network.zip"),
+            ));
+            let preparation = state.plans()[index].preparation();
+            assert_eq!(preparation.stage(), Some(PreparationStage::Initializing));
+            assert_eq!(
+                preparation.initialization(),
+                Some(&InitializationReason::NotInitialized)
+            );
+            assert_eq!(
+                preparation.latest_output(),
+                Some("- Downloading https://(sensitive value)@modules.example.test/network.zip")
+            );
+
+            assert!(
+                state
+                    .record_preparation(index, PreparationEvent::LockFile(LockFileChange::Created))
+            );
+            assert!(state.record_preparation(index, PreparationEvent::Planning));
+            let preparation = state.plans()[index].preparation();
+            assert_eq!(preparation.stage(), Some(PreparationStage::Planning));
+            assert_eq!(preparation.latest_output(), None);
+
+            assert!(state.complete(index, ready(false), Vec::new()));
+            assert_eq!(
+                state.plans()[index].preparation().lock_file(),
+                Some(LockFileChange::Created)
+            );
+        }
+
+        #[test]
+        fn progress_outside_a_running_acquisition_is_ignored_and_retry_clears_it() {
+            let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+            assert!(!state.record_preparation(1, PreparationEvent::Planning));
+            let index = state.start_next().unwrap();
+            assert!(state.record_preparation(index, PreparationEvent::Planning));
+            assert!(state.complete(index, PlanResult::Error("failed".to_owned()), Vec::new()));
+
+            assert!(!state.record_preparation(index, PreparationEvent::Reading));
+            assert_eq!(
+                state.plans()[index].preparation().stage(),
+                Some(PreparationStage::Planning)
+            );
+
+            assert!(state.retry(index));
+            assert_eq!(state.plans()[index].preparation().stage(), None);
+            let next = state.start_next().unwrap();
+            state.interrupt();
+            assert!(!state.record_preparation(next, PreparationEvent::Reading));
         }
     }
 

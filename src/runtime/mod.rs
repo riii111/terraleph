@@ -1,4 +1,5 @@
 use std::{
+    env,
     ffi::OsString,
     fmt, fs,
     io::{self, Write},
@@ -44,6 +45,9 @@ pub(crate) fn run_invocation(
 ) -> ExitCode {
     let tool = invocation.tool();
     prepare_saved_plan_lifecycle();
+    if let Err(exit) = initialize_before_plan(executable, invocation) {
+        return exit;
+    }
     let (saved_plan, plan_arguments) = match terraform::saved_plan_for_plan(
         invocation.directory(),
         &invocation.plan_arguments(),
@@ -94,6 +98,75 @@ pub(crate) fn run_invocation(
         return ExitCode::from(exit);
     }
     run_saved_plan_review(invocation, saved_plan, status, planned_at, variable_sources)
+}
+
+// The plan runs only after a needed init succeeds. Init shares the terminal like the plan, so the
+// user sees its output and a signal stops it the same way.
+fn initialize_before_plan(
+    executable: &Path,
+    invocation: &invocation::Invocation,
+) -> Result<(), ExitCode> {
+    let tool = invocation.tool();
+    let directory = invocation.directory();
+    let data_dir = env::var_os("TF_DATA_DIR");
+    let reason = match terraform::init::reason(tool, directory, data_dir.as_deref()) {
+        Ok(Some(reason)) => reason,
+        Ok(None) => return Ok(()),
+        Err(error) => {
+            report_error(&format!(
+                "failed to check whether {} needs initialization: {error}",
+                tool.display_name()
+            ));
+            return Err(ExitCode::from(EXECUTION_FAILURE));
+        }
+    };
+    report_error(&format!(
+        "Running {} init because {}.",
+        tool.display_name(),
+        reason.message()
+    ));
+    let initialization = match terraform::init::run_passthrough_init(
+        executable,
+        invocation.launch_root(),
+        invocation.global_arguments(),
+        directory,
+        &reason,
+    ) {
+        Ok(initialization) => initialization,
+        Err(error) => {
+            report_error(&format!(
+                "failed to run {} init: {error}",
+                tool.display_name()
+            ));
+            return Err(ExitCode::from(EXECUTION_FAILURE));
+        }
+    };
+    if let Some(change) = initialization.lock_file {
+        report_error(change.message());
+    }
+    if let Some(signal) = termination::requested() {
+        report_terminated(signal);
+        return Err(ExitCode::from(signal.exit_code()));
+    }
+    match initialization.status {
+        terraform::ProcessStatus::Exited(0) => Ok(()),
+        status
+            if status == terraform::ProcessStatus::Signaled
+                || status.code() == Some(i32::from(INTERRUPTED)) =>
+        {
+            Err(ExitCode::from(INTERRUPTED))
+        }
+        _ => {
+            report_error(&format!(
+                "{tool} init failed, so the plan did not run. Fix the cause above, such as \
+                 credentials or backend access, then run again. Run `{executable} init` yourself \
+                 when it needs -migrate-state, -reconfigure, or -upgrade.",
+                tool = tool.display_name(),
+                executable = tool.executable_name(),
+            ));
+            Err(ExitCode::from(EXECUTION_FAILURE))
+        }
+    }
 }
 
 fn run_saved_plan_review(

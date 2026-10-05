@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     app::{
         environments::{Environment, EnvironmentAvailability, EnvironmentIdentity, PlanResult},
-        execution::Tool,
+        execution::{InitializationReason, LockFileChange, PreparationEvent, Tool},
         plan::Plan,
         review::{PlanMetadata, PlanReview, test_support::plan_document},
     },
@@ -238,6 +238,81 @@ mod acquisition {
             assert_eq!(buffer.cell((status_x - 1, status_y)).unwrap().symbol(), " ");
             assert_eq!(buffer.cell((status_x - 2, status_y)).unwrap().symbol(), " ");
         }
+    }
+
+    fn preparing_session() -> EnvironmentSession {
+        let environments = ["a-ready", "b-init-failed", "c-initializing"]
+            .into_iter()
+            .map(|name| Environment {
+                tool: Tool::Terraform,
+                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    directory: PathBuf::from(format!("/synthetic/{name}")),
+                    workspace: "default".to_owned(),
+                }),
+            })
+            .collect();
+        let mut state = EnvironmentSession::new(environments, false);
+        let ready = state.start_next().unwrap();
+        state.record_preparation(ready, PreparationEvent::LockFile(LockFileChange::Created));
+        state.complete(
+            ready,
+            PlanResult::Ready {
+                review: Box::new(PlanReview::new(
+                    PathBuf::from("/synthetic/a-ready"),
+                    "default".to_owned(),
+                    plan_document("Synthetic plan text\n".to_owned()),
+                    Plan::empty(),
+                    PlanMetadata::new(false),
+                    Vec::new(),
+                )),
+                changed: false,
+            },
+            Vec::new(),
+        );
+        let failed = state.start_next().unwrap();
+        state.record_preparation(
+            failed,
+            PreparationEvent::Initializing(InitializationReason::BackendNotInitialized),
+        );
+        state.complete(
+            failed,
+            PlanResult::Error("terraform init failed with exit status 1".to_owned()),
+            Vec::new(),
+        );
+        let running = state.start_next().unwrap();
+        state.record_preparation(
+            running,
+            PreparationEvent::Initializing(InitializationReason::ModuleNotInstalled {
+                name: "network".to_owned(),
+            }),
+        );
+        state
+    }
+
+    #[test]
+    fn environments_show_the_current_step_failure_action_and_lock_change() {
+        let state = preparing_session();
+        let mut view = EnvironmentView::default();
+        let flattened = |text: String| text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+        for (column, expected) in [
+            (
+                0,
+                "Init created the dependency lock file .terraform.lock.hcl.",
+            ),
+            (1, "Init failed, so the plan did not run."),
+            (
+                2,
+                "Initializing because module \"network\" is not installed.",
+            ),
+        ] {
+            view.select_environment(column);
+            let text = flattened(render_text(&mut view, &state, (160, 40)));
+            assert!(text.contains(expected), "column {column}: {text}");
+        }
+        let text = render_text(&mut view, &state, (160, 40));
+        assert!(text.contains("Initializing"), "{text}");
+        assert!(!text.contains("Running"), "{text}");
     }
 
     #[test]
@@ -1551,13 +1626,17 @@ mod message_dialog {
         let _ = view.open(&state, index);
         let size = Size::new(40, 16);
         let top = render_text(&mut view, &state, (40, 16));
+        assert!(top.contains("Fix the cause, then retry."), "{top}");
         assert!(top.contains("Diagnostic line 00"), "{top}");
-        assert!(top.contains("Diagnostic line 12"), "{top}");
+        assert!(top.contains("Diagnostic line 11"), "{top}");
 
         handle_key_code(&mut view, KeyCode::PageDown, size, &state);
         let scrolled = render_text(&mut view, &state, (40, 16));
-        assert!(!scrolled.contains("Diagnostic line 00"), "{scrolled}");
-        assert!(scrolled.contains("Diagnostic line 04"), "{scrolled}");
+        assert!(
+            !scrolled.contains("Fix the cause, then retry."),
+            "{scrolled}"
+        );
+        assert!(scrolled.contains("Diagnostic line 15"), "{scrolled}");
     }
 
     #[test]

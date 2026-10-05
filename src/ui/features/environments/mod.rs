@@ -732,7 +732,7 @@ impl EnvironmentView {
                 shell::status(plan),
                 shell::context(plan),
                 if matches!(plan.state(), EnvironmentState::Error) {
-                    plan.diagnostic().text().to_owned()
+                    shell::failure_detail(plan)
                 } else {
                     "Only Ready environments have a reviewable plan.".to_owned()
                 }
