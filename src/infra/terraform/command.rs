@@ -19,6 +19,7 @@ use crate::infra::CancellationToken;
 use super::events::TerraformEventParser;
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(10);
+pub(super) const INIT_ARGUMENTS_ENVIRONMENT: &str = "TF_CLI_ARGS_init";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerraformCommand {
@@ -151,6 +152,10 @@ pub(crate) enum TerraformExecutionErrorKind {
         command: TerraformCommand,
         message: String,
     },
+    Refused {
+        command: TerraformCommand,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,6 +205,9 @@ impl Display for TerraformExecutionError {
                     formatter,
                     "{tool} {command} output could not be parsed: {message}"
                 )
+            }
+            TerraformExecutionErrorKind::Refused { command, message } => {
+                write!(formatter, "{tool} {command} was not run: {message}")
             }
         }
     }
@@ -348,10 +356,13 @@ pub(crate) fn delegate(
     }
 }
 
-pub(crate) fn run_passthrough(
+// Stdin and stdout stay on the terminal so the command can prompt the user. Stderr is relayed
+// unchanged as it arrives, and each of its lines is also handed to `on_line` for inspection.
+pub(crate) fn run_passthrough_observing_stderr(
     executable: &Path,
     root: &Path,
     arguments: &[OsString],
+    on_line: &mut dyn FnMut(&str),
 ) -> io::Result<ProcessStatus> {
     let mut command = Command::new(executable);
     command
@@ -359,31 +370,54 @@ pub(crate) fn run_passthrough(
         .args(arguments)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stderr(Stdio::piped());
     remove_cli_argument_environment(&mut command);
     #[cfg(unix)]
-    {
-        run_passthrough_unix(command)
-    }
-    #[cfg(windows)]
-    {
-        command.status().map(process_status)
-    }
-}
-
-#[cfg(unix)]
-fn run_passthrough_unix(mut command: Command) -> io::Result<ProcessStatus> {
     let previous = catch_uncaught_interrupt()?;
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            restore_interrupt(previous);
-            return Err(error);
-        }
-    };
-    let result = child.wait().map(process_status);
+    let result = command
+        .spawn()
+        .and_then(|mut child| relay_stderr(&mut child, on_line).map(process_status));
+    #[cfg(unix)]
     restore_interrupt(previous);
     result
+}
+
+fn relay_stderr(child: &mut Child, on_line: &mut dyn FnMut(&str)) -> io::Result<ExitStatus> {
+    use std::io::Write;
+
+    let relayed = child.stderr.take().map_or(Ok(()), |mut stderr| {
+        let mut terminal = io::stderr();
+        let mut lines = super::line_buffer::LineBuffer::default();
+        let mut buffer = [0; 8192];
+        // The pipe is drained even after the terminal fails, so the child never blocks on it.
+        let mut write_error = None;
+        loop {
+            let read = match stderr.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            if write_error.is_none()
+                && let Err(error) = terminal
+                    .write_all(&buffer[..read])
+                    .and_then(|()| terminal.flush())
+            {
+                write_error = Some(error);
+            }
+            lines.push(&buffer[..read], |line| {
+                on_line(&String::from_utf8_lossy(line));
+            });
+        }
+        let rest = lines.finish();
+        if !rest.is_empty() {
+            on_line(&String::from_utf8_lossy(&rest));
+        }
+        write_error.map_or(Ok(()), Err)
+    });
+    // The child is reaped even when relaying fails, so it never outlives the call.
+    let status = child.wait();
+    relayed.and(status)
 }
 
 // Terraform receives the terminal's SIGINT itself, so Terraleph must survive it without
@@ -424,9 +458,16 @@ fn restore_interrupt(previous: Option<libc::sighandler_t>) {
 }
 
 fn remove_cli_argument_environment(command: &mut Command) {
-    for (name, _) in
-        env::vars_os().filter(|(name, _)| name.to_string_lossy().starts_with("TF_CLI_ARGS"))
-    {
+    remove_cli_argument_environment_except(command, None);
+}
+
+// Plan and apply receive the user's environment arguments already merged into their arguments,
+// so they are removed for every command except the one that still needs its own.
+fn remove_cli_argument_environment_except(command: &mut Command, kept: Option<&str>) {
+    for (name, _) in env::vars_os().filter(|(name, _)| {
+        let name = name.to_string_lossy();
+        name.starts_with("TF_CLI_ARGS") && Some(name.as_ref()) != kept
+    }) {
         command.env_remove(name);
     }
 }
@@ -619,6 +660,17 @@ pub(super) const fn non_zero_error(
     )
 }
 
+pub(super) const fn refused_error(
+    tool: Tool,
+    command: TerraformCommand,
+    message: String,
+) -> TerraformExecutionError {
+    TerraformExecutionError::new_for_tool(
+        tool,
+        TerraformExecutionErrorKind::Refused { command, message },
+    )
+}
+
 pub(super) fn invalid_output(
     tool: Tool,
     command: TerraformCommand,
@@ -647,7 +699,10 @@ impl ProcessRunner for SystemProcessRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        remove_cli_argument_environment(&mut command);
+        // Init has no merged arguments, so it keeps the user's own, such as -backend-config.
+        let kept = (arguments.first().map(OsString::as_os_str) == Some(OsStr::new("init")))
+            .then_some(INIT_ARGUMENTS_ENVIRONMENT);
+        remove_cli_argument_environment_except(&mut command, kept);
         configure_process_group(&mut command);
         let child = command.spawn()?;
         Ok(Box::new(SystemRunningProcess::new(child)))

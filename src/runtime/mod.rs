@@ -17,8 +17,10 @@ mod terminal;
 
 use crate::{
     app::{
+        copy,
         execution::{
-            ApplyStatus, ExecutionContext, ExecutionState, HistoryKey, Tool, VariableSources,
+            ApplyStatus, ExecutionContext, ExecutionEventKind, ExecutionState, HistoryKey,
+            InitializationReason, Tool, VariableSources,
         },
         plan::PlanSummary,
         review::{PlanReview, PlanReviewMessage},
@@ -45,7 +47,21 @@ pub(crate) fn run_invocation(
 ) -> ExitCode {
     let tool = invocation.tool();
     prepare_saved_plan_lifecycle();
-    if let Err(exit) = initialize_before_plan(executable, invocation) {
+    let data_dir = env::var_os("TF_DATA_DIR");
+    let reason = match terraform::init::reason(tool, invocation.directory(), data_dir.as_deref()) {
+        Ok(reason) => reason,
+        Err(error) => {
+            report_error(&format!(
+                "failed to check whether {} needs initialization: {error}",
+                tool.display_name()
+            ));
+            return ExitCode::from(EXECUTION_FAILURE);
+        }
+    };
+    let mut initialized = reason.is_some();
+    if let Some(reason) = reason
+        && let Err(exit) = initialize_before_plan(invocation, &reason)
+    {
         return exit;
     }
     let (saved_plan, plan_arguments) = match terraform::saved_plan_for_plan(
@@ -61,19 +77,38 @@ pub(crate) fn run_invocation(
             return ExitCode::from(EXECUTION_FAILURE);
         }
     };
-    let status = match terraform::run_passthrough_plan(
-        executable,
-        invocation.launch_root(),
-        invocation.global_arguments(),
-        &plan_arguments,
-    ) {
-        Ok(result) => result,
-        Err(error) => {
-            report_error(&format!(
-                "failed to run {} plan: {error}",
-                tool.display_name()
-            ));
-            return ExitCode::from(EXECUTION_FAILURE);
+    // A plan that reports missing initialization is retried once after init, like an
+    // environment in the multi-environment view; a second request is left to the user.
+    let status = loop {
+        let plan = match terraform::run_passthrough_plan(
+            executable,
+            invocation.launch_root(),
+            invocation.global_arguments(),
+            &plan_arguments,
+        ) {
+            Ok(plan) => plan,
+            Err(error) => {
+                report_error(&format!(
+                    "failed to run {} plan: {error}",
+                    tool.display_name()
+                ));
+                let _ = saved_plan.cleanup();
+                return ExitCode::from(EXECUTION_FAILURE);
+            }
+        };
+        match plan.initialization {
+            Some(reason)
+                if !initialized
+                    && !plan.status.is_plan_success()
+                    && termination::requested().is_none() =>
+            {
+                initialized = true;
+                if let Err(exit) = initialize_before_plan(invocation, &reason) {
+                    let _ = saved_plan.cleanup();
+                    return exit;
+                }
+            }
+            _ => break plan.status,
         }
     };
     let planned_at = Instant::now();
@@ -100,69 +135,49 @@ pub(crate) fn run_invocation(
     run_saved_plan_review(invocation, saved_plan, status, planned_at, variable_sources)
 }
 
-// The plan runs only after a needed init succeeds. Init shares the terminal like the plan, so the
-// user sees its output and a signal stops it the same way.
+// The plan runs only after a needed init succeeds. Init output is read and redacted before it
+// reaches the terminal, because it can print source addresses that carry credentials. Init shares
+// the terminal's process group like the plan, so a terminal signal stops it the same way.
 fn initialize_before_plan(
-    executable: &Path,
     invocation: &invocation::Invocation,
+    reason: &InitializationReason,
 ) -> Result<(), ExitCode> {
     let tool = invocation.tool();
-    let directory = invocation.directory();
-    let data_dir = env::var_os("TF_DATA_DIR");
-    let reason = match terraform::init::reason(tool, directory, data_dir.as_deref()) {
-        Ok(Some(reason)) => reason,
-        Ok(None) => return Ok(()),
-        Err(error) => {
-            report_error(&format!(
-                "failed to check whether {} needs initialization: {error}",
-                tool.display_name()
-            ));
-            return Err(ExitCode::from(EXECUTION_FAILURE));
-        }
-    };
     report_error(&format!(
         "Running {} init because {}.",
         tool.display_name(),
         reason.message()
     ));
-    let initialization = match terraform::init::run_passthrough_init(
-        executable,
-        invocation.launch_root(),
-        invocation.global_arguments(),
-        directory,
-        &reason,
-    ) {
-        Ok(initialization) => initialization,
-        Err(error) => {
-            report_error(&format!(
-                "failed to run {} init: {error}",
-                tool.display_name()
-            ));
-            return Err(ExitCode::from(EXECUTION_FAILURE));
-        }
-    };
-    if let Some(change) = initialization.lock_file {
-        report_error(change.message());
-    }
+    let result = terraform::init::run(
+        tool,
+        invocation.directory(),
+        reason,
+        &CancellationToken::default(),
+        &terraform::SystemProcessRunner,
+        &mut |event| {
+            if let ExecutionEventKind::Diagnostic(diagnostic) = event.kind {
+                report_error(&copy::sanitize_text(&diagnostic.summary, &[]));
+            }
+        },
+    );
     if let Some(signal) = termination::requested() {
         report_terminated(signal);
         return Err(ExitCode::from(signal.exit_code()));
     }
-    match initialization.status {
-        terraform::ProcessStatus::Exited(0) => Ok(()),
-        status
-            if status == terraform::ProcessStatus::Signaled
-                || status.code() == Some(i32::from(INTERRUPTED)) =>
-        {
-            Err(ExitCode::from(INTERRUPTED))
+    match result {
+        Ok(lock_file) => {
+            if let Some(change) = lock_file {
+                report_error(change.message());
+            }
+            Ok(())
         }
-        _ => {
+        Err(error) if error.is_interrupted() => Err(ExitCode::from(INTERRUPTED)),
+        Err(error) => {
             report_error(&format!(
-                "{tool} init failed, so the plan did not run. Fix the cause above, such as \
-                 credentials or backend access, then run again. Run `{executable} init` yourself \
-                 when it needs -migrate-state, -reconfigure, or -upgrade.",
-                tool = tool.display_name(),
-                executable = tool.executable_name(),
+                "{error}, so the plan did not run. Fix the cause above, such as credentials or \
+                 backend access, then run again. Run `{} init` yourself when it needs \
+                 -migrate-state, -reconfigure, or -upgrade.",
+                tool.executable_name(),
             ));
             Err(ExitCode::from(EXECUTION_FAILURE))
         }

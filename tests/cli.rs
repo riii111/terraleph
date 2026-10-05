@@ -1264,9 +1264,25 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         assert_eq!(result.exit_code, 0);
         result.assert_restored();
         let arguments = fixture.invocation_arguments();
-        assert_eq!(arguments[0], "init -input=false");
+        assert_eq!(arguments[0], "init -input=false -no-color");
         assert!(arguments[1].starts_with("plan -detailed-exitcode -out="));
         assert_eq!(arguments.len(), 6);
+        fixture.assert_saved_plan_removed();
+    }
+
+    #[test]
+    fn pty_plan_requesting_init_initializes_once_and_plans_again() {
+        let fixture = Fixture::new();
+
+        let result = fixture.run("single_reinit", 100, 24);
+
+        assert_eq!(result.exit_code, 0);
+        result.assert_restored();
+        let arguments = fixture.invocation_arguments();
+        assert!(arguments[0].starts_with("plan -detailed-exitcode -out="));
+        assert_eq!(arguments[1], "init -input=false -backend=false -no-color");
+        assert_eq!(arguments[2], arguments[0]);
+        assert_eq!(arguments.len(), 7);
         fixture.assert_saved_plan_removed();
     }
 
@@ -1283,7 +1299,10 @@ Plan: 0 to add, 3 to change, 0 to destroy.
 
         assert_eq!(result.exit_code, 1);
         result.assert_no_tui();
-        assert_eq!(fixture.invocation_arguments(), ["init -input=false"]);
+        assert_eq!(
+            fixture.invocation_arguments(),
+            ["init -input=false -no-color"]
+        );
     }
 
     #[test]

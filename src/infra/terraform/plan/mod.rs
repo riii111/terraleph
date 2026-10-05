@@ -17,7 +17,8 @@ use crate::infra::CancellationToken;
 
 use super::{
     command::{
-        ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, run_passthrough,
+        ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError,
+        run_passthrough_observing_stderr,
     },
     read_provider_schema_with_arguments,
     show::read_review_with_arguments,
@@ -77,16 +78,33 @@ impl SavedPlan {
     }
 }
 
+pub(crate) struct PassthroughPlan {
+    pub(crate) status: ProcessStatus,
+    pub(crate) initialization: Option<InitializationReason>,
+}
+
+// The plan keeps the user's terminal for its prompts; only its stderr is read, to notice a plan
+// that cannot run until the directory is initialized.
 pub(crate) fn run_passthrough_plan(
     executable: &Path,
     launch_root: &Path,
     global_arguments: &[OsString],
     plan_arguments: &[OsString],
-) -> io::Result<ProcessStatus> {
+) -> io::Result<PassthroughPlan> {
     let mut arguments = global_arguments.to_vec();
     arguments.push(OsString::from(TerraformCommand::Plan.to_string()));
     arguments.extend(plan_arguments.iter().cloned());
-    run_passthrough(executable, launch_root, &arguments)
+    let mut initialization = None;
+    let status =
+        run_passthrough_observing_stderr(executable, launch_root, &arguments, &mut |line| {
+            if initialization.is_none() {
+                initialization = super::init::plan_output_reason(line);
+            }
+        })?;
+    Ok(PassthroughPlan {
+        status,
+        initialization,
+    })
 }
 
 // Each acquisition initializes at most once: before the plan when the directory needs it, or

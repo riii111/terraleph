@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    env,
     ffi::{OsStr, OsString},
     fs, io,
     path::{Path, PathBuf},
@@ -7,8 +8,8 @@ use std::{
 
 use super::{
     command::{
-        ProcessRunner, ProcessStatus, TerraformCommand, TerraformExecutionError, run_passthrough,
-        run_successful,
+        INIT_ARGUMENTS_ENVIRONMENT, ProcessRunner, TerraformCommand, TerraformExecutionError,
+        refused_error, run_successful,
     },
     configuration,
 };
@@ -19,11 +20,6 @@ use crate::{
 
 const LOCK_FILE: &str = ".terraform.lock.hcl";
 const BACKEND_INITIALIZATION_REQUIRED: &str = "Backend initialization required";
-
-pub(crate) struct PassthroughInitialization {
-    pub(crate) status: ProcessStatus,
-    pub(crate) lock_file: Option<LockFileChange>,
-}
 
 // `data_dir` is TF_DATA_DIR as Terraform reads it: relative to the directory it runs in.
 pub(crate) fn reason(
@@ -71,6 +67,17 @@ pub(crate) fn run(
     runner: &dyn ProcessRunner,
     event_sink: &mut dyn FnMut(ExecutionEvent),
 ) -> Result<Option<LockFileChange>, TerraformExecutionError> {
+    if let Some(option) = env::var_os(INIT_ARGUMENTS_ENVIRONMENT)
+        .and_then(|value| refused_option(&value.to_string_lossy()))
+    {
+        return Err(refused_error(
+            tool,
+            TerraformCommand::Init,
+            format!(
+                "{INIT_ARGUMENTS_ENVIRONMENT} requests {option}, which only a manual init may run"
+            ),
+        ));
+    }
     let mut arguments = arguments(reason);
     arguments.push(OsString::from("-no-color"));
     let lock = read_lock(root);
@@ -86,22 +93,11 @@ pub(crate) fn run(
     Ok(lock_file_change(lock, read_lock(root)))
 }
 
-// Runs on the user's terminal like the plan that follows, with the same global options.
-pub(crate) fn run_passthrough_init(
-    executable: &Path,
-    launch_root: &Path,
-    global_arguments: &[OsString],
-    root: &Path,
-    reason: &InitializationReason,
-) -> io::Result<PassthroughInitialization> {
-    let mut command = global_arguments.to_vec();
-    command.extend(arguments(reason));
-    let lock = read_lock(root);
-    let status = run_passthrough(executable, launch_root, &command)?;
-    Ok(PassthroughInitialization {
-        status,
-        lock_file: lock_file_change(lock, read_lock(root)),
-    })
+// A plan on the user's terminal reports its diagnostics as boxed, possibly colored text.
+pub(crate) fn plan_output_reason(line: &str) -> Option<InitializationReason> {
+    let text = strip_ansi(line);
+    let text = text.trim_start_matches(['│', '╷', '╵', ' ']);
+    plan_reason(text.strip_prefix("Error: ")?)
 }
 
 pub(crate) fn plan_reason(summary: &str) -> Option<InitializationReason> {
@@ -135,6 +131,35 @@ fn arguments(reason: &InitializationReason) -> Vec<OsString> {
         arguments.push(OsString::from("-backend=false"));
     }
     arguments
+}
+
+fn refused_option(value: &str) -> Option<&'static str> {
+    value.split_whitespace().find_map(|argument| {
+        let option = argument.trim_start_matches('-');
+        let name = option.split_once('=').map_or(option, |(name, _)| name);
+        ["migrate-state", "reconfigure", "upgrade", "force-copy"]
+            .into_iter()
+            .find(|refused| *refused == name)
+    })
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut characters = text.chars();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' {
+            if characters.next() == Some('[') {
+                for code in characters.by_ref() {
+                    if code.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(character);
+        }
+    }
+    result
 }
 
 fn data_directory(root: &Path, data_dir: Option<&OsStr>) -> PathBuf {
@@ -461,6 +486,43 @@ mod tests {
             })
         );
         assert_eq!(plan_reason("Invalid reference"), None);
+    }
+
+    #[test]
+    fn plan_output_reason_reads_boxed_and_colored_errors() {
+        assert_eq!(
+            plan_output_reason(
+                "\u{1b}[31m│\u{1b}[0m \u{1b}[0m\u{1b}[1m\u{1b}[31mError: \u{1b}[0m\u{1b}[0m\u{1b}[1mModule source has changed\u{1b}[0m"
+            ),
+            Some(InitializationReason::PlanRequested {
+                summary: "Module source has changed",
+            })
+        );
+        assert_eq!(
+            plan_output_reason("│ Error: Inconsistent dependency lock file"),
+            Some(InitializationReason::PlanRequested {
+                summary: "Inconsistent dependency lock file",
+            })
+        );
+        assert_eq!(plan_output_reason("│ Module not installed"), None);
+        assert_eq!(plan_output_reason("│ Error: Invalid reference"), None);
+    }
+
+    #[test]
+    fn init_environment_arguments_refuse_migration_reconfiguration_and_upgrades() {
+        for (name, value, expected) in [
+            ("backend_config", "-backend-config=path=state.tfstate", None),
+            (
+                "migrate",
+                "-backend-config=a -migrate-state",
+                Some("migrate-state"),
+            ),
+            ("reconfigure", "--reconfigure", Some("reconfigure")),
+            ("upgrade", "-upgrade=true", Some("upgrade")),
+            ("force_copy", "-force-copy", Some("force-copy")),
+        ] {
+            assert_eq!(refused_option(value), expected, "case: {name}");
+        }
     }
 
     #[test]

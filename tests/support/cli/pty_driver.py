@@ -481,7 +481,7 @@ def kill_child():
 
 
 try:
-    if scenario in ("full_text", "user_output", "cli_args", "detailed"):
+    if scenario in ("full_text", "user_output", "cli_args", "detailed", "single_reinit"):
         wait_review("plan_text", timeout=30)
         observe_current_or_wait("3/", "plan_position")
         exit_code = quit_with_enter()
