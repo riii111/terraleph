@@ -59,9 +59,17 @@ pub(crate) fn reason(
     Ok(missing_module(&calls, &data_dir))
 }
 
+// `root` is the configuration directory. Init itself starts like the plan: from `launch_root`
+// with the same global options, so a relative path in the user's environment resolves the same.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "init receives the plan's launch boundaries besides its own progress sink"
+)]
 pub(crate) fn run(
     tool: Tool,
     root: &Path,
+    launch_root: &Path,
+    global_arguments: &[OsString],
     reason: &InitializationReason,
     cancellation: &CancellationToken,
     runner: &dyn ProcessRunner,
@@ -74,16 +82,17 @@ pub(crate) fn run(
             tool,
             TerraformCommand::Init,
             format!(
-                "{INIT_ARGUMENTS_ENVIRONMENT} requests {option}, which only a manual init may run"
+                "{INIT_ARGUMENTS_ENVIRONMENT} requests -{option}, which only a manual init may run"
             ),
         ));
     }
-    let mut arguments = arguments(reason);
+    let mut arguments = global_arguments.to_vec();
+    arguments.extend(self::arguments(reason));
     arguments.push(OsString::from("-no-color"));
     let lock = read_lock(root);
     run_successful(
         tool,
-        root,
+        launch_root,
         TerraformCommand::Init,
         &arguments,
         cancellation,
@@ -133,8 +142,11 @@ fn arguments(reason: &InitializationReason) -> Vec<OsString> {
     arguments
 }
 
+// Quotes are dropped rather than parsed, so a quoted option is still found; refusing an option
+// that was only part of a quoted value is the safe mistake.
 fn refused_option(value: &str) -> Option<&'static str> {
-    value.split_whitespace().find_map(|argument| {
+    let unquoted = value.replace(['"', '\''], " ");
+    unquoted.split_whitespace().find_map(|argument| {
         let option = argument.trim_start_matches('-');
         let name = option.split_once('=').map_or(option, |(name, _)| name);
         ["migrate-state", "reconfigure", "upgrade", "force-copy"]
@@ -519,6 +531,11 @@ mod tests {
             ),
             ("reconfigure", "--reconfigure", Some("reconfigure")),
             ("upgrade", "-upgrade=true", Some("upgrade")),
+            (
+                "quoted",
+                "'-upgrade' \"-backend-config=a\"",
+                Some("upgrade"),
+            ),
             ("force_copy", "-force-copy", Some("force-copy")),
         ] {
             assert_eq!(refused_option(value), expected, "case: {name}");

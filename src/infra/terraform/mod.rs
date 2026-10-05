@@ -17,7 +17,8 @@ mod workspace;
 
 pub(crate) use apply::run_apply_with_arguments;
 pub(crate) use command::{
-    ProcessStatus, SystemProcessRunner, TerraformExecutionError, delegate, resolve_executable,
+    ProcessStatus, ResolvedProcessRunner, SystemProcessRunner, TerraformExecutionError, delegate,
+    resolve_executable,
 };
 pub(crate) use plan::{
     SavedPlan, read_saved_plan_review, remove_orphaned_plans, run_environment_plan,

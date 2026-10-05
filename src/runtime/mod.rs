@@ -60,7 +60,7 @@ pub(crate) fn run_invocation(
     };
     let mut initialized = reason.is_some();
     if let Some(reason) = reason
-        && let Err(exit) = initialize_before_plan(invocation, &reason)
+        && let Err(exit) = initialize_before_plan(executable, invocation, &reason)
     {
         return exit;
     }
@@ -103,7 +103,7 @@ pub(crate) fn run_invocation(
                     && termination::requested().is_none() =>
             {
                 initialized = true;
-                if let Err(exit) = initialize_before_plan(invocation, &reason) {
+                if let Err(exit) = initialize_before_plan(executable, invocation, &reason) {
                     let _ = saved_plan.cleanup();
                     return exit;
                 }
@@ -139,6 +139,7 @@ pub(crate) fn run_invocation(
 // reaches the terminal, because it can print source addresses that carry credentials. Init shares
 // the terminal's process group like the plan, so a terminal signal stops it the same way.
 fn initialize_before_plan(
+    executable: &Path,
     invocation: &invocation::Invocation,
     reason: &InitializationReason,
 ) -> Result<(), ExitCode> {
@@ -151,9 +152,11 @@ fn initialize_before_plan(
     let result = terraform::init::run(
         tool,
         invocation.directory(),
+        invocation.launch_root(),
+        invocation.global_arguments(),
         reason,
         &CancellationToken::default(),
-        &terraform::SystemProcessRunner,
+        &terraform::ResolvedProcessRunner(executable),
         &mut |event| {
             if let ExecutionEventKind::Diagnostic(diagnostic) = event.kind {
                 report_error(&copy::sanitize_text(&diagnostic.summary, &[]));

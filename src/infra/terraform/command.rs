@@ -457,6 +457,19 @@ fn restore_interrupt(previous: Option<libc::sighandler_t>) {
     }
 }
 
+// Terraleph passes only -chdir before the subcommand.
+fn subcommand(arguments: &[OsString]) -> Option<&OsStr> {
+    let mut arguments = arguments.iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "-chdir" {
+            arguments.next();
+        } else if !argument.to_string_lossy().starts_with("-chdir=") {
+            return Some(argument);
+        }
+    }
+    None
+}
+
 fn remove_cli_argument_environment(command: &mut Command) {
     remove_cli_argument_environment_except(command, None);
 }
@@ -692,21 +705,44 @@ impl ProcessRunner for SystemProcessRunner {
         root: &Path,
         arguments: &[OsString],
     ) -> io::Result<Box<dyn RunningProcess>> {
-        let mut command = Command::new(OsStr::new(tool.executable_name()));
-        command
-            .current_dir(root)
-            .args(arguments)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // Init has no merged arguments, so it keeps the user's own, such as -backend-config.
-        let kept = (arguments.first().map(OsString::as_os_str) == Some(OsStr::new("init")))
-            .then_some(INIT_ARGUMENTS_ENVIRONMENT);
-        remove_cli_argument_environment_except(&mut command, kept);
-        configure_process_group(&mut command);
-        let child = command.spawn()?;
-        Ok(Box::new(SystemRunningProcess::new(child)))
+        start_process(OsStr::new(tool.executable_name()), root, arguments)
     }
+}
+
+// Runs the executable the passthrough plan resolved, so a relative PATH entry cannot select a
+// different binary for a command started from another directory.
+pub(crate) struct ResolvedProcessRunner<'a>(pub(crate) &'a Path);
+
+impl ProcessRunner for ResolvedProcessRunner<'_> {
+    fn start(
+        &self,
+        _tool: Tool,
+        root: &Path,
+        arguments: &[OsString],
+    ) -> io::Result<Box<dyn RunningProcess>> {
+        start_process(self.0.as_os_str(), root, arguments)
+    }
+}
+
+fn start_process(
+    program: &OsStr,
+    root: &Path,
+    arguments: &[OsString],
+) -> io::Result<Box<dyn RunningProcess>> {
+    let mut command = Command::new(program);
+    command
+        .current_dir(root)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Init has no merged arguments, so it keeps the user's own, such as -backend-config.
+    let kept =
+        (subcommand(arguments) == Some(OsStr::new("init"))).then_some(INIT_ARGUMENTS_ENVIRONMENT);
+    remove_cli_argument_environment_except(&mut command, kept);
+    configure_process_group(&mut command);
+    let child = command.spawn()?;
+    Ok(Box::new(SystemRunningProcess::new(child)))
 }
 
 struct SystemRunningProcess {
@@ -932,6 +968,27 @@ mod tests {
             return None;
         };
         Some((*stream, summary.as_str()))
+    }
+
+    #[test]
+    fn subcommand_skips_only_the_chdir_global_option() {
+        for (name, arguments, expected) in [
+            ("plain", &["init", "-input=false"][..], Some("init")),
+            ("inline_chdir", &["-chdir=sub", "init"][..], Some("init")),
+            (
+                "separate_chdir",
+                &["-chdir", "init", "plan"][..],
+                Some("plan"),
+            ),
+            ("none", &["-chdir=sub"][..], None),
+        ] {
+            let arguments = arguments.iter().map(OsString::from).collect::<Vec<_>>();
+            assert_eq!(
+                subcommand(&arguments),
+                expected.map(OsStr::new),
+                "case: {name}"
+            );
+        }
     }
 
     #[test]

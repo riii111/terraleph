@@ -327,12 +327,21 @@ fn initialize_environment(
 ) -> Result<(), TerraformExecutionError> {
     let mut init_diagnostics = Vec::new();
     progress(PreparationEvent::Initializing(reason.clone()));
-    let result = super::init::run(tool, root, reason, cancellation, runner, &mut |event| {
-        if let ExecutionEventKind::Diagnostic(diagnostic) = &event.kind {
-            init_diagnostics.push(diagnostic.clone());
-        }
-        progress(PreparationEvent::Output(event));
-    });
+    let result = super::init::run(
+        tool,
+        root,
+        root,
+        &[],
+        reason,
+        cancellation,
+        runner,
+        &mut |event| {
+            if let ExecutionEventKind::Diagnostic(diagnostic) = &event.kind {
+                init_diagnostics.push(diagnostic.clone());
+            }
+            progress(PreparationEvent::Output(event));
+        },
+    );
     match result {
         Ok(lock_file) => {
             if let Some(change) = lock_file {
