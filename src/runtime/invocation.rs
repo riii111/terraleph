@@ -211,8 +211,7 @@ fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) ->
     Ok(Entry::Multiple)
 }
 
-// Reading a large tree takes time before the screen opens, so the search is announced on stderr
-// and the line is cleared once the candidates are known.
+// A large tree can take a while to read before the screen opens.
 fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
     let notice = format!(
         "Searching for environments in {} (up to {max_depth} levels)...",
@@ -222,8 +221,6 @@ fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result
     let _ = write!(stderr, "{notice}");
     let _ = stderr.flush();
     let environments = discovery::discover(root, tool, max_depth);
-    // Overwriting with spaces needs no escape sequence, which a terminal without the TUI would
-    // otherwise show as raw text.
     let _ = write!(stderr, "\r{}\r", " ".repeat(notice.chars().count()));
     let _ = stderr.flush();
     environments
@@ -486,8 +483,7 @@ impl Invocation {
         self.initial_overview
     }
 
-    // A named directory needs no backend block, while a discovered one that loses its block is no
-    // longer the candidate the user chose.
+    // A discovered directory that loses its backend block is no longer the chosen candidate.
     pub(crate) const fn requires_backend(&self) -> bool {
         !self.named_environments
     }

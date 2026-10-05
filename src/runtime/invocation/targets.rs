@@ -12,9 +12,7 @@ pub struct EnvironmentTargets {
 }
 
 impl EnvironmentTargets {
-    // Terraleph's options come before the command word, where Terraform and OpenTofu accept only
-    // their own global options, all spelled with one dash, so a forwarded argument is never read
-    // as a Terraleph option.
+    // Only arguments before the command word are read, so forwarded arguments never match.
     /// # Errors
     ///
     /// Returns a usage message when an option lacks a value or the values conflict.
@@ -83,7 +81,6 @@ impl EnvironmentTargets {
         self.max_depth.unwrap_or(DEFAULT_MAX_DEPTH)
     }
 
-    // Relative paths resolve where Terraform runs, the same base `-chdir` gives `-var-file`.
     pub(crate) fn directories(&self, root: &Path) -> Vec<PathBuf> {
         self.directories
             .iter()

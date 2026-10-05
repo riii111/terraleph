@@ -476,8 +476,6 @@ fn visible_columns_from(first: usize, widths: &[usize], budget: usize) -> Vec<(u
         .collect()
 }
 
-// Rows pair resources only by address, so the legend names that basis: a blank cell means the
-// address is absent from that plan, which differing configurations explain as well as drift.
 fn symbol_legend(width: u16) -> Vec<Line<'static>> {
     let lines: &[&'static str] = if width < 74 {
         &[

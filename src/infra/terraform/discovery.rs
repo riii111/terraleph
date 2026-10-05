@@ -15,10 +15,7 @@ use super::configuration::{self, ExecutionLocation};
 pub(crate) const DEFAULT_MAX_DEPTH: usize = 4;
 
 // Discovery reads files only. Running the tool, even for `workspace show`, would touch a candidate
-// the user has not chosen yet.
-//
-// Symlinked directories are never entered, so a link can neither repeat a candidate nor loop.
-// Hidden directories hold generated data such as `.terraform` and `.git`, never a root module.
+// the user has not chosen yet. Symlinks are not followed, so they cannot repeat a candidate or loop.
 pub(crate) fn discover(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
     let mut environments = Vec::new();
     let mut module_sources = BTreeSet::new();
@@ -30,8 +27,6 @@ pub(crate) fn discover(root: &Path, tool: Tool, max_depth: usize) -> io::Result<
         if let Some(availability) = inspect_directory(&directory, tool) {
             environments.push(Environment { tool, availability });
         }
-        // Calls from any configuration count, so a module that only another module calls is
-        // still recognized as reusable.
         if let Ok(sources) = configuration::local_module_sources(&directory, tool) {
             module_sources.extend(
                 sources
@@ -39,23 +34,19 @@ pub(crate) fn discover(root: &Path, tool: Tool, max_depth: usize) -> io::Result<
                     .filter_map(|source| fs::canonicalize(source).ok()),
             );
         }
-        if depth < max_depth {
-            // An unreadable subdirectory cannot be inspected, so it narrows the search instead of
-            // failing the candidates already found.
-            if let Ok(children) = child_directories(&directory) {
-                pending.extend(children.into_iter().map(|child| (child, depth + 1)));
-            }
+        if depth < max_depth
+            && let Ok(children) = child_directories(&directory)
+        {
+            pending.extend(children.into_iter().map(|child| (child, depth + 1)));
         }
     }
-    // A backend block does not make a directory a root module; one that another configuration
-    // calls as a module is reused code, and the user can still name it with an explicit target.
+    // A called module stays reusable code even when it declares a backend.
     environments.retain(|environment| !module_sources.contains(environment.directory()));
     environments.sort_by(|left, right| left.directory().cmp(right.directory()));
     Ok(environments)
 }
 
-// The user named these directories, so a missing backend block or a module call does not hide
-// them; only a directory without any configuration is rejected.
+// Named directories need configuration but not a backend block.
 pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result<Vec<Environment>> {
     let mut seen = BTreeSet::new();
     let mut environments = Vec::new();

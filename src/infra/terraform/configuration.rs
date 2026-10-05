@@ -55,9 +55,7 @@ pub(crate) fn module_calls(root: &Path, tool: Tool) -> io::Result<BTreeSet<Strin
     Ok(names)
 }
 
-// Terraform treats sources starting with `./`, `../`, their backslash forms, or an absolute path
-// as local directories and normalizes the separators; registry and remote sources are installed
-// under `.terraform`, which discovery never enters.
+// Terraform also accepts backslash separators and absolute paths for local sources.
 pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<PathBuf>> {
     let mut sources = Vec::new();
     for path in configuration_files(root, tool)? {
