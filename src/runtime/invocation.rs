@@ -214,15 +214,17 @@ fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) ->
 // Reading a large tree takes time before the screen opens, so the search is announced on stderr
 // and the line is cleared once the candidates are known.
 fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
-    let mut stderr = io::stderr();
-    let _ = write!(
-        stderr,
+    let notice = format!(
         "Searching for environments in {} (up to {max_depth} levels)...",
         root.display()
     );
+    let mut stderr = io::stderr();
+    let _ = write!(stderr, "{notice}");
     let _ = stderr.flush();
     let environments = discovery::discover(root, tool, max_depth);
-    let _ = write!(stderr, "\r\x1b[2K");
+    // Overwriting with spaces needs no escape sequence, which a terminal without the TUI would
+    // otherwise show as raw text.
+    let _ = write!(stderr, "\r{}\r", " ".repeat(notice.chars().count()));
     let _ = stderr.flush();
     environments
 }

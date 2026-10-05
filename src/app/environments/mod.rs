@@ -516,8 +516,8 @@ fn output_line(event: &ExecutionEvent) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-// An explicit target may sit outside the root; climbing with `..` keeps two such targets with the
-// same final name apart, which the name alone would not.
+// An explicit target may sit outside the root or be the root itself; `..` and `.` keep such targets
+// apart from candidates that share their final name.
 fn relative_display_path(directory: &Path, root: &Path) -> String {
     let shared = directory
         .components()
@@ -539,7 +539,7 @@ fn relative_display_path(directory: &Path, root: &Path) -> String {
         )
         .collect::<Vec<_>>();
     if components.is_empty() {
-        directory_display_name(directory)
+        ".".to_owned()
     } else {
         components.join("/")
     }
@@ -1077,9 +1077,14 @@ mod tests {
         #[test]
         fn targets_outside_or_at_the_root_keep_distinct_paths() {
             let state = EnvironmentSession::new(
-                ["/work/a/prod", "/work/b/prod", "/work/repo"]
-                    .map(available)
-                    .into(),
+                [
+                    "/work/a/prod",
+                    "/work/b/prod",
+                    "/work/repo",
+                    "/work/repo/repo",
+                ]
+                .map(available)
+                .into(),
                 false,
             )
             .with_exploration_root("/work/repo");
@@ -1090,7 +1095,7 @@ mod tests {
                     .iter()
                     .map(EnvironmentPlan::display_name)
                     .collect::<Vec<_>>(),
-                ["repo", "../a/prod", "../b/prod"]
+                [".", "repo", "../a/prod", "../b/prod"]
             );
         }
     }

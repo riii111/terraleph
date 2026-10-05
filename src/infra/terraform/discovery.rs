@@ -82,12 +82,13 @@ pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result
                 tool.display_name()
             )));
         }
-        let availability = inspect_configuration(&canonical, tool).unwrap_or_else(|error| {
-            EnvironmentAvailability::Error {
-                directory: canonical.clone(),
+        let availability = match configuration::read_configuration(&canonical, tool, None) {
+            Ok(configuration) => availability(canonical, configuration.execution_location),
+            Err(error) => EnvironmentAvailability::Error {
+                directory: canonical,
                 message: error.to_string(),
-            }
-        });
+            },
+        };
         environments.push(Environment { tool, availability });
     }
     Ok(environments)
@@ -118,7 +119,10 @@ fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailabi
         if !configuration.has_backend {
             return Ok(None);
         }
-        inspect_configuration(&directory, tool).map(Some)
+        Ok(Some(availability(
+            directory,
+            configuration.execution_location,
+        )))
     })();
     match result {
         Ok(availability) => availability,
@@ -129,14 +133,11 @@ fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailabi
     }
 }
 
-fn inspect_configuration(directory: &Path, tool: Tool) -> io::Result<EnvironmentAvailability> {
-    let directory = directory.to_owned();
-    Ok(
-        match configuration::read_configuration(&directory, tool, None)?.execution_location {
-            ExecutionLocation::HcpCandidate => EnvironmentAvailability::ExcludedHcp { directory },
-            ExecutionLocation::Local => EnvironmentAvailability::Available { directory },
-        },
-    )
+const fn availability(directory: PathBuf, location: ExecutionLocation) -> EnvironmentAvailability {
+    match location {
+        ExecutionLocation::HcpCandidate => EnvironmentAvailability::ExcludedHcp { directory },
+        ExecutionLocation::Local => EnvironmentAvailability::Available { directory },
+    }
 }
 
 #[cfg(test)]
@@ -262,12 +263,20 @@ mod tests {
             );
             fixture.write("modules/db/main.tf", BACKEND);
             fixture.write("modules/plain/main.tf", "variable \"name\" {}");
+            fixture.write("modules/shared/main.tf", BACKEND);
+            fixture.write(
+                "envs/stg/main.tf",
+                &format!(
+                    "terraform {{\n backend \"s3\" {{}}\n}}\nmodule \"shared\" {{ source = \"{}\" }}",
+                    fixture.0.join("modules/shared").display()
+                ),
+            );
 
             let environments = fixture.discover(Tool::Terraform);
 
             assert_eq!(
                 Fixture::directories(&environments),
-                [fixture.0.join("envs/prod")]
+                [fixture.0.join("envs/prod"), fixture.0.join("envs/stg")]
             );
         }
 

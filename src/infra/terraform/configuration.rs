@@ -55,8 +55,8 @@ pub(crate) fn module_calls(root: &Path, tool: Tool) -> io::Result<BTreeSet<Strin
     Ok(names)
 }
 
-// Terraform treats only sources starting with `./` or `../` as local directories; registry and
-// remote sources are installed under `.terraform`, which discovery never enters.
+// Terraform treats sources starting with `./`, `../`, or an absolute path as local directories;
+// registry and remote sources are installed under `.terraform`, which discovery never enters.
 pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<PathBuf>> {
     let mut sources = Vec::new();
     for path in configuration_files(root, tool)? {
@@ -102,7 +102,9 @@ pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<Pa
     }
     Ok(sources
         .into_iter()
-        .filter(|source| source.starts_with("./") || source.starts_with("../"))
+        .filter(|source| {
+            source.starts_with("./") || source.starts_with("../") || Path::new(source).is_absolute()
+        })
         .map(|source| root.join(source))
         .collect())
 }
@@ -605,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn only_relative_module_sources_are_local() {
+    fn relative_and_absolute_module_sources_are_local() {
         let fixture = Fixture::new(
             "main.tf",
             r#"
@@ -629,6 +631,7 @@ module "absolute" { source = "/opt/modules/absolute" }
             fixture.0.join("../../modules/network"),
             fixture.0.join("../json"),
             fixture.0.join("./sibling"),
+            PathBuf::from("/opt/modules/absolute"),
         ];
         expected.sort();
         assert_eq!(sources, expected);
