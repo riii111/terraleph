@@ -142,10 +142,11 @@ fn arguments(reason: &InitializationReason) -> Vec<OsString> {
     arguments
 }
 
-// Quotes are dropped rather than parsed, so a quoted option is still found; refusing an option
-// that was only part of a quoted value is the safe mistake.
+// Quotes and escapes are dropped rather than parsed, so an option assembled from quoted or escaped
+// pieces is still found; refusing an option that was only part of a quoted value is the safe
+// mistake.
 fn refused_option(value: &str) -> Option<&'static str> {
-    let unquoted = value.replace(['"', '\''], " ");
+    let unquoted = value.replace(['"', '\'', '\\'], "");
     unquoted.split_whitespace().find_map(|argument| {
         let option = argument.trim_start_matches('-');
         let name = option.split_once('=').map_or(option, |(name, _)| name);
@@ -537,6 +538,8 @@ mod tests {
                 Some("upgrade"),
             ),
             ("force_copy", "-force-copy", Some("force-copy")),
+            ("joined_quotes", "\"-up\"grade", Some("upgrade")),
+            ("escaped", "-re\\configure", Some("reconfigure")),
         ] {
             assert_eq!(refused_option(value), expected, "case: {name}");
         }
