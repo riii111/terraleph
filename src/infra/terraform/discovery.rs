@@ -265,11 +265,12 @@ mod tests {
             fixture.write("modules/plain/main.tf", "variable \"name\" {}");
             fixture.write("modules/shared/main.tf", BACKEND);
             fixture.write(
-                "envs/stg/main.tf",
-                &format!(
-                    "terraform {{\n backend \"s3\" {{}}\n}}\nmodule \"shared\" {{ source = \"{}\" }}",
-                    fixture.0.join("modules/shared").display()
-                ),
+                "envs/stg/main.tf.json",
+                &serde_json::json!({
+                    "terraform": {"backend": {"s3": {}}},
+                    "module": {"shared": {"source": fixture.0.join("modules/shared")}},
+                })
+                .to_string(),
             );
 
             let environments = fixture.discover(Tool::Terraform);

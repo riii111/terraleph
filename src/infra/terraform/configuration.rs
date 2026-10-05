@@ -55,8 +55,9 @@ pub(crate) fn module_calls(root: &Path, tool: Tool) -> io::Result<BTreeSet<Strin
     Ok(names)
 }
 
-// Terraform treats sources starting with `./`, `../`, or an absolute path as local directories;
-// registry and remote sources are installed under `.terraform`, which discovery never enters.
+// Terraform treats sources starting with `./`, `../`, their backslash forms, or an absolute path
+// as local directories and normalizes the separators; registry and remote sources are installed
+// under `.terraform`, which discovery never enters.
 pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<PathBuf>> {
     let mut sources = Vec::new();
     for path in configuration_files(root, tool)? {
@@ -102,10 +103,13 @@ pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<Pa
     }
     Ok(sources
         .into_iter()
-        .filter(|source| {
-            source.starts_with("./") || source.starts_with("../") || Path::new(source).is_absolute()
+        .filter_map(|source| {
+            if Path::new(&source).is_absolute() {
+                return Some(PathBuf::from(source));
+            }
+            let relative = source.replace('\\', "/");
+            (relative.starts_with("./") || relative.starts_with("../")).then(|| root.join(relative))
         })
-        .map(|source| root.join(source))
         .collect())
 }
 
@@ -613,14 +617,20 @@ mod tests {
             r#"
 module "network" { source = "../../modules/network" }
 module "sibling" { source = "./sibling" }
+module "backslash" { source = "..\\shared\\app" }
 module "registry" { source = "hashicorp/consul/aws" }
 module "git" { source = "git::https://example.com/module.git" }
-module "absolute" { source = "/opt/modules/absolute" }
 "#,
         );
+        let absolute = fixture.0.join("absolute");
         fs::write(
             fixture.0.join("calls.tf.json"),
-            r#"{"module":{"json":{"source":"../json"},"remote":[{"source":"app.terraform.io/x/y/z"}]}}"#,
+            serde_json::json!({"module": {
+                "json": {"source": "../json"},
+                "absolute": {"source": absolute},
+                "remote": [{"source": "app.terraform.io/x/y/z"}],
+            }})
+            .to_string(),
         )
         .unwrap();
 
@@ -630,8 +640,9 @@ module "absolute" { source = "/opt/modules/absolute" }
         let mut expected = vec![
             fixture.0.join("../../modules/network"),
             fixture.0.join("../json"),
+            fixture.0.join("../shared/app"),
             fixture.0.join("./sibling"),
-            PathBuf::from("/opt/modules/absolute"),
+            absolute,
         ];
         expected.sort();
         assert_eq!(sources, expected);
