@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests.rs
+assertion_line: 213
 expression: text
 ---
 terraleph ▸ b-error                                                    terraform
@@ -10,7 +11,7 @@ b-error ✗ Error
 │────────────┼─────────────────────────────────────────────────────┼───────────│
 │No matching resource changes. v opens the full plan.                          │
 │                                                                              │
-│blank: absent   .: unchanged   ?: plan unavailable                            │
+│Rows match by address · blank: absent   .: unchanged   ?: plan unavailable    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌  [3] Relations · b-error · whole env─────────────────────────────────────────┐
 │Plan failed: Missing required variable                                        │

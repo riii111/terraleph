@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::{OsStr, OsString},
     fs,
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -16,6 +16,10 @@ use crate::infra::terraform::{
     configuration::{self, ExecutionLocation},
     discovery,
 };
+
+pub use targets::EnvironmentTargets;
+
+mod targets;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Subcommand {
@@ -40,6 +44,7 @@ pub(crate) struct Invocation {
     saved_plan: Option<OsString>,
     detailed_exitcode: bool,
     initial_overview: bool,
+    named_environments: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -49,11 +54,11 @@ enum Entry {
     Multiple,
 }
 
-pub(crate) fn run(tool: Tool, arguments: &[OsString]) -> ExitCode {
-    run_with_mode(tool, arguments, false)
+pub(crate) fn run(tool: Tool, targets: &EnvironmentTargets, arguments: &[OsString]) -> ExitCode {
+    run_with_mode(tool, targets, arguments, false)
 }
 
-pub(crate) fn run_default() -> Option<ExitCode> {
+pub(crate) fn run_default(targets: &EnvironmentTargets) -> Option<ExitCode> {
     if !interactive(
         [
             io::stdin().is_terminal(),
@@ -67,13 +72,19 @@ pub(crate) fn run_default() -> Option<ExitCode> {
     }
     Some(run_with_mode(
         Tool::Terraform,
+        targets,
         &[OsString::from("plan")],
         true,
     ))
 }
 
-fn run_with_mode(tool: Tool, arguments: &[OsString], default_entry: bool) -> ExitCode {
-    match execute(tool, arguments, default_entry) {
+fn run_with_mode(
+    tool: Tool,
+    targets: &EnvironmentTargets,
+    arguments: &[OsString],
+    default_entry: bool,
+) -> ExitCode {
+    match execute(tool, targets, arguments, default_entry) {
         Ok(exit) => exit,
         Err(error) => {
             super::report_error(&error.to_string());
@@ -82,13 +93,21 @@ fn run_with_mode(tool: Tool, arguments: &[OsString], default_entry: bool) -> Exi
     }
 }
 
-fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Result<ExitCode> {
+fn execute(
+    tool: Tool,
+    targets: &EnvironmentTargets,
+    arguments: &[OsString],
+    default_entry: bool,
+) -> io::Result<ExitCode> {
     let executable = terraform::resolve_executable(tool)?;
     let Some(root) = env::current_dir().ok() else {
         if default_entry {
             return Err(io::Error::other(
                 "the default Terraform plan requires a local working directory",
             ));
+        }
+        if !targets.is_empty() {
+            return Err(unreviewable_targets());
         }
         return terraform::delegate(&executable, arguments);
     };
@@ -98,10 +117,18 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
                 "the default Terraform plan does not support the current Terraform options; use `terraleph plan` to choose an explicit command",
             ));
         }
+        // Delegating would run Terraform in the launch directory instead of the named targets.
+        if !targets.is_empty() {
+            return Err(unreviewable_targets());
+        }
         return terraform::delegate(&executable, arguments);
     };
     invocation.initial_overview = default_entry;
-    match select_entry(&mut invocation, env::var_os("TF_DATA_DIR").as_deref())? {
+    match select_entry(
+        &mut invocation,
+        env::var_os("TF_DATA_DIR").as_deref(),
+        targets,
+    )? {
         Entry::Delegate if default_entry => {
             return Err(io::Error::other(
                 "the default Terraform plan supports local execution only; use `terraleph terraform plan` for unsupported backends",
@@ -110,8 +137,12 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
         Entry::Delegate => return terraform::delegate(&executable, arguments),
         Entry::Single => {}
         Entry::Multiple => {
-            let environments = discovery::discover(invocation.directory(), tool)?;
-            validate_discovery(&environments)?;
+            let environments = if targets.names_directories() {
+                discovery::inspect_targets(&targets.directories(invocation.directory()), tool)?
+            } else {
+                discover_with_notice(invocation.directory(), tool, targets.max_depth())?
+            };
+            validate_discovery(&environments, targets.max_depth())?;
             return super::environments::run(&invocation, environments);
         }
     }
@@ -123,7 +154,38 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
     ))
 }
 
-fn select_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) -> io::Result<Entry> {
+fn unreviewable_targets() -> io::Error {
+    io::Error::other(
+        "--env-dir and --max-depth need an interactive plan review; they cannot be used without a terminal or with options that are passed straight to Terraform",
+    )
+}
+
+fn select_entry(
+    invocation: &mut Invocation,
+    data_dir: Option<&OsStr>,
+    targets: &EnvironmentTargets,
+) -> io::Result<Entry> {
+    if targets.names_directories() {
+        if invocation.is_apply() {
+            return Err(io::Error::other(
+                "--env-dir selects environments to plan; use `plan`, then apply a reviewed plan with `a`",
+            ));
+        }
+        invocation.prepare_multiple(data_dir)?;
+        invocation.named_environments = true;
+        return Ok(Entry::Multiple);
+    }
+    let entry = select_search_entry(invocation, data_dir)?;
+    if targets.has_max_depth() && entry != Entry::Multiple {
+        return Err(io::Error::other(format!(
+            "--max-depth limits the search below a directory without configuration, but {} is not searched; omit --max-depth to use it as one environment",
+            invocation.directory().display()
+        )));
+    }
+    Ok(entry)
+}
+
+fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) -> io::Result<Entry> {
     let Ok(has_configuration) =
         configuration::has_configuration(invocation.directory(), invocation.tool())
     else {
@@ -149,11 +211,27 @@ fn select_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) -> io::Re
     Ok(Entry::Multiple)
 }
 
-fn validate_discovery(environments: &[Environment]) -> io::Result<()> {
+// Reading a large tree takes time before the screen opens, so the search is announced on stderr
+// and the line is cleared once the candidates are known.
+fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
+    let mut stderr = io::stderr();
+    let _ = write!(
+        stderr,
+        "Searching for environments in {} (up to {max_depth} levels)...",
+        root.display()
+    );
+    let _ = stderr.flush();
+    let environments = discovery::discover(root, tool, max_depth);
+    let _ = write!(stderr, "\r\x1b[2K");
+    let _ = stderr.flush();
+    environments
+}
+
+fn validate_discovery(environments: &[Environment], max_depth: usize) -> io::Result<()> {
     if environments.is_empty() {
-        return Err(io::Error::other(
-            "No environment candidates: no immediate child directory has a backend or cloud block.",
-        ));
+        return Err(io::Error::other(format!(
+            "No environment candidates: no subdirectory within {max_depth} levels has a backend or cloud block.\nName environments with --env-dir, or search deeper with --max-depth."
+        )));
     }
     if !environments.iter().any(Environment::is_available) {
         let reasons = environments
@@ -269,6 +347,7 @@ fn parse_for_tool(
         saved_plan: None,
         detailed_exitcode: false,
         initial_overview: false,
+        named_environments: false,
     };
     classify_options(&mut invocation)?;
     Some(invocation)
@@ -403,6 +482,12 @@ impl Invocation {
 
     pub(crate) const fn initial_overview(&self) -> bool {
         self.initial_overview
+    }
+
+    // A named directory needs no backend block, while a discovered one that loses its block is no
+    // longer the candidate the user chose.
+    pub(crate) const fn requires_backend(&self) -> bool {
+        !self.named_environments
     }
 
     pub(crate) const fn is_apply(&self) -> bool {

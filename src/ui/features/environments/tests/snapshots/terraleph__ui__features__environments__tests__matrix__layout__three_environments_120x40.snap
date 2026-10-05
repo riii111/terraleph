@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests/matrix.rs
+assertion_line: 1462
 expression: rendered
 ---
 terraleph ▸ dev                                                                                                terraform
@@ -13,7 +14,7 @@ terraleph ▸ dev                                                               
 │  [x] prod [PROD]     ││                                                                                              │
 │    ✓ Ready     ~10   ││  ▸ Same change across envs: 1 pattern                                                        │
 │    -1                ││    instance counts differ                                                                    │
-│                      ││blank: absent   .: unchanged   ?: plan unavailable                                            │
+│                      ││Rows match by address · blank: absent   .: unchanged   ?: plan unavailable                    │
 │                      │└──────────────────────────────────────────────────────────────────────────────────────────────┘
 │                      │┌  [3] Relations · dev · whole env─────────────────────────────────────────────────────────────┐
 │                      ││Links unknown                                                                                 │

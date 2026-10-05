@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests.rs
+assertion_line: 408
 expression: text
 ---
 terraleph ▸ a-ready                                                                                                                                    terraform
@@ -11,7 +12,7 @@ a-ready ✓ Ready No changes  │  b-error ✗ Error  │  c-running   Running  
 │────────────┼─────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────────│
 │No matching resource changes. v opens the full plan.                                                                                                          │
 │                                                                                                                                                              │
-│blank: absent   .: unchanged   ?: plan unavailable                                                                                                            │
+│Rows match by address · blank: absent   .: unchanged   ?: plan unavailable                                                                                    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌  [3] Relations · a-ready · whole env─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │No changes to show                                                                                                                                            │

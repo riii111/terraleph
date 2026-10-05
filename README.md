@@ -58,7 +58,29 @@ terraleph tofu plan
 terraleph tofu apply
 ```
 
-Run from your configuration directory, or its parent to compare environments. From the parent, nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
+Run from your configuration directory, or from a directory above it, such as the repository root, to compare environments. From above, nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
+
+### Choosing environments
+
+When the current directory has no configuration of its own, Terraleph searches up to 4 directory levels below it. A directory becomes a candidate when its configuration declares a `backend` or `cloud` block. The search skips:
+
+- hidden directories such as `.terraform` and `.git`
+- symlinked directories
+- directories that another configuration calls as a local module (`source = "../modules/app"`)
+
+Candidates are told apart by their path from the current directory. When the search misses an environment or offers the wrong ones, put Terraleph's options before the command:
+
+```sh
+# Plan these directories instead of searching
+terraleph --env-dir live/prod --env-dir live/stg plan
+
+# Search deeper
+terraleph --max-depth 6
+```
+
+`--env-dir` accepts any directory with configuration, including one without a backend block, and is resolved from the directory Terraform runs in (the current directory, or `-chdir`). Named directories still wait for `p` or `P`. Arguments after the command are passed to Terraform unchanged.
+
+Each directory is one environment. Terraleph does not split a directory into environments by workspace, backend configuration file, or variable file, and does not change those settings: each directory plans with the workspace it already uses and the `-var-file` options you pass. Comparison matches resources by address only, so a resource missing from one environment can come from differing configurations rather than drift.
 
 To use Terraleph with your usual commands:
 

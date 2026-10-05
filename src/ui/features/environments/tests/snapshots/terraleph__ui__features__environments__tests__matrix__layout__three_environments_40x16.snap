@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests/matrix.rs
+assertion_line: 1462
 expression: rendered
 ---
 terraleph ▸ dev                terraform
@@ -13,8 +14,8 @@ terraleph ▸ dev                terraform
 │                                      │
 │  ▸ Same: 1 pattern                   │
 │    counts differ                     │
-│blank: absent   .: unchanged          │
-│?: plan unavailable                   │
+│Rows match by address · blank: absent │
+│.: unchanged   ?: plan unavailable    │
 └──────────────────────────────────────┘
 Enter open row | v full plan | [/] env
 f/Esc restore | ? help | q quit

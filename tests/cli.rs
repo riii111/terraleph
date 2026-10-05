@@ -36,6 +36,25 @@ fn no_arguments_without_a_terminal_prints_help_without_terraform() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: terraleph"));
 }
 
+#[test]
+fn environment_options_are_documented_and_invalid_values_are_usage_errors() {
+    let help = Command::new(env!("CARGO_BIN_EXE_terraleph"))
+        .env("PATH", "")
+        .arg("--help")
+        .output()
+        .expect("CLI should start");
+    let invalid = Command::new(env!("CARGO_BIN_EXE_terraleph"))
+        .env("PATH", "")
+        .args(["--max-depth", "0", "plan"])
+        .output()
+        .expect("CLI should start");
+
+    let help = String::from_utf8_lossy(&help.stdout);
+    assert!(help.contains("--env-dir <DIR>") && help.contains("--max-depth <LEVELS>"));
+    assert_eq!(invalid.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("--max-depth"));
+}
+
 #[cfg(unix)]
 mod pty_tests {
     use rstest::rstest;
@@ -373,6 +392,97 @@ mod pty_tests {
             assert!(!invocations.contains("b-stg"), "{invocations}");
             assert_eq!(calls(&fixture, "init"), ["a-dev"]);
             assert_eq!(calls(&fixture, "plan"), ["a-dev"]);
+            assert_clean(&fixture, &result);
+        }
+
+        fn write_configuration(fixture: &Fixture, path: &str, source: &str) {
+            let directory = fixture.root.join(path);
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(directory.join("main.tf"), source).unwrap();
+        }
+
+        fn planned_directories(fixture: &Fixture) -> Vec<PathBuf> {
+            fs::read_to_string(&fixture.invocations)
+                .unwrap()
+                .lines()
+                .filter_map(|line| line.split_once('|'))
+                .filter(|(_, arguments)| arguments.starts_with("plan "))
+                .map(|(directory, _)| PathBuf::from(directory))
+                .collect()
+        }
+
+        #[test]
+        fn nested_environments_are_found_without_generated_or_module_directories() {
+            let fixture = fixture(&[]);
+            let backend = "terraform {\n backend \"local\" {}\n}";
+            write_configuration(
+                &fixture,
+                "live/aws/a-ready",
+                "terraform {\n backend \"local\" {}\n}\nmodule \"app\" { source = \"../../../modules/app\" }",
+            );
+            write_configuration(&fixture, "stacks/b-other", backend);
+            write_configuration(&fixture, "modules/app", backend);
+            write_configuration(&fixture, "modules/plain", "variable \"name\" {}");
+            write_configuration(&fixture, "live/aws/a-ready/.terraform/modules/x", backend);
+            write_configuration(&fixture, ".git/hooks", backend);
+            std::os::unix::fs::symlink(&fixture.root, fixture.root.join("live/loop")).unwrap();
+
+            let result = fixture.run("env_success", 120, 40);
+
+            assert_eq!(result.exit_code, 0);
+            let root = fixture.root.canonicalize().unwrap();
+            assert_eq!(
+                planned_directories(&fixture),
+                [root.join("live/aws/a-ready"), root.join("stacks/b-other")]
+            );
+            assert_eq!(calls(&fixture, "init"), ["a-ready", "b-other"]);
+            assert_clean(&fixture, &result);
+        }
+
+        #[test]
+        fn named_environments_replace_the_search_and_reach_terraform_unchanged() {
+            let fixture = fixture(&[]);
+            write_configuration(&fixture, "modules/a-ready", "variable \"name\" {}");
+            write_configuration(
+                &fixture,
+                "live/b-other",
+                "terraform {\n backend \"local\" {}\n}",
+            );
+            write_configuration(
+                &fixture,
+                "live/c-unnamed",
+                "terraform {\n backend \"local\" {}\n}",
+            );
+
+            let result = fixture.run_with_arguments(
+                "env_success",
+                120,
+                40,
+                "--env-dir",
+                &[
+                    "modules/a-ready",
+                    "--env-dir=live/b-other",
+                    "plan",
+                    "-parallelism=3",
+                ],
+            );
+
+            assert_eq!(result.exit_code, 0);
+            let root = fixture.root.canonicalize().unwrap();
+            assert_eq!(
+                planned_directories(&fixture),
+                [root.join("live/b-other"), root.join("modules/a-ready")]
+            );
+            let invocations = fs::read_to_string(&fixture.invocations).unwrap();
+            assert!(!invocations.contains("c-unnamed"), "{invocations}");
+            assert!(!invocations.contains("--env-dir"), "{invocations}");
+            assert!(
+                invocations
+                    .lines()
+                    .filter(|line| line.contains("|plan "))
+                    .all(|line| line.contains("-parallelism=3")),
+                "{invocations}"
+            );
             assert_clean(&fixture, &result);
         }
 

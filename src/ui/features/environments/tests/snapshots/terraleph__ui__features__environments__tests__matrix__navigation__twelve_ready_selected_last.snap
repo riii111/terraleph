@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests/matrix.rs
+assertion_line: 2264
 expression: rendered.as_str()
 ---
 terraleph ▸ env-11                                                     terraform
@@ -10,7 +11,7 @@ env-11 ✓ Ready ~1
 │─────────────────────────┼─────────────────────────────────────┼──────────────│
 │> ▸ Same change across envs: 1 pattern  Space expand                          │
 │                                                                              │
-│blank: absent   .: unchanged   ?: plan unavailable                            │
+│Rows match by address · blank: absent   .: unchanged   ?: plan unavailable    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌  [3] Relations · env-11 · whole env──────────────────────────────────────────┐
 │Links unknown                                                                 │

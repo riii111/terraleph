@@ -496,6 +496,7 @@ fn start_worker(
     let cancellation = worker.cancellation.clone();
     let sender = sender.clone();
     let launch_root = invocation.directory().to_owned();
+    let requires_backend = invocation.requires_backend();
     let history = history.cloned();
     worker.set_handle(
         thread::Builder::new()
@@ -509,6 +510,7 @@ fn start_worker(
                 let result = acquire(
                     tool,
                     &root,
+                    requires_backend,
                     &launch_root,
                     &arguments,
                     &plan_path,
@@ -540,6 +542,7 @@ fn start_worker(
 fn acquire(
     tool: Tool,
     root: &Path,
+    requires_backend: bool,
     launch_root: &Path,
     arguments: &[OsString],
     plan_path: &Path,
@@ -552,7 +555,7 @@ fn acquire(
     if config.execution_location == ExecutionLocation::HcpCandidate {
         return Ok(PlanResult::ExcludedHcp);
     }
-    if !config.has_backend {
+    if requires_backend && !config.has_backend {
         return Err("The environment no longer has backend configuration.".to_owned());
     }
     // Multiple environments reject TF_DATA_DIR, so each environment uses its own data directory.
