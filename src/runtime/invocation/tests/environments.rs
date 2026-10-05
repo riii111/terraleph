@@ -50,7 +50,12 @@ fn chdir_configuration_selects_single_before_any_child_discovery() {
     );
 
     assert_eq!(
-        select_entry(&mut invocation, Some(OsStr::new("custom-data"))).unwrap(),
+        select_entry(
+            &mut invocation,
+            Some(OsStr::new("custom-data")),
+            &EnvironmentTargets::default()
+        )
+        .unwrap(),
         Entry::Single
     );
     assert_eq!(
@@ -68,7 +73,7 @@ fn indeterminate_or_hcp_parent_delegates_without_discovering_children(#[case] so
     let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan", "-out=x"], &[]);
 
     assert_eq!(
-        select_entry(&mut invocation, None).unwrap(),
+        select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap(),
         Entry::Delegate
     );
 }
@@ -78,7 +83,10 @@ fn apply_in_an_empty_parent_never_selects_multiple_environments() {
     let fixture = Fixture::new();
     let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "apply"], &[]);
 
-    assert_eq!(select_entry(&mut invocation, None).unwrap(), Entry::Single);
+    assert_eq!(
+        select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap(),
+        Entry::Single
+    );
 }
 
 #[test]
@@ -87,7 +95,10 @@ fn opentofu_parent_files_prevent_terraform_child_discovery() {
     fs::write(fixture.0.join("parent/main.tofu"), "").unwrap();
     let mut invocation = fixture.parse(Tool::OpenTofu, &["-chdir=parent", "plan"], &[]);
 
-    assert_eq!(select_entry(&mut invocation, None).unwrap(), Entry::Single);
+    assert_eq!(
+        select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap(),
+        Entry::Single
+    );
 }
 
 #[rstest]
@@ -104,7 +115,7 @@ fn multiple_environment_options_are_rejected_before_discovery(
     arguments.extend_from_slice(args);
     let mut invocation = fixture.parse(Tool::Terraform, &arguments, environment);
 
-    let error = select_entry(&mut invocation, None).unwrap_err();
+    let error = select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap_err();
 
     assert!(error.to_string().contains(expected));
 }
@@ -135,7 +146,7 @@ fn multiple_var_files_resolve_at_chdir_root_and_preserve_option_values_and_order
     .unwrap();
 
     assert_eq!(
-        select_entry(&mut invocation, None).unwrap(),
+        select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap(),
         Entry::Multiple
     );
     assert_eq!(invocation.tool(), Tool::OpenTofu);
@@ -175,4 +186,52 @@ fn multiple_var_files_resolve_at_chdir_root_and_preserve_option_values_and_order
             absolute
         ]
     );
+}
+
+fn targets(arguments: &[&str]) -> EnvironmentTargets {
+    EnvironmentTargets::parse_leading(&arguments.iter().map(OsString::from).collect::<Vec<_>>())
+        .unwrap()
+        .0
+}
+
+#[test]
+fn named_targets_override_the_single_environment_of_a_configured_directory() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("parent/main.tf"), "").unwrap();
+    let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan"], &[]);
+
+    assert_eq!(
+        select_entry(&mut invocation, None, &targets(&["--env-dir", "dev"])).unwrap(),
+        Entry::Multiple
+    );
+    assert_eq!(invocation.directory(), fixture.0.join("parent"));
+    assert!(!invocation.requires_backend());
+}
+
+#[test]
+fn named_targets_are_rejected_for_apply() {
+    let fixture = Fixture::new();
+    let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "apply"], &[]);
+
+    let error = select_entry(&mut invocation, None, &targets(&["--env-dir", "dev"])).unwrap_err();
+
+    assert!(error.to_string().contains("--env-dir"), "{error}");
+}
+
+#[test]
+fn search_depth_is_rejected_where_no_search_happens() {
+    let fixture = Fixture::new();
+    fs::write(fixture.0.join("parent/main.tf"), "").unwrap();
+    let mut configured = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan"], &[]);
+    let mut parent = fixture.parse(Tool::Terraform, &["plan"], &[]);
+    let depth = targets(&["--max-depth", "3"]);
+
+    let error = select_entry(&mut configured, None, &depth).unwrap_err();
+
+    assert!(error.to_string().contains("--max-depth"), "{error}");
+    assert_eq!(
+        select_entry(&mut parent, None, &depth).unwrap(),
+        Entry::Multiple
+    );
+    assert!(parent.requires_backend());
 }

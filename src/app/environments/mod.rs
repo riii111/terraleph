@@ -96,6 +96,14 @@ impl Environment {
     pub(crate) const fn is_available(&self) -> bool {
         matches!(self.availability, EnvironmentAvailability::Available { .. })
     }
+
+    pub(crate) fn directory(&self) -> &Path {
+        match &self.availability {
+            EnvironmentAvailability::Available { directory }
+            | EnvironmentAvailability::ExcludedHcp { directory }
+            | EnvironmentAvailability::Error { directory, .. } => directory,
+        }
+    }
 }
 
 impl EnvironmentSession {
@@ -509,15 +517,27 @@ fn output_line(event: &ExecutionEvent) -> Option<String> {
 }
 
 fn relative_display_path(directory: &Path, root: &Path) -> String {
-    let Ok(relative) = directory.strip_prefix(root) else {
-        return directory_display_name(directory);
-    };
-    let components = relative
+    let shared = directory
         .components()
-        .map(|component| directory_display_name(Path::new(component.as_os_str())))
+        .zip(root.components())
+        .take_while(|(left, right)| left == right)
+        .count();
+    if shared == 0 {
+        return directory.to_string_lossy().into_owned();
+    }
+    let components = root
+        .components()
+        .skip(shared)
+        .map(|_| "..".to_owned())
+        .chain(
+            directory
+                .components()
+                .skip(shared)
+                .map(|component| directory_display_name(Path::new(component.as_os_str()))),
+        )
         .collect::<Vec<_>>();
     if components.is_empty() {
-        directory_display_name(directory)
+        ".".to_owned()
     } else {
         components.join("/")
     }
@@ -1049,6 +1069,31 @@ mod tests {
                     .map(EnvironmentPlan::display_name)
                     .collect::<Vec<_>>(),
                 ["app:prod", "network:prod", "shared"]
+            );
+        }
+
+        #[test]
+        fn targets_outside_or_at_the_root_keep_distinct_paths() {
+            let state = EnvironmentSession::new(
+                [
+                    "/work/a/prod",
+                    "/work/b/prod",
+                    "/work/repo",
+                    "/work/repo/repo",
+                ]
+                .map(available)
+                .into(),
+                false,
+            )
+            .with_exploration_root("/work/repo");
+
+            assert_eq!(
+                state
+                    .plans()
+                    .iter()
+                    .map(EnvironmentPlan::display_name)
+                    .collect::<Vec<_>>(),
+                [".", "repo", "../a/prod", "../b/prod"]
             );
         }
     }

@@ -477,17 +477,18 @@ fn visible_columns_from(first: usize, widths: &[usize], budget: usize) -> Vec<(u
 }
 
 fn symbol_legend(width: u16) -> Vec<Line<'static>> {
-    if width < 50 {
-        vec![
-            Line::styled("blank: absent   .: unchanged", theme::overview_text_style()),
-            Line::styled("?: plan unavailable", theme::overview_text_style()),
+    let lines: &[&'static str] = if width < 74 {
+        &[
+            "Rows match by address · blank: absent",
+            ".: unchanged   ?: plan unavailable",
         ]
     } else {
-        vec![Line::styled(
-            "blank: absent   .: unchanged   ?: plan unavailable",
-            theme::overview_text_style(),
-        )]
-    }
+        &["Rows match by address · blank: absent   .: unchanged   ?: plan unavailable"]
+    };
+    lines
+        .iter()
+        .map(|line| Line::styled(*line, theme::overview_text_style()))
+        .collect()
 }
 
 fn legend_height(width: u16) -> usize {

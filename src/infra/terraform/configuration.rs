@@ -55,6 +55,62 @@ pub(crate) fn module_calls(root: &Path, tool: Tool) -> io::Result<BTreeSet<Strin
     Ok(names)
 }
 
+// Terraform also accepts backslash separators and absolute paths for local sources.
+pub(crate) fn local_module_sources(root: &Path, tool: Tool) -> io::Result<Vec<PathBuf>> {
+    let mut sources = Vec::new();
+    for path in configuration_files(root, tool)? {
+        let source = fs::read_to_string(&path)?;
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            let value: Value =
+                serde_json::from_str(&source).map_err(|_| invalid_configuration())?;
+            if let Some(modules) = value.get("module") {
+                for_json_block(modules, |calls| {
+                    for call in calls.values() {
+                        for_json_block(call, |body| {
+                            sources.extend(
+                                body.get("source")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned),
+                            );
+                            Ok(())
+                        })?;
+                    }
+                    Ok(())
+                })?;
+            }
+        } else {
+            let body: Body = hcl::from_str(&source).map_err(|_| invalid_configuration())?;
+            sources.extend(
+                body.blocks()
+                    .filter(|block| block.identifier() == "module")
+                    .filter_map(|block| {
+                        block
+                            .body()
+                            .attributes()
+                            .find(|attribute| attribute.key() == "source")
+                    })
+                    .filter_map(|attribute| match attribute.expr() {
+                        hcl::Expression::String(source) => Some(source.clone()),
+                        _ => None,
+                    }),
+            );
+        }
+    }
+    Ok(sources
+        .into_iter()
+        .filter_map(|source| {
+            if Path::new(&source).is_absolute() {
+                return Some(PathBuf::from(source));
+            }
+            let relative = source.replace('\\', "/");
+            (relative.starts_with("./") || relative.starts_with("../")).then(|| root.join(relative))
+        })
+        .collect())
+}
+
 pub(crate) fn execution_location_for_tool(
     root: &Path,
     tool: Tool,
@@ -550,5 +606,43 @@ mod tests {
                 .unwrap()
                 .has_backend
         );
+    }
+
+    #[test]
+    fn relative_and_absolute_module_sources_are_local() {
+        let fixture = Fixture::new(
+            "main.tf",
+            r#"
+module "network" { source = "../../modules/network" }
+module "sibling" { source = "./sibling" }
+module "backslash" { source = "..\\shared\\app" }
+module "registry" { source = "hashicorp/consul/aws" }
+module "git" { source = "git::https://example.com/module.git" }
+"#,
+        );
+        let absolute = fixture.0.join("absolute");
+        fs::write(
+            fixture.0.join("calls.tf.json"),
+            serde_json::json!({"module": {
+                "json": {"source": "../json"},
+                "absolute": {"source": absolute},
+                "remote": [{"source": "app.terraform.io/x/y/z"}],
+            }})
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut sources = local_module_sources(&fixture.0, Tool::Terraform).unwrap();
+        sources.sort();
+
+        let mut expected = vec![
+            fixture.0.join("../../modules/network"),
+            fixture.0.join("../json"),
+            fixture.0.join("../shared/app"),
+            fixture.0.join("./sibling"),
+            absolute,
+        ];
+        expected.sort();
+        assert_eq!(sources, expected);
     }
 }

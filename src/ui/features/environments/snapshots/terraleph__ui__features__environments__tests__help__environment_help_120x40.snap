@@ -1,5 +1,6 @@
 ---
 source: src/ui/features/environments/tests.rs
+assertion_line: 408
 expression: text
 ---
 terraleph ▸ a-ready                                                                                            terraform
@@ -11,7 +12,7 @@ a-ready ✓ Ready No changes
 │────────────┼──────│ Current: Multi-environment Overview                                        ▲ │───────────────────│
 │No matching resourc│ ↑ / ↓ / j / k      select environments in [1], rows in [2], or scroll [3]  ┃ │                   │
 │                   │ Space              toggle an environment in [1]; a group or summary in [2] ┃ │                   │
-│blank: absent   .: │ o / a              compare the selected / all environments in [1]          ┃ │                   │
+│Rows match by addre│ o / a              compare the selected / all environments in [1]          ┃ │                   │
 └───────────────────│ [ / ]              select the previous or next environment                 ┃ │───────────────────┘
 ┌  [3] Relations · a│ 1 / 2 / 3          focus Envs / Compare / Relations; 1 opens Envs          ┃ │───────────────────┐
 │No changes to show │ b                  toggle the Envs sidebar                                 ┃ │                   │
