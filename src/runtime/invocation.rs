@@ -11,7 +11,6 @@ use crate::app::{
     environments::{Environment, EnvironmentAvailability},
     execution::{Tool, VariableSources},
 };
-use crate::infra::CancellationToken;
 use crate::infra::terraform::{
     self,
     configuration::{self, ExecutionLocation},
@@ -111,12 +110,7 @@ fn execute(tool: Tool, arguments: &[OsString], default_entry: bool) -> io::Resul
         Entry::Delegate => return terraform::delegate(&executable, arguments),
         Entry::Single => {}
         Entry::Multiple => {
-            let environments = discovery::discover(
-                invocation.directory(),
-                tool,
-                &CancellationToken::default(),
-                &terraform::SystemProcessRunner,
-            )?;
+            let environments = discovery::discover(invocation.directory(), tool)?;
             validate_discovery(&environments)?;
             return super::environments::run(&invocation, environments);
         }
@@ -171,7 +165,7 @@ fn validate_discovery(environments: &[Environment]) -> io::Result<()> {
                 EnvironmentAvailability::Error { directory, message } => {
                     Some(format!("{}: Error: {message}", directory.display()))
                 }
-                EnvironmentAvailability::Available(_) => None,
+                EnvironmentAvailability::Available { .. } => None,
             })
             .collect::<Vec<_>>()
             .join("\n");

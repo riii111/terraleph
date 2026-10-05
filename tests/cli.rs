@@ -109,7 +109,7 @@ mod pty_tests {
                 ("env_success", 0, 2, 2),
                 ("env_detailed", 2, 2, 2),
                 ("env_init_failure", 1, 1, 2),
-                ("env_excluded", 1, 1, 1),
+                ("env_excluded", 0, 1, 1),
                 ("env_reinit", 0, 3, 2),
                 ("env_reinit_failure", 1, 3, 2),
             ] {
@@ -358,6 +358,21 @@ mod pty_tests {
 
             assert_eq!(result.exit_code, 1);
             result.observed("warning_and_failure");
+            assert_clean(&fixture, &result);
+        }
+
+        #[test]
+        fn unselected_environments_run_nothing_and_leave_the_exit_code_to_the_chosen_one() {
+            let fixture = fixture(&["a-dev", "b-stg"]);
+
+            let result = fixture.run("env_select_one", 120, 40);
+
+            assert_eq!(result.exit_code, 0);
+            result.observed("unselected_left_unplanned");
+            let invocations = fs::read_to_string(&fixture.invocations).unwrap();
+            assert!(!invocations.contains("b-stg"), "{invocations}");
+            assert_eq!(calls(&fixture, "init"), ["a-dev"]);
+            assert_eq!(calls(&fixture, "plan"), ["a-dev"]);
             assert_clean(&fixture, &result);
         }
 

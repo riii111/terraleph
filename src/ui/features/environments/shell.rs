@@ -24,15 +24,18 @@ pub(super) fn status_marker(state: &EnvironmentState) -> Span<'static> {
     match state {
         EnvironmentState::Ready { .. } => ready_mark::render(),
         EnvironmentState::Error => Span::styled("✗ ", theme::overview_total_destroy_style()),
-        EnvironmentState::Pending | EnvironmentState::Running | EnvironmentState::ExcludedHcp => {
-            Span::styled("  ", theme::overview_muted_style())
-        }
+        EnvironmentState::Unselected
+        | EnvironmentState::Pending
+        | EnvironmentState::Running
+        | EnvironmentState::ExcludedHcp => Span::styled("  ", theme::overview_muted_style()),
     }
 }
 
 pub(super) fn status_style(state: &EnvironmentState) -> ratatui::style::Style {
     match state {
-        EnvironmentState::Pending | EnvironmentState::Running => theme::overview_muted_style(),
+        EnvironmentState::Unselected | EnvironmentState::Pending | EnvironmentState::Running => {
+            theme::overview_muted_style()
+        }
         EnvironmentState::Ready { .. } => theme::overview_text_style(),
         EnvironmentState::Error => theme::overview_total_destroy_style(),
         EnvironmentState::ExcludedHcp => theme::overview_warning_style(),
@@ -235,13 +238,14 @@ pub(super) fn context(plan: &EnvironmentPlan) -> String {
     format!(
         "{}   ws:{}\nDirectory: {}",
         plan.tool.display_name(),
-        plan.workspace().unwrap_or("unavailable"),
+        plan.workspace().unwrap_or("not determined"),
         plan.directory().display()
     )
 }
 
 pub(super) const fn status(plan: &EnvironmentPlan) -> &'static str {
     match plan.state() {
+        EnvironmentState::Unselected => "Not planned",
         EnvironmentState::Pending => "Pending",
         EnvironmentState::Running => match plan.preparation().stage() {
             Some(stage) => stage.title(),

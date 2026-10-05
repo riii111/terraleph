@@ -126,7 +126,10 @@ fn environment_lines(
             lines.push(error_reason_line(plan, width));
             lines.push(retry_hint_line());
         }
-        EnvironmentState::Pending | EnvironmentState::Running | EnvironmentState::ExcludedHcp => {
+        EnvironmentState::Unselected
+        | EnvironmentState::Pending
+        | EnvironmentState::Running
+        | EnvironmentState::ExcludedHcp => {
             lines.push(status);
         }
     }
@@ -153,7 +156,14 @@ fn environment_name_line(
     compared: bool,
 ) -> Line<'static> {
     let marker = if selected { "> " } else { "  " };
-    let checkbox = if compared { "[x]" } else { "[ ]" };
+    // A candidate that was never planned has no comparison choice, so it shows no checkbox.
+    let checkbox = if !plan.is_target() {
+        "   "
+    } else if compared {
+        "[x]"
+    } else {
+        "[ ]"
+    };
     let production = plan.is_production();
     let suffix = if production { " [PROD]" } else { "" };
     let reserved =

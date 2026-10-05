@@ -17,19 +17,20 @@ use crate::app::{
 use crate::ui::test_support::buffer_visual_snapshot;
 
 fn session(names: &[&str]) -> EnvironmentSession {
-    EnvironmentSession::new(
+    let mut session = EnvironmentSession::new(
         names
             .iter()
             .map(|name| Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             })
             .collect(),
         false,
-    )
+    );
+    session.request_all_plans();
+    session
 }
 
 fn change(address: &str, kind: ResourceChangeKind) -> ResourceChange {
@@ -1550,15 +1551,15 @@ mod layout {
             ["dev", "prod"]
                 .map(|name| Environment {
                     tool: Tool::OpenTofu,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from(format!("/synthetic/{name}")),
-                        workspace: "staging".to_owned(),
-                    }),
+                    },
                 })
                 .into_iter()
                 .collect(),
             false,
         );
+        state.request_all_plans();
         for _ in 0..2 {
             let index = state.start_next().unwrap();
             state.complete(

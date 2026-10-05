@@ -210,10 +210,7 @@ mod tests {
     use super::*;
     use crate::app::{
         copy,
-        environments::{
-            Environment, EnvironmentAvailability, EnvironmentIdentity, EnvironmentSession,
-            PlanResult,
-        },
+        environments::{Environment, EnvironmentAvailability, EnvironmentSession, PlanResult},
         execution::Tool,
         plan::{
             AttributeType, Plan, PlanValue, ProviderSchema, ProviderSchemas, ResourceMode,
@@ -281,10 +278,9 @@ mod tests {
     fn environment(name: &str) -> Environment {
         Environment {
             tool: Tool::Terraform,
-            availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+            availability: EnvironmentAvailability::Available {
                 directory: PathBuf::from(name),
-                workspace: "default".to_owned(),
-            }),
+            },
         }
     }
 
@@ -345,6 +341,7 @@ mod tests {
                 .collect(),
             false,
         );
+        session.request_all_plans();
         for change in changes {
             complete_next(
                 &mut session,
@@ -694,6 +691,7 @@ mod tests {
         unchanged.actions = vec![PlanAction::NoOp];
         let mut session =
             EnvironmentSession::new(vec![environment("dev"), environment("prod")], false);
+        session.request_all_plans();
         complete_next(
             &mut session,
             review(vec![left.clone(), unchanged.clone()], None),
@@ -726,6 +724,7 @@ mod tests {
         plan.value_addresses.insert(change.address.clone());
         let mut session =
             EnvironmentSession::new(vec![environment("dev"), environment("prod")], false);
+        session.request_all_plans();
         complete_next(&mut session, review(vec![change], None));
         complete_next(&mut session, plan_review(plan, None));
 
@@ -755,6 +754,7 @@ mod tests {
             ],
             false,
         );
+        session.request_all_plans();
         assert_eq!(
             compare_all(session.plans()),
             EnvironmentComparison {
@@ -786,6 +786,7 @@ mod tests {
         let left = update(json!({"a": 0}), json!({"a": 1}));
         let right = update(json!({"a": 0}), json!({"a": 2}));
         let mut session = EnvironmentSession::new(vec![environment("a"), environment("b")], false);
+        session.request_all_plans();
         complete_next(&mut session, review(vec![left], None));
         assert_eq!(compare_all(session.plans()).scope, ComparisonScope::Partial);
 
@@ -814,6 +815,7 @@ mod tests {
             vec![environment("a"), environment("b"), environment("c")],
             false,
         );
+        session.request_all_plans();
         complete_next(&mut session, review(vec![same.clone()], None));
         complete_next(&mut session, review(vec![outside, outside_only], None));
         complete_next(&mut session, review(vec![same], None));
@@ -842,6 +844,7 @@ mod tests {
             vec![environment("a"), environment("b"), environment("c")],
             false,
         );
+        session.request_all_plans();
         complete_next(&mut session, review(vec![left], None));
         let run = session.start_next().unwrap();
         assert!(session.complete(run, PlanResult::Error("failed".to_owned()), Vec::new()));
@@ -865,6 +868,7 @@ mod tests {
         change.before_sensitive = Some(value(json!({"token": true})));
         change.after_sensitive = Some(value(json!({"token": true})));
         let mut session = EnvironmentSession::new(vec![environment("a"), environment("b")], false);
+        session.request_all_plans();
         complete_next(&mut session, review(vec![change.clone()], None));
         complete_next(&mut session, review(vec![change], None));
 
@@ -902,6 +906,7 @@ mod tests {
             right.push(change);
         }
         let mut session = EnvironmentSession::new(vec![environment("a"), environment("b")], false);
+        session.request_all_plans();
         complete_next(&mut session, review(left, None));
         complete_next(&mut session, review(right, None));
 

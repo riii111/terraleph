@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     app::{
-        environments::{Environment, EnvironmentAvailability, EnvironmentIdentity, PlanResult},
+        environments::{Environment, EnvironmentAvailability, PlanResult},
         execution::{InitializationReason, LockFileChange, PreparationEvent, Tool},
         plan::Plan,
         review::{PlanMetadata, PlanReview, test_support::plan_document},
@@ -19,10 +19,9 @@ fn partial_session() -> EnvironmentSession {
         .into_iter()
         .map(|name| Environment {
             tool: Tool::Terraform,
-            availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+            availability: EnvironmentAvailability::Available {
                 directory: PathBuf::from(format!("/synthetic/{name}")),
-                workspace: "default".to_owned(),
-            }),
+            },
         })
         .collect();
     environments.push(Environment {
@@ -32,6 +31,7 @@ fn partial_session() -> EnvironmentSession {
         },
     });
     let mut state = EnvironmentSession::new(environments, false);
+    state.request_all_plans();
     let first = state.start_next().unwrap();
     let review = PlanReview::new(
         PathBuf::from("/synthetic/a-ready"),
@@ -70,13 +70,13 @@ fn overview_plan_session(names: &[&str]) -> EnvironmentSession {
         .iter()
         .map(|name| Environment {
             tool: Tool::Terraform,
-            availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+            availability: EnvironmentAvailability::Available {
                 directory: PathBuf::from(format!("/synthetic/{name}")),
-                workspace: "default".to_owned(),
-            }),
+            },
         })
         .collect();
     let mut state = EnvironmentSession::new(environments, false);
+    state.request_all_plans();
     let mut lines = (0..45)
         .map(|line| format!("PLAN LINE {line:02}"))
         .collect::<Vec<_>>();
@@ -245,13 +245,13 @@ mod acquisition {
             .into_iter()
             .map(|name| Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             })
             .collect();
         let mut state = EnvironmentSession::new(environments, false);
+        state.request_all_plans();
         let ready = state.start_next().unwrap();
         state.record_preparation(ready, PreparationEvent::LockFile(LockFileChange::Created));
         state.complete(
@@ -338,8 +338,9 @@ mod acquisition {
         ] {
             view.select_environment(next);
             let rendered = render_text(&mut view, &state, (size.width, size.height));
+            let scope = if next == 4 { "excluded" } else { "whole env" };
             assert!(
-                rendered.contains(&format!("{status} · whole env")),
+                rendered.contains(&format!("{status} · {scope}")),
                 "{rendered}"
             );
             assert!(rendered.contains(explanation), "{rendered}");
@@ -765,10 +766,9 @@ mod layout {
         let ordinary = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{ordinary_name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
@@ -778,10 +778,9 @@ mod layout {
         let production = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{production_name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
@@ -791,17 +790,15 @@ mod layout {
             vec![
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("/synthetic/dev"),
-                        workspace: "default".to_owned(),
-                    }),
+                    },
                 },
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from(format!("/synthetic/{production_name}")),
-                        workspace: "default".to_owned(),
-                    }),
+                    },
                 },
             ],
             false,
@@ -812,10 +809,9 @@ mod layout {
         let state = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
@@ -873,7 +869,7 @@ mod sidebar {
 
         let text = render_text(&mut view, &state, (90, 12));
 
-        assert!(text.contains("> [x] e-hcp"), "{text}");
+        assert!(text.contains(">     e-hcp"), "{text}");
         assert!(!text.contains("Error"), "{text}");
         assert!(!text.contains("Pending +0"), "{text}");
         assert!(!text.contains("Running +0"), "{text}");
@@ -892,7 +888,7 @@ mod sidebar {
         assert_eq!(view.selection.column, 1);
         handle_key_code(&mut view, KeyCode::Char(' '), size, &state);
         assert_eq!(view.selection.column, 1);
-        assert_eq!(view.selected_environments, Some(vec![0, 2, 3, 4]));
+        assert_eq!(view.selected_environments, Some(vec![0, 2, 3]));
         view.sync(&state);
         let filtered = render_text(&mut view, &state, (160, 60));
         let header = filtered
@@ -964,10 +960,9 @@ mod sidebar {
         let state = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from("/synthetic/only-env"),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
@@ -978,7 +973,9 @@ mod sidebar {
         assert!(!text.contains("[1] Envs"), "{text}");
         assert!(text.contains("[3] Relations"), "{text}");
         let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(normalized.contains("only-env Pending"), "{text}");
+        assert!(normalized.contains("only-env Not planned"), "{text}");
+        assert!(normalized.contains("p plan"), "{text}");
+        assert!(!text.contains("Address"), "{text}");
         assert!(!text.contains("toggle envs"), "{text}");
         assert!(!text.contains("1/2 focus"), "{text}");
         assert!(!text.contains("[/] env"), "{text}");
@@ -1010,22 +1007,20 @@ mod sidebar {
     }
 
     #[test]
-    fn pending_production_environment_shows_its_badge_before_the_plan_finishes() {
+    fn unplanned_production_environment_shows_its_badge_before_any_plan() {
         let state = EnvironmentSession::new(
             vec![
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("/synthetic/prod"),
-                        workspace: "default".to_owned(),
-                    }),
+                    },
                 },
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("/synthetic/dev"),
-                        workspace: "default".to_owned(),
-                    }),
+                    },
                 },
             ],
             false,
@@ -1035,7 +1030,7 @@ mod sidebar {
         let text = render_text(&mut view, &state, (120, 40));
 
         assert!(text.contains("prod [PROD]"), "{text}");
-        assert!(text.contains("Pending"), "{text}");
+        assert!(text.contains("Not planned"), "{text}");
     }
 
     #[test]
@@ -1608,13 +1603,13 @@ mod message_dialog {
         let mut state = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from("/synthetic/error"),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
+        state.request_all_plans();
         let index = state.start_next().unwrap();
         let detail = (0..30)
             .map(|line| format!("Diagnostic line {line:02}"))
@@ -1644,13 +1639,13 @@ mod message_dialog {
         let mut state = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from("/synthetic/error"),
-                    workspace: "default".to_owned(),
-                }),
+                },
             }],
             false,
         );
+        state.request_all_plans();
         let index = state.start_next().unwrap();
         let detail = (0..30)
             .map(|line| format!("Diagnostic line {line:02}"))
@@ -1799,13 +1794,13 @@ mod change_summary {
             .iter()
             .map(|(name, _)| Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             })
             .collect();
         let mut state = EnvironmentSession::new(environments, false);
+        state.request_all_plans();
         for (name, plan) in plans {
             let work = state.start_next().expect("environment should start");
             let review = |applyable| {
@@ -1863,13 +1858,13 @@ mod apply {
             .iter()
             .map(|name| Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from(format!("/synthetic/{name}")),
-                    workspace: "default".to_owned(),
-                }),
+                },
             })
             .collect();
         let mut state = EnvironmentSession::new(environments, false);
+        state.request_all_plans();
         for name in names.iter().take(ready) {
             let index = state.start_next().expect("environment should start");
             state.complete(index, ready_result(applyable_review(name)), Vec::new());
@@ -2079,6 +2074,191 @@ mod apply {
         assert!(handle_key_code(&mut view, KeyCode::Char('a'), size, &state).is_none());
         let dialog = render_text(&mut view, &state, (120, 40));
         assert!(dialog.contains("every environment plan"), "{dialog}");
+    }
+}
+
+mod target_selection {
+    use super::*;
+
+    fn unplanned_session(names: &[&str]) -> EnvironmentSession {
+        EnvironmentSession::new(
+            names
+                .iter()
+                .map(|name| Environment {
+                    tool: Tool::Terraform,
+                    availability: EnvironmentAvailability::Available {
+                        directory: PathBuf::from(format!("/synthetic/{name}")),
+                    },
+                })
+                .collect(),
+            false,
+        )
+        .with_exploration_root("/synthetic")
+    }
+
+    fn ready_in(workspace: &str, directory: &str) -> PlanResult {
+        PlanResult::Ready {
+            review: Box::new(PlanReview::new(
+                PathBuf::from(directory),
+                workspace.to_owned(),
+                plan_document("No changes.\n".to_owned()),
+                Plan::empty(),
+                PlanMetadata::new(false),
+                Vec::new(),
+            )),
+            changed: false,
+        }
+    }
+
+    #[test]
+    fn uninitialized_candidates_open_unplanned_with_guidance_to_plan() {
+        let state = unplanned_session(&["dev", "stg", "prod"]);
+        let mut view = EnvironmentView::default();
+
+        let text = render_text(&mut view, &state, (100, 24));
+
+        assert!(text.contains(">     dev"), "{text}");
+        assert_eq!(text.matches("Not planned").count(), 4, "{text}");
+        assert!(!text.contains("[x]"), "{text}");
+        assert!(!text.contains("Address"), "{text}");
+        assert!(text.contains("Nothing is planned yet."), "{text}");
+        assert!(text.contains("p plan"), "{text}");
+        assert!(!text.contains("Pending"), "{text}");
+    }
+
+    #[test]
+    fn unplanned_discovery_results_point_to_their_own_next_step() {
+        let state = EnvironmentSession::new(
+            vec![
+                Environment {
+                    tool: Tool::Terraform,
+                    availability: EnvironmentAvailability::Error {
+                        directory: PathBuf::from("/synthetic/broken"),
+                        message: "Synthetic configuration error".to_owned(),
+                    },
+                },
+                Environment {
+                    tool: Tool::Terraform,
+                    availability: EnvironmentAvailability::ExcludedHcp {
+                        directory: PathBuf::from("/synthetic/hcp"),
+                    },
+                },
+            ],
+            false,
+        );
+        let mut view = EnvironmentView::default();
+
+        for (column, expected) in [
+            (0, "broken is not planned. r retries it."),
+            (1, "cannot run here"),
+        ] {
+            view.select_environment(column);
+            let text = render_text(&mut view, &state, (160, 40));
+            assert!(text.contains(expected), "column {column}: {text}");
+            assert!(!text.contains("p plans it"), "column {column}: {text}");
+        }
+    }
+
+    #[test]
+    fn plan_keys_request_only_unplanned_environments() {
+        let mut state = unplanned_session(&["dev", "prod"]);
+        let mut view = EnvironmentView::default();
+        let size = Size::new(100, 24);
+
+        let input = handle_key_code(&mut view, KeyCode::Char('p'), size, &state);
+
+        assert!(matches!(input, Some(EnvironmentInput::Plan(0))));
+        assert!(state.request_plan(0));
+        assert!(handle_key_code(&mut view, KeyCode::Char('p'), size, &state).is_none());
+        let shifted = view.handle_key(
+            KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT),
+            size,
+            &state,
+        );
+        assert!(matches!(shifted, Some(EnvironmentInput::PlanAll)));
+        assert!(state.request_all_plans());
+        assert!(
+            view.handle_key(
+                KeyEvent::new(KeyCode::Char('P'), KeyModifiers::SHIFT),
+                size,
+                &state,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn comparison_follows_targets_and_rejects_unplanned_environments() {
+        let mut state = unplanned_session(&["dev", "stg", "prod"]);
+        let mut view = EnvironmentView::default();
+        let size = Size::new(100, 24);
+        assert!(state.request_plan(0));
+        assert_eq!(view.compared_environments(state.plans()), [0]);
+
+        handle_key_code(&mut view, KeyCode::Down, size, &state);
+        handle_key_code(&mut view, KeyCode::Char(' '), size, &state);
+
+        assert_eq!(view.selected_environments, None);
+        assert!(
+            view.notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("stg is not planned"))
+        );
+        let text = render_text(&mut view, &state, (100, 24));
+        assert!(!text.contains("excluded from the comparison"), "{text}");
+        assert!(!text.contains("Filtered"), "{text}");
+    }
+
+    #[test]
+    fn planning_an_environment_joins_a_narrowed_comparison() {
+        let mut state = unplanned_session(&["dev", "stg", "prod"]);
+        let mut view = EnvironmentView::default();
+        let size = Size::new(100, 24);
+        assert!(state.request_plan(0));
+        assert!(state.request_plan(1));
+        handle_key_code(&mut view, KeyCode::Char('o'), size, &state);
+        assert_eq!(view.selected_environments, Some(vec![0]));
+
+        handle_key_code(&mut view, KeyCode::End, size, &state);
+        let input = handle_key_code(&mut view, KeyCode::Char('p'), size, &state);
+
+        assert!(matches!(input, Some(EnvironmentInput::Plan(2))));
+        assert_eq!(view.selected_environments, Some(vec![0, 2]));
+    }
+
+    #[test]
+    fn opening_an_unplanned_environment_explains_how_to_plan_it() {
+        let state = unplanned_session(&["dev", "prod"]);
+        let mut view = EnvironmentView::default();
+
+        assert!(handle_key_code(&mut view, KeyCode::Enter, Size::new(100, 24), &state).is_none());
+
+        let text = render_text(&mut view, &state, (100, 24));
+        assert!(text.contains("dev: Not planned"), "{text}");
+        assert!(text.contains("ws:not determined"), "{text}");
+        assert!(text.contains("p plans it after closing"), "{text}");
+    }
+
+    #[test]
+    fn shared_workspaces_keep_path_qualified_column_headers() {
+        let mut state = unplanned_session(&["app", "network"]);
+        assert!(state.request_all_plans());
+        for directory in ["/synthetic/app", "/synthetic/network"] {
+            let index = state
+                .start_next()
+                .expect("a requested environment should start");
+            assert!(state.complete(index, ready_in("prod", directory), Vec::new()));
+        }
+        let mut view = EnvironmentView::default();
+
+        let text = render_text(&mut view, &state, (120, 30));
+
+        let header = text
+            .lines()
+            .find(|line| line.contains("Address"))
+            .expect("matrix header");
+        assert!(header.contains("app:prod"), "{header}");
+        assert!(header.contains("network:prod"), "{header}");
     }
 }
 

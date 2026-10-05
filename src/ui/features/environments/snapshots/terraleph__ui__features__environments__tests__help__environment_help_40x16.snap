@@ -12,9 +12,9 @@ a┌Help────────────────────────
 ││ f                  maximize or r │ ││
 ││ Enter              [2] opens the │ ││
 ││ /                  filter [2] ad │ ││
-││ r                  retry the sel │ ││
-││                                  ▼ ││
-││ ◀︎═════════════─────────────────▶︎   ││
+││ p / P              plan the sele │ ││
+││ r                  retry the sel ▼ ││
+││ ◀︎══════════────────────────────▶︎   ││
 └│ ←/→ scroll | ?/Esc close           │┘
 v└────────────────────────────────────┘
 ? help | q quit

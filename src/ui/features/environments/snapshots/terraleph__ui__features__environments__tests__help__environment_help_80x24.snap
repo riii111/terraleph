@@ -10,9 +10,10 @@ a┌Help────────────────────────
 ││ [ / ]              select the previous or next environment               ┃ ││
 ││ 2 / 3              focus Compare / Relations                             ┃ ││
 ││ f                  maximize or restore [2] Compare / [3] Relations       ┃ ││
-││ Enter              [2] opens the selected source; [3] the plan top       ┃ ││
+││ Enter              [2] opens the selected source; [3] the plan top       │ ││
 └│ /                  filter [2] addresses; [3] still shows everything      │ │┘
-┌│ r                  retry the selected Error environment                  │ │┐
+┌│ p / P              plan the selected / every not planned environment; in │ │┐
+││ r                  retry the selected Error environment                  │ ││
 ││                                                                          │ ││
 ││ Other                                                                    │ ││
 ││ ← / → / h / l      scroll columns in [2] or [3]                          │ ││
@@ -20,8 +21,7 @@ a┌Help────────────────────────
 ││ Home / End / g / G first/last row in [2]; scroll [3] to an edge          │ ││
 ││ v                  open the full plan from the top                       │ ││
 ││ y                  copy the selected environment's plan                  │ ││
-││ c                  show environment context                              │ ││
-││ ?                  show or close this help                               │ ││
-││ q                  quit; confirms first while acquiring                  ▼ ││
-└│ ?/Esc close                                                                │┘
+││ c                  show environment context                              ▼ ││
+││ ◀︎════════════════════════════════════════════════════──────────────────▶︎   ││
+└│ ←/→ scroll | ?/Esc close                                                   │┘
 v└────────────────────────────────────────────────────────────────────────────┘

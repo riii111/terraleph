@@ -4,7 +4,7 @@ expression: text
 ---
 terraleph ▸ b-error                                                    terraform
 b-error ✗ Error
-┌* [2] Compare · Ready 1/5─────────────────────────────────────────────────────┐
+┌* [2] Compare · Ready 1/4─────────────────────────────────────────────────────┐
 │                                                                              │
 │Address     │ a-ready     b-error     c-running     d-pending     │ why       │
 │────────────┼─────────────────────────────────────────────────────┼───────────│

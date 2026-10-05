@@ -22,12 +22,6 @@ const TEST_ENVIRONMENT_NAMES: &[&str] = &["test", "qa", "int", "integration"];
 const STAGING_ENVIRONMENT_NAMES: &[&str] = &["stg", "stage", "staging", "preprod", "uat"];
 const PRODUCTION_ENVIRONMENT_NAMES: &[&str] = &["prod", "production", "prd"];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct EnvironmentIdentity {
-    pub(crate) directory: PathBuf,
-    pub(crate) workspace: String,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Environment {
     pub(crate) tool: Tool,
@@ -36,13 +30,14 @@ pub(crate) struct Environment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum EnvironmentAvailability {
-    Available(EnvironmentIdentity),
+    Available { directory: PathBuf },
     ExcludedHcp { directory: PathBuf },
     Error { directory: PathBuf, message: String },
 }
 
 #[derive(Debug)]
 pub(crate) enum EnvironmentState {
+    Unselected,
     Pending,
     Running,
     Ready {
@@ -57,7 +52,13 @@ pub(crate) enum EnvironmentState {
 pub(crate) struct EnvironmentPlan {
     pub(crate) tool: Tool,
     directory: PathBuf,
-    identity: Option<EnvironmentIdentity>,
+    relative_path: String,
+    // Known only from an acquired plan, because reading it before then would run the tool for a
+    // candidate the user has not chosen.
+    workspace: Option<String>,
+    // Set once the user chooses the environment, so a candidate that was never chosen does not
+    // decide the exit code even when discovery already failed it.
+    target: bool,
     state: EnvironmentState,
     preparation: Preparation,
     diagnostics: Vec<Diagnostic>,
@@ -93,34 +94,45 @@ pub(crate) struct EnvironmentSession {
 
 impl Environment {
     pub(crate) const fn is_available(&self) -> bool {
-        matches!(self.availability, EnvironmentAvailability::Available(_))
+        matches!(self.availability, EnvironmentAvailability::Available { .. })
     }
 }
 
 impl EnvironmentSession {
     pub(crate) fn new(environments: Vec<Environment>, detailed_exitcode: bool) -> Self {
-        let mut plans: Vec<_> = environments.into_iter().map(EnvironmentPlan::new).collect();
-        plans.sort_by(|a, b| {
-            let left_name = a.display_name();
-            let right_name = b.display_name();
-            environment_stage(&left_name)
-                .cmp(&environment_stage(&right_name))
-                .then_with(|| natural_cmp(&left_name, &right_name))
-                .then_with(|| left_name.cmp(&right_name))
-                .then_with(|| a.directory.cmp(&b.directory))
-        });
-        Self {
+        let mut session = Self {
             revision: 0,
-            plans,
+            plans: environments.into_iter().map(EnvironmentPlan::new).collect(),
             exploration_root: None,
             detailed_exitcode,
             interrupted: false,
-        }
+        };
+        session.sort_plans();
+        session
     }
 
     pub(crate) fn with_exploration_root(mut self, root: impl Into<PathBuf>) -> Self {
-        self.exploration_root = Some(root.into());
+        let root = root.into();
+        for plan in &mut self.plans {
+            plan.relative_path = relative_display_path(&plan.directory, &root);
+        }
+        self.exploration_root = Some(root);
+        self.sort_plans();
         self
+    }
+
+    // The order is fixed before any plan runs, so it uses only the path and never a workspace
+    // that a later plan reveals.
+    fn sort_plans(&mut self) {
+        self.plans.sort_by(|a, b| {
+            let left_name = &a.relative_path;
+            let right_name = &b.relative_path;
+            environment_stage(final_component(left_name))
+                .cmp(&environment_stage(final_component(right_name)))
+                .then_with(|| natural_cmp(left_name, right_name))
+                .then_with(|| left_name.cmp(right_name))
+                .then_with(|| a.directory.cmp(&b.directory))
+        });
     }
 
     pub(crate) fn plans(&self) -> &[EnvironmentPlan] {
@@ -133,6 +145,28 @@ impl EnvironmentSession {
 
     pub(crate) const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    // Choosing a candidate only queues it; `start_next` still runs one acquisition at a time.
+    pub(crate) fn request_plan(&mut self, index: usize) -> bool {
+        let Some(plan) = self.plans.get_mut(index) else {
+            return false;
+        };
+        if self.interrupted || !matches!(plan.state, EnvironmentState::Unselected) {
+            return false;
+        }
+        plan.target = true;
+        plan.state = EnvironmentState::Pending;
+        self.revision += 1;
+        true
+    }
+
+    pub(crate) fn request_all_plans(&mut self) -> bool {
+        let mut requested = false;
+        for index in 0..self.plans.len() {
+            requested |= self.request_plan(index);
+        }
+        requested
     }
 
     pub(crate) fn start_next(&mut self) -> Option<usize> {
@@ -160,6 +194,7 @@ impl EnvironmentSession {
         if self.interrupted || !matches!(plan.state, EnvironmentState::Error) {
             return false;
         }
+        plan.target = true;
         plan.state = EnvironmentState::Pending;
         plan.preparation = Preparation::default();
         plan.diagnostics.clear();
@@ -193,10 +228,7 @@ impl EnvironmentSession {
         plan.diagnostics = diagnostics;
         plan.state = match result {
             PlanResult::Ready { review, changed } => {
-                plan.identity = Some(EnvironmentIdentity {
-                    directory: plan.directory.clone(),
-                    workspace: review.workspace().to_owned(),
-                });
+                plan.workspace = Some(review.workspace().to_owned());
                 EnvironmentState::Ready {
                     session: Box::new(SessionState::Review(Box::new(ReviewSessionState::new(
                         review.with_diagnostics(std::mem::take(&mut plan.diagnostics)),
@@ -285,17 +317,20 @@ impl EnvironmentSession {
         if self.interrupted {
             return 130;
         }
-        if self.plans.is_empty()
-            || self
-                .plans
+        let targets = self
+            .plans
+            .iter()
+            .filter(|plan| plan.target)
+            .collect::<Vec<_>>();
+        if targets.is_empty()
+            || targets
                 .iter()
                 .any(|plan| !matches!(plan.state, EnvironmentState::Ready { .. }))
         {
             return 1;
         }
         if self.detailed_exitcode
-            && self
-                .plans
+            && targets
                 .iter()
                 .any(|plan| matches!(plan.state, EnvironmentState::Ready { changed: true, .. }))
         {
@@ -308,24 +343,23 @@ impl EnvironmentSession {
 
 impl EnvironmentPlan {
     fn new(environment: Environment) -> Self {
-        let (directory, identity, state, failure) = match environment.availability {
-            EnvironmentAvailability::Available(identity) => (
-                identity.directory.clone(),
-                Some(identity),
-                EnvironmentState::Pending,
-                None,
-            ),
+        let (directory, state, failure) = match environment.availability {
+            EnvironmentAvailability::Available { directory } => {
+                (directory, EnvironmentState::Unselected, None)
+            }
             EnvironmentAvailability::ExcludedHcp { directory } => {
-                (directory, None, EnvironmentState::ExcludedHcp, None)
+                (directory, EnvironmentState::ExcludedHcp, None)
             }
             EnvironmentAvailability::Error { directory, message } => {
-                (directory, None, EnvironmentState::Error, Some(message))
+                (directory, EnvironmentState::Error, Some(message))
             }
         };
         Self {
             tool: environment.tool,
+            relative_path: directory_display_name(&directory),
             directory,
-            identity,
+            workspace: None,
+            target: false,
             state,
             preparation: Preparation::default(),
             diagnostics: Vec::new(),
@@ -345,16 +379,27 @@ impl EnvironmentPlan {
         &self.directory
     }
 
+    // The path from the exploration root tells candidates apart before any workspace is known;
+    // a workspace joins it only once a plan has determined it.
     pub(crate) fn display_name(&self) -> String {
-        self.workspace()
-            .filter(|workspace| *workspace != "default")
-            .map_or_else(|| directory_display_name(&self.directory), str::to_owned)
+        match self.workspace() {
+            Some(workspace) if workspace != "default" => {
+                format!("{}:{workspace}", self.relative_path)
+            }
+            _ => self.relative_path.clone(),
+        }
+    }
+
+    pub(crate) const fn is_target(&self) -> bool {
+        self.target
     }
 
     pub(crate) fn is_production(&self) -> bool {
         self.review()
             .and_then(|review| review.review().context().is_production())
             .unwrap_or_else(|| {
+                // An undetermined workspace stands in as `default`, which is never a production
+                // token, so only the path decides.
                 ExecutionContext::loading(&self.directory)
                     .with_workspace(self.workspace().unwrap_or("default"))
                     .is_production()
@@ -363,9 +408,7 @@ impl EnvironmentPlan {
     }
 
     pub(crate) fn workspace(&self) -> Option<&str> {
-        self.identity
-            .as_ref()
-            .map(|identity| identity.workspace.as_str())
+        self.workspace.as_deref()
     }
 
     pub(crate) fn review(&self) -> Option<&ReviewSessionState> {
@@ -465,6 +508,21 @@ fn output_line(event: &ExecutionEvent) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
+fn relative_display_path(directory: &Path, root: &Path) -> String {
+    let Ok(relative) = directory.strip_prefix(root) else {
+        return directory_display_name(directory);
+    };
+    let components = relative
+        .components()
+        .map(|component| directory_display_name(Path::new(component.as_os_str())))
+        .collect::<Vec<_>>();
+    if components.is_empty() {
+        directory_display_name(directory)
+    } else {
+        components.join("/")
+    }
+}
+
 pub(crate) fn is_production_token(token: &str) -> bool {
     PRODUCTION_ENVIRONMENT_NAMES
         .iter()
@@ -488,6 +546,11 @@ fn environment_stage(name: &str) -> u8 {
         stage = stage.max(current);
     }
     stage.unwrap_or(3)
+}
+
+// A parent directory names a group, not the stage of the environment inside it.
+fn final_component(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 fn has_stage_token(token: &str, names: &[&str]) -> bool {
@@ -559,25 +622,24 @@ mod tests {
     use crate::app::plan::Plan;
     use crate::app::review::{PlanMetadata, test_support::plan_document};
 
-    fn available(name: &str) -> Environment {
-        available_named("default", name)
-    }
-
-    fn available_named(workspace: &str, directory: impl Into<PathBuf>) -> Environment {
+    fn available(directory: impl Into<PathBuf>) -> Environment {
         Environment {
             tool: Tool::Terraform,
-            availability: EnvironmentAvailability::Available(EnvironmentIdentity {
+            availability: EnvironmentAvailability::Available {
                 directory: directory.into(),
-                workspace: workspace.to_owned(),
-            }),
+            },
         }
     }
 
     fn ready(changed: bool) -> PlanResult {
+        ready_in("chosen", changed)
+    }
+
+    fn ready_in(workspace: &str, changed: bool) -> PlanResult {
         PlanResult::Ready {
             review: Box::new(PlanReview::new(
                 PathBuf::from("/test"),
-                "chosen".to_owned(),
+                workspace.to_owned(),
                 plan_document("No changes.\n".to_owned()),
                 Plan::empty(),
                 PlanMetadata::new(changed),
@@ -585,6 +647,33 @@ mod tests {
             )),
             changed,
         }
+    }
+
+    fn excluded_hcp(directory: &str) -> Environment {
+        Environment {
+            tool: Tool::Terraform,
+            availability: EnvironmentAvailability::ExcludedHcp {
+                directory: PathBuf::from(directory),
+            },
+        }
+    }
+
+    fn discovery_error(directory: &str) -> Environment {
+        Environment {
+            tool: Tool::Terraform,
+            availability: EnvironmentAvailability::Error {
+                directory: PathBuf::from(directory),
+                message: "Synthetic configuration error".to_owned(),
+            },
+        }
+    }
+
+    fn complete_requested(state: &mut EnvironmentSession, result: PlanResult) -> usize {
+        let index = state
+            .start_next()
+            .expect("a requested environment should start");
+        assert!(state.complete(index, result, Vec::new()));
+        index
     }
 
     fn record_plan_copy(state: &mut EnvironmentSession, index: usize, now: std::time::Instant) {
@@ -610,6 +699,7 @@ mod tests {
     #[test]
     fn starts_in_path_order_and_keeps_only_one_running() {
         let mut state = EnvironmentSession::new(vec![available("z"), available("a")], false);
+        state.request_all_plans();
         assert_eq!(state.plans().len(), 2);
         assert!(
             state
@@ -665,11 +755,8 @@ mod tests {
         ];
         let environments = names
             .iter()
-            .map(|name| available_named(name, format!("/synthetic/{name}")))
-            .chain([
-                available_named("dev", "/synthetic/z-dev"),
-                available_named("dev", "/synthetic/a-dev"),
-            ])
+            .map(|name| available(format!("/synthetic/{name}")))
+            .chain([available("/synthetic/z/dev"), available("/synthetic/a/dev")])
             .collect();
 
         let state = EnvironmentSession::new(environments, false);
@@ -714,24 +801,24 @@ mod tests {
             ]
         );
         assert_eq!(state.plans()[0].directory(), Path::new("/synthetic/DEV"));
-        assert_eq!(state.plans()[1].directory(), Path::new("/synthetic/a-dev"));
+        assert_eq!(state.plans()[1].directory(), Path::new("/synthetic/a/dev"));
         assert_eq!(state.plans()[2].directory(), Path::new("/synthetic/dev"));
-        assert_eq!(state.plans()[3].directory(), Path::new("/synthetic/z-dev"));
+        assert_eq!(state.plans()[3].directory(), Path::new("/synthetic/z/dev"));
     }
 
     #[test]
-    fn production_environment_is_detected_before_plan_completion() {
+    fn production_environment_is_detected_from_the_path_before_plan_completion() {
         let state = EnvironmentSession::new(
             vec![
-                available_named("default", "/repo/prod"),
-                available_named("production", "/repo/apps"),
-                available_named("default", "/repo/nonprod"),
+                available("/repo/prod"),
+                available("/repo/apps"),
+                available("/repo/nonprod"),
             ],
             false,
         );
 
         for plan in state.plans() {
-            let expected = matches!(plan.directory().to_str(), Some("/repo/prod" | "/repo/apps"));
+            let expected = plan.directory() == Path::new("/repo/prod");
             assert_eq!(
                 plan.is_production(),
                 expected,
@@ -747,7 +834,7 @@ mod tests {
         use std::{ffi::OsString, os::unix::ffi::OsStringExt};
         let directory = PathBuf::from(OsString::from_vec(b"/repo/prod-\xff".to_vec()));
 
-        let state = EnvironmentSession::new(vec![available_named("default", directory)], false);
+        let state = EnvironmentSession::new(vec![available(directory)], false);
 
         assert!(state.plans()[0].is_production());
     }
@@ -760,12 +847,7 @@ mod tests {
             b"/repo/infra-\xff".as_slice(),
             b"/repo/infra-\xfe".as_slice(),
         ]
-        .map(|directory| {
-            available_named(
-                "default",
-                PathBuf::from(OsString::from_vec(directory.to_vec())),
-            )
-        });
+        .map(|directory| available(PathBuf::from(OsString::from_vec(directory.to_vec()))));
 
         let state = EnvironmentSession::new(environments.into(), false);
 
@@ -780,15 +862,11 @@ mod tests {
     }
 
     #[test]
-    fn default_workspace_orders_by_directory_name_without_parent_tokens() {
-        let environments = [
-            ("/repo/prod/dev", "default"),
-            ("/repo/dev/prod", "default"),
-            ("/repo/stg", "default"),
-        ]
-        .map(|(directory, workspace)| available_named(workspace, directory));
+    fn order_uses_the_final_path_component_stage_without_parent_tokens() {
+        let environments = ["/repo/prod/dev", "/repo/dev/prod", "/repo/stg"].map(available);
 
-        let state = EnvironmentSession::new(environments.into(), false);
+        let state =
+            EnvironmentSession::new(environments.into(), false).with_exploration_root("/repo");
 
         assert_eq!(
             state
@@ -796,15 +874,16 @@ mod tests {
                 .iter()
                 .map(EnvironmentPlan::display_name)
                 .collect::<Vec<_>>(),
-            ["dev", "stg", "prod"]
+            ["prod/dev", "stg", "dev/prod"]
         );
     }
 
     #[test]
     fn environment_order_stays_fixed_as_plan_acquisition_completes() {
-        let environments = ["prod", "stg", "dev"]
-            .map(|workspace| available_named(workspace, format!("/synthetic/{workspace}")));
+        let environments =
+            ["prod", "stg", "dev"].map(|name| available(format!("/synthetic/{name}")));
         let mut state = EnvironmentSession::new(environments.into(), false);
+        state.request_all_plans();
         let original_order = state
             .plans()
             .iter()
@@ -822,6 +901,154 @@ mod tests {
                     .map(|plan| plan.directory().to_owned())
                     .collect::<Vec<_>>(),
                 original_order
+            );
+        }
+    }
+
+    mod target_selection {
+        use super::*;
+
+        #[test]
+        fn candidates_start_unselected_and_only_requested_ones_start() {
+            let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+            assert!(
+                state
+                    .plans()
+                    .iter()
+                    .all(|plan| matches!(plan.state(), EnvironmentState::Unselected))
+            );
+            assert!(state.start_next().is_none());
+            assert!(!state.acquiring());
+
+            assert!(state.request_plan(1));
+            assert!(!state.request_plan(1));
+            assert!(!state.request_plan(99));
+
+            assert_eq!(state.start_next(), Some(1));
+            assert!(state.start_next().is_none());
+            assert!(matches!(
+                state.plans()[0].state(),
+                EnvironmentState::Unselected
+            ));
+            assert!(!state.plans()[0].is_target());
+        }
+
+        #[test]
+        fn unselected_candidates_do_not_block_apply_or_decide_the_exit_code() {
+            for (detailed, changed, expected) in
+                [(false, true, 0), (true, true, 2), (true, false, 0)]
+            {
+                let mut state = EnvironmentSession::new(
+                    vec![
+                        available("a"),
+                        available("b"),
+                        excluded_hcp("c"),
+                        discovery_error("d"),
+                    ],
+                    detailed,
+                );
+                assert_eq!(state.exit_code(), 1, "nothing chosen yet");
+                assert!(state.request_plan(0));
+
+                complete_requested(&mut state, ready(changed));
+
+                assert!(state.can_start_apply());
+                assert_eq!(
+                    state.exit_code(),
+                    expected,
+                    "detailed={detailed}, changed={changed}"
+                );
+            }
+        }
+
+        #[test]
+        fn retrying_a_discovery_error_makes_its_result_decide_the_exit_code() {
+            let mut state =
+                EnvironmentSession::new(vec![available("a"), discovery_error("d")], false);
+            assert!(state.request_plan(0));
+            complete_requested(&mut state, ready(false));
+            assert_eq!(state.exit_code(), 0);
+
+            assert!(state.retry(1));
+            assert!(state.plans()[1].is_target());
+            assert_eq!(state.exit_code(), 1);
+            complete_requested(&mut state, PlanResult::Error("still broken".to_owned()));
+
+            assert_eq!(state.exit_code(), 1);
+        }
+
+        #[test]
+        fn partial_success_keeps_ready_results_while_only_the_failure_retries() {
+            let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+            assert!(state.request_all_plans());
+            assert!(!state.request_all_plans());
+            complete_requested(&mut state, ready(true));
+            let failed = complete_requested(&mut state, PlanResult::Error("failed".to_owned()));
+            assert_eq!(failed, 1);
+
+            assert!(state.retry(failed));
+
+            assert!(state.plans()[0].review().is_some());
+            assert!(!state.can_start_apply());
+            assert_eq!(state.start_next(), Some(failed));
+            assert!(state.complete(failed, ready(false), Vec::new()));
+            assert!(state.plans()[0].review().is_some());
+            assert!(state.can_start_apply());
+        }
+
+        #[test]
+        fn interruption_rejects_new_requests() {
+            let mut state = EnvironmentSession::new(vec![available("a")], false);
+
+            state.interrupt();
+
+            assert!(!state.request_plan(0));
+            assert!(!state.request_all_plans());
+            assert!(state.start_next().is_none());
+        }
+    }
+
+    mod identity {
+        use super::*;
+
+        #[test]
+        fn workspace_stays_undetermined_until_a_plan_reports_it() {
+            let mut state = EnvironmentSession::new(vec![available("/repo/apps/web")], false)
+                .with_exploration_root("/repo");
+            assert_eq!(state.plans()[0].workspace(), None);
+            assert_eq!(state.plans()[0].display_name(), "apps/web");
+
+            assert!(state.request_plan(0));
+            complete_requested(&mut state, ready_in("blue", false));
+
+            assert_eq!(state.plans()[0].workspace(), Some("blue"));
+            assert_eq!(state.plans()[0].display_name(), "apps/web:blue");
+        }
+
+        #[test]
+        fn shared_workspace_names_stay_distinct_by_path_and_default_adds_nothing() {
+            let mut state = EnvironmentSession::new(
+                vec![
+                    available("/repo/app"),
+                    available("/repo/network"),
+                    available("/repo/shared"),
+                ],
+                false,
+            )
+            .with_exploration_root("/repo");
+            assert!(state.request_all_plans());
+
+            for workspace in ["prod", "prod", "default"] {
+                complete_requested(&mut state, ready_in(workspace, false));
+            }
+
+            assert_eq!(
+                state
+                    .plans()
+                    .iter()
+                    .map(EnvironmentPlan::display_name)
+                    .collect::<Vec<_>>(),
+                ["app:prod", "network:prod", "shared"]
             );
         }
     }
@@ -850,6 +1077,7 @@ mod tests {
         #[test]
         fn running_acquisition_records_steps_and_keeps_the_lock_change_after_completion() {
             let mut state = EnvironmentSession::new(vec![available("a")], false);
+            state.request_all_plans();
             let index = state.start_next().unwrap();
 
             assert!(state.record_preparation(
@@ -890,6 +1118,7 @@ mod tests {
         #[test]
         fn progress_outside_a_running_acquisition_is_ignored_and_retry_clears_it() {
             let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+            state.request_all_plans();
             assert!(!state.record_preparation(1, PreparationEvent::Planning));
             let index = state.start_next().unwrap();
             assert!(state.record_preparation(index, PreparationEvent::Planning));
@@ -924,6 +1153,7 @@ mod tests {
             ],
             true,
         );
+        state.request_all_plans();
         let index = state.start_next().unwrap();
         assert!(!state.retry(0));
         assert!(state.complete(index, PlanResult::Error("failed".to_owned()), Vec::new()));
@@ -942,10 +1172,7 @@ mod tests {
         ));
         assert!(!state.retry(0));
         assert!(!state.complete(99, ready(true), Vec::new()));
-        assert_eq!(
-            state.plans()[0].identity.as_ref().unwrap().workspace,
-            "chosen"
-        );
+        assert_eq!(state.plans()[0].workspace(), Some("chosen"));
         assert!(state.plans()[0].failure.is_none());
     }
 
@@ -959,6 +1186,7 @@ mod tests {
     #[test]
     fn apply_confirmation_opens_only_for_the_selected_ready_environment() {
         let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+        state.request_all_plans();
         for _ in 0..2 {
             let index = state.start_next().unwrap();
             assert!(state.complete(index, ready(true), Vec::new()));
@@ -985,6 +1213,7 @@ mod tests {
     #[test]
     fn apply_waits_until_every_environment_plan_is_acquired() {
         let mut state = EnvironmentSession::new(vec![available("a"), available("b")], false);
+        state.request_all_plans();
         let first = state.start_next().unwrap();
         assert!(state.complete(first, ready(true), Vec::new()));
 
@@ -1008,6 +1237,7 @@ mod tests {
     #[test]
     fn environment_without_changes_does_not_open_apply_confirmation() {
         let mut state = EnvironmentSession::new(vec![available("a")], false);
+        state.request_all_plans();
         let run = state.start_next().unwrap();
         state.complete(run, ready(false), Vec::new());
 
@@ -1018,6 +1248,7 @@ mod tests {
     #[test]
     fn clears_expired_copy_feedback_across_ready_environments() {
         let mut state = EnvironmentSession::new(vec![available("b"), available("a")], false);
+        state.request_all_plans();
         for _ in 0..2 {
             let index = state.start_next().unwrap();
             assert!(state.complete(index, ready(false), Vec::new()));
@@ -1042,6 +1273,7 @@ mod tests {
             (true, true, 2),
         ] {
             let mut state = EnvironmentSession::new(vec![available("a")], detailed);
+            state.request_all_plans();
             assert_eq!(state.exit_code(), 1);
             let first = state.start_next().unwrap();
             state.complete(first, PlanResult::Error("failed".to_owned()), Vec::new());

@@ -155,7 +155,7 @@ impl EnvironmentView {
             area,
             state.plans(),
             index,
-            &self.compared_environments(state.plans().len()),
+            &self.compared_environments(state.plans()),
             false,
         );
     }
@@ -194,7 +194,7 @@ impl EnvironmentView {
                 layout.environments,
                 state.plans(),
                 self.selection.column,
-                &self.compared_environments(state.plans().len()),
+                &self.compared_environments(state.plans()),
                 self.active_pane(layout.header.width) == EnvironmentPane::Environments,
             );
         }
@@ -321,14 +321,18 @@ impl EnvironmentView {
         state: &EnvironmentSession,
         focused: bool,
     ) {
-        let environment = state
-            .plans()
-            .get(self.selection.column)
-            .map(EnvironmentPlan::display_name);
+        let plan = state.plans().get(self.selection.column);
+        let environment = plan.map(EnvironmentPlan::display_name);
         let scope = if environment.is_none() {
             "environment unavailable".to_owned()
+        } else if let Some(plan) = plan.filter(|plan| !plan.is_target()) {
+            if matches!(plan.state(), EnvironmentState::ExcludedHcp) {
+                "excluded".to_owned()
+            } else {
+                "not planned".to_owned()
+            }
         } else if self
-            .compared_environments(state.plans().len())
+            .compared_environments(state.plans())
             .contains(&self.selection.column)
         {
             self.selected_row_state_in_environment()
@@ -472,6 +476,9 @@ fn environment_summary_line(plan: &EnvironmentPlan) -> Line<'static> {
 
 fn relations_status(plan: &EnvironmentPlan) -> String {
     match plan.state() {
+        EnvironmentState::Unselected => {
+            "Not planned. p runs init when needed, then plans this environment.".to_owned()
+        }
         EnvironmentState::Pending => {
             "Plan pending; relations will appear after acquisition.".to_owned()
         }
@@ -548,8 +555,25 @@ fn overview_context(view: &EnvironmentView, state: &EnvironmentSession) -> Strin
     if view.matrix.searching() || view.matrix.filtered() {
         return format!("Filter: /{}   (display only)", view.matrix.filter());
     }
+    if let Some(plan) = state
+        .plans()
+        .get(view.selection.column)
+        .filter(|plan| !plan.is_target())
+    {
+        return if matches!(plan.state(), EnvironmentState::Unselected)
+            && !state.plans().iter().any(EnvironmentPlan::is_target)
+        {
+            "Nothing is planned yet. p plans the selected environment; P plans all.".to_owned()
+        } else {
+            format!(
+                "{} is not planned. {}",
+                plan.display_name(),
+                super::unplanned_next_step(plan)
+            )
+        };
+    }
     if !view
-        .compared_environments(state.plans().len())
+        .compared_environments(state.plans())
         .contains(&view.selection.column)
     {
         return "Selected environment is excluded from the comparison.".to_owned();
@@ -558,23 +582,15 @@ fn overview_context(view: &EnvironmentView, state: &EnvironmentSession) -> Strin
 }
 
 fn matrix_title(view: &EnvironmentView, state: &EnvironmentSession, width: u16) -> String {
-    let compared = view.compared_environments(state.plans().len());
+    let compared = view.compared_environments(state.plans());
     let mut title = format!("[2] {}", matrix_pane_name(view, state));
-    if compared.len() < state.plans().len() {
+    // Candidates that were never planned are not filtered out, so they do not count here.
+    let targets = state.plans().iter().filter(|plan| plan.is_target()).count();
+    if compared.len() < targets {
         if width < 50 {
-            let _ = write!(
-                title,
-                " · Filtered {}/{}",
-                compared.len(),
-                state.plans().len()
-            );
+            let _ = write!(title, " · Filtered {}/{targets}", compared.len());
         } else {
-            let _ = write!(
-                title,
-                " · Filtered {}/{} envs",
-                compared.len(),
-                state.plans().len()
-            );
+            let _ = write!(title, " · Filtered {}/{targets} envs", compared.len());
         }
     }
     let ready = compared
@@ -593,7 +609,7 @@ fn matrix_title(view: &EnvironmentView, state: &EnvironmentSession, width: u16) 
 }
 
 fn matrix_pane_name(view: &EnvironmentView, state: &EnvironmentSession) -> String {
-    let compared = view.compared_environments(state.plans().len());
+    let compared = view.compared_environments(state.plans());
     if compared.len() == 1 {
         format!("Changes · {}", state.plans()[compared[0]].display_name())
     } else {
@@ -730,6 +746,10 @@ fn overview_help_sections(
             },
         ),
         help_dialog::HelpAction::new("/", "filter [2] addresses; [3] still shows everything"),
+        help_dialog::HelpAction::new(
+            "p / P",
+            "plan the selected / every not planned environment; init runs first when needed",
+        ),
         help_dialog::HelpAction::new("r", "retry the selected Error environment"),
     ]);
     let current_title = if sidebar_enabled {
@@ -748,14 +768,14 @@ fn overview_help_sections(
 }
 
 fn environment_status_help(multiple: bool) -> help_dialog::HelpSection {
-    let mut actions = vec![help_dialog::HelpAction::new(
-        "✓ Ready",
-        "plan acquired; not a judgment of apply safety",
-    )];
+    let mut actions = vec![
+        help_dialog::HelpAction::new("✓ Ready", "plan acquired; not a judgment of apply safety"),
+        help_dialog::HelpAction::new("Not planned", "not chosen; init and plan do not run"),
+    ];
     if multiple {
         actions.extend([
             help_dialog::HelpAction::new("✗ Error", "acquisition failed; r retries the plan"),
-            help_dialog::HelpAction::new("Pending", "plan acquisition has not started"),
+            help_dialog::HelpAction::new("Pending", "chosen; waits for the running plan"),
             help_dialog::HelpAction::new(
                 "In progress",
                 "Initializing, Planning, or Reading the plan",
@@ -918,8 +938,14 @@ fn overview_footer(context: OverviewFooterContext<'_>) -> Vec<Line<'static>> {
             items.push((100, footer::overview_hint(&["Enter"], "open plan")));
         }
     }
-    if selected.is_some_and(|plan| matches!(plan.state(), EnvironmentState::Error)) {
-        items.push((95, footer::overview_hint(&["r"], "retry")));
+    match selected.map(EnvironmentPlan::state) {
+        Some(EnvironmentState::Error) => {
+            items.push((95, footer::overview_hint(&["r"], "retry")));
+        }
+        Some(EnvironmentState::Unselected) => {
+            items.push((105, footer::overview_hint(&["p"], "plan")));
+        }
+        _ => {}
     }
     if compact && focus == EnvironmentPane::Matrix {
         items.push((75, footer::overview_hint(&["v"], "full plan")));

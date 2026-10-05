@@ -485,7 +485,18 @@ try:
         wait_review("plan_text", timeout=30)
         observe_current_or_wait("3/", "plan_position")
         exit_code = quit_with_enter()
+    elif scenario == "env_select_one":
+        observe_current_or_wait("Not planned", "unplanned_candidates")
+        send_key(b"p")
+        wait_environment("a-dev", "Ready")
+        if "b-stg" not in screen.text() or "Not planned" not in screen.text():
+            raise RuntimeError(f"b-stg is no longer unplanned; screen={screen.text()!r}")
+        observed.append("unselected_left_unplanned")
+        exit_code = quit_with_enter()
     elif scenario.startswith("env_"):
+        # Candidates start unplanned, so every multi-environment scenario chooses all of them.
+        observe_current_or_wait("Not planned", "unplanned_candidates")
+        send_key(b"P")
         if scenario == "env_child_interrupt":
             exit_code = wait_exit()
         elif scenario.startswith("env_signal_"):
@@ -656,7 +667,7 @@ try:
                 wait_environment("b-other", "Error")
             elif scenario == "env_excluded":
                 wait_environment("a-ready", "Ready")
-                wait_environment("b-other", "Excluded")
+                observe_current_or_wait("Excluded", "b-other_excluded")
             elif scenario == "env_detailed":
                 wait_sidebar_statuses(["Ready", "Ready"])
             else:
@@ -810,6 +821,8 @@ try:
     elif scenario == "demo_apply":
         wait_new("Opening the", "demo_tui", timeout=300)
         if "multi" in command:
+            observe_current_or_wait("Not planned", "demo_unplanned_candidates", timeout=300)
+            send_key(b"P")
             for name in ("dev", "stg", "prod"):
                 wait_environment(name, "Ready", timeout=300)
             send_key(b"]")

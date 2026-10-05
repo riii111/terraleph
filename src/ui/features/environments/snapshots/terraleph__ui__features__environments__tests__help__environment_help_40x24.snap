@@ -10,9 +10,10 @@ a┌Help────────────────────────
 ││ [ / ]              select the pr ┃ ││
 ││ 2 / 3              focus Compare ┃ ││
 ││ f                  maximize or r ┃ ││
-││ Enter              [2] opens the ┃ ││
+││ Enter              [2] opens the │ ││
 └│ /                  filter [2] ad │ │┘
-┌│ r                  retry the sel │ │┐
+┌│ p / P              plan the sele │ │┐
+││ r                  retry the sel │ ││
 ││                                  │ ││
 ││ Other                            │ ││
 ││ ← / → / h / l      scroll column │ ││
@@ -20,9 +21,8 @@ a┌Help────────────────────────
 ││ Home / End / g / G first/last ro │ ││
 ││ v                  open the full │ ││
 ││ y                  copy the sele │ ││
-││ c                  show environm │ ││
-││ ?                  show or close ▼ ││
-││ ◀︎═════════════─────────────────▶︎   ││
+││ c                  show environm ▼ ││
+││ ◀︎══════════────────────────────▶︎   ││
 └│ ←/→ scroll | ?/Esc close           │┘
 v└────────────────────────────────────┘
 ? help | q quit

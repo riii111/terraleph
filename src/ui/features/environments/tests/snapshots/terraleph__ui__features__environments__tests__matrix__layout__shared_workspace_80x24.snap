@@ -3,16 +3,16 @@ source: src/ui/features/environments/tests/matrix.rs
 expression: output
 ---
 terraleph ▸ prod                                                            tofu
-staging ✗ Error  │  staging ✗ Error
+dev ✗ Error  │  prod ✗ Error
 ┌* [2] Compare · Ready 0/2─────────────────────────────────────────────────────┐
 │                                                                              │
-│Address     │ staging     staging     │ why                                   │
+│Address     │ dev         prod        │ why                                   │
 │────────────┼─────────────────────────┼───────────────────────────────────────│
 │Waiting for environment plans.                                                │
 │                                                                              │
 │blank: absent   .: unchanged   ?: plan unavailable                            │
 └──────────────────────────────────────────────────────────────────────────────┘
-┌  [3] Relations · staging · whole env─────────────────────────────────────────┐
+┌  [3] Relations · prod · whole env────────────────────────────────────────────┐
 │Plan failed: Synthetic acquisition error                                      │
 │                                                                              │
 │                                                                              │

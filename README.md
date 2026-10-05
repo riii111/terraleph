@@ -58,7 +58,7 @@ terraleph tofu plan
 terraleph tofu apply
 ```
 
-Run from your configuration directory, or its parent to compare environments. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
+Run from your configuration directory, or its parent to compare environments. From the parent, nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
 
 To use Terraleph with your usual commands:
 
