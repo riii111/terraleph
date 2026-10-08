@@ -35,7 +35,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: cargo clippy --locked --all-targets -- -D warnings
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a
         with:
           tool: cargo-machete,ast-grep@0.42.1
       - run: ast-grep --version
@@ -57,7 +57,7 @@ jobs:
         with:
           toolchain: '1.98.1'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a
         with:
           tool: nextest,cargo-insta
       - run: cargo fetch --locked
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a
         with:
           tool: cargo-audit
       - run: cargo audit
