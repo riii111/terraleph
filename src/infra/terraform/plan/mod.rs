@@ -140,6 +140,7 @@ pub(crate) fn run_environment_plan(
     arguments.extend_from_slice(plan_arguments);
     arguments.extend(["-json", "-input=false", "-detailed-exitcode"].map(OsString::from));
     loop {
+        check_local_execution(tool, root, cancellation)?;
         progress(PreparationEvent::Planning);
         let mut attempt_diagnostics = Vec::new();
         let process = run_command(
@@ -314,6 +315,28 @@ pub(crate) fn read_saved_plan_review(
     .with_context(context)
     .with_apply_entry(apply_entry);
     Ok(review)
+}
+
+fn check_local_execution(
+    tool: Tool,
+    root: &Path,
+    cancellation: &CancellationToken,
+) -> Result<(), TerraformExecutionError> {
+    use super::command::{hcp_execution_error, refused_error};
+    use crate::infra::hcp::{self, ExecutionCheckError};
+
+    let location = super::configuration::execution_location_for_tool(root, tool, None)
+        .map_err(|error| refused_error(tool, TerraformCommand::Plan, error.to_string()))?;
+    if location == super::configuration::ExecutionLocation::Local {
+        return Ok(());
+    }
+    match hcp::require_local(tool, root, None, cancellation) {
+        Ok(()) => Ok(()),
+        Err(ExecutionCheckError::Remote(message)) => Err(hcp_execution_error(tool, message)),
+        Err(ExecutionCheckError::Failed(message)) => {
+            Err(refused_error(tool, TerraformCommand::Plan, message))
+        }
+    }
 }
 
 fn initialize_environment(
@@ -1231,11 +1254,12 @@ mod tests {
         }
 
         fn run(runner: &FakeRunner, initialization: Option<InitializationReason>) -> Run {
+            let root = tempfile::tempdir().unwrap();
             let mut diagnostics = Vec::new();
             let mut events = Vec::new();
             let result = run_environment_plan(
                 Tool::Terraform,
-                Path::new("/synthetic/environment"),
+                root.path(),
                 &[],
                 initialization,
                 &CancellationToken::default(),
@@ -1277,6 +1301,29 @@ mod tests {
                         .collect()
                 })
                 .collect()
+        }
+
+        #[test]
+        fn unresolved_hcp_execution_never_starts_the_plan() {
+            let root = tempfile::tempdir().unwrap();
+            fs::write(root.path().join("main.tf"), "terraform {\n cloud {}\n}").unwrap();
+            fs::create_dir(root.path().join(".terraform")).unwrap();
+            fs::write(root.path().join(".terraform/terraform.tfstate"), serde_json::to_vec(&json!({"backend":{"type":"cloud","config":{"hostname":"synthetic.invalid","organization":"team","workspaces":{"name":"stg"}}}})).unwrap()).unwrap();
+            let runner = FakeRunner::new([]);
+
+            let result = run_environment_plan(
+                Tool::Terraform,
+                root.path(),
+                &[],
+                None,
+                &CancellationToken::default(),
+                &runner,
+                &mut Vec::new(),
+                &mut |_| {},
+            );
+
+            assert!(result.is_err());
+            assert!(commands(&runner).is_empty());
         }
 
         #[test]

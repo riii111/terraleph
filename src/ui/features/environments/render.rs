@@ -488,9 +488,7 @@ fn relations_status(plan: &EnvironmentPlan) -> String {
             "Plan running; relations will appear after acquisition.".to_owned()
         }
         EnvironmentState::Error => format!("Plan failed: {}", plan.diagnostic().text()),
-        EnvironmentState::ExcludedHcp => {
-            "Plan excluded because HCP performs the execution.".to_owned()
-        }
+        EnvironmentState::ExcludedHcp => plan.diagnostic().text().to_owned(),
         EnvironmentState::Ready { .. } => "Relations are unavailable for this plan.".to_owned(),
     }
 }

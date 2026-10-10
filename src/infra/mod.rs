@@ -1,5 +1,6 @@
 mod cancellation;
 pub(crate) mod clipboard;
+pub(crate) mod hcp;
 pub(crate) mod history;
 // Git comparison is paused in the full-text experience and retained for unit tests.
 #[cfg(test)]

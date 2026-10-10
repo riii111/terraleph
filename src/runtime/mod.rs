@@ -80,6 +80,10 @@ pub(crate) fn run_invocation(
     // A plan that reports missing initialization is retried once after init, like an
     // environment in the multi-environment view; a second request is left to the user.
     let status = loop {
+        if let Err(exit) = check_execution_mode(invocation, data_dir.as_deref()) {
+            let _ = saved_plan.cleanup();
+            return exit;
+        }
         let plan = match terraform::run_passthrough_plan(
             executable,
             invocation.launch_root(),
@@ -133,6 +137,42 @@ pub(crate) fn run_invocation(
         return ExitCode::from(exit);
     }
     run_saved_plan_review(invocation, saved_plan, status, planned_at, variable_sources)
+}
+
+fn check_execution_mode(
+    invocation: &invocation::Invocation,
+    data_dir: Option<&std::ffi::OsStr>,
+) -> Result<(), ExitCode> {
+    use crate::infra::hcp::{self, ExecutionCheckError};
+
+    let result = (|| -> Result<(), String> {
+        let location = terraform::configuration::execution_location_for_tool(
+            invocation.directory(),
+            invocation.tool(),
+            data_dir,
+        )
+        .map_err(|error| error.to_string())?;
+        if location == terraform::configuration::ExecutionLocation::Local {
+            return Ok(());
+        }
+        hcp::require_local(
+            invocation.tool(),
+            invocation.directory(),
+            data_dir,
+            &CancellationToken::default(),
+        )
+        .map_err(|error| match error {
+            ExecutionCheckError::Remote(message) | ExecutionCheckError::Failed(message) => message,
+        })
+    })();
+    if let Some(signal) = termination::requested() {
+        report_terminated(signal);
+        return Err(ExitCode::from(signal.exit_code()));
+    }
+    result.map_err(|message| {
+        report_error(&message);
+        ExitCode::from(EXECUTION_FAILURE)
+    })
 }
 
 // The plan runs only after a needed init succeeds. Init output is read and redacted before it

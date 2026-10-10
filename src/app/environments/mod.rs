@@ -31,7 +31,6 @@ pub(crate) struct Environment {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum EnvironmentAvailability {
     Available { directory: PathBuf },
-    ExcludedHcp { directory: PathBuf },
     Error { directory: PathBuf, message: String },
 }
 
@@ -81,7 +80,7 @@ pub(crate) enum PlanResult {
         changed: bool,
     },
     Error(String),
-    ExcludedHcp,
+    ExcludedHcp(String),
 }
 
 pub(crate) struct EnvironmentSession {
@@ -101,7 +100,6 @@ impl Environment {
     pub(crate) fn directory(&self) -> &Path {
         match &self.availability {
             EnvironmentAvailability::Available { directory }
-            | EnvironmentAvailability::ExcludedHcp { directory }
             | EnvironmentAvailability::Error { directory, .. } => directory,
         }
     }
@@ -259,7 +257,11 @@ impl EnvironmentSession {
                 plan.failure = Some(message);
                 EnvironmentState::Error
             }
-            PlanResult::ExcludedHcp => EnvironmentState::ExcludedHcp,
+            PlanResult::ExcludedHcp(message) => {
+                plan.failure = Some(message);
+                plan.target = false;
+                EnvironmentState::ExcludedHcp
+            }
         };
         self.revision += 1;
         true
@@ -365,9 +367,6 @@ impl EnvironmentPlan {
         let (directory, state, failure) = match environment.availability {
             EnvironmentAvailability::Available { directory } => {
                 (directory, EnvironmentState::Unselected, None)
-            }
-            EnvironmentAvailability::ExcludedHcp { directory } => {
-                (directory, EnvironmentState::ExcludedHcp, None)
             }
             EnvironmentAvailability::Error { directory, message } => {
                 (directory, EnvironmentState::Error, Some(message))
@@ -647,6 +646,9 @@ fn significant_digits(digits: &[u8]) -> &[u8] {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::copy::{CopyResult, CopyTarget};
@@ -677,15 +679,6 @@ mod tests {
                 Vec::new(),
             )),
             changed,
-        }
-    }
-
-    fn excluded_hcp(directory: &str) -> Environment {
-        Environment {
-            tool: Tool::Terraform,
-            availability: EnvironmentAvailability::ExcludedHcp {
-                directory: PathBuf::from(directory),
-            },
         }
     }
 
@@ -973,11 +966,12 @@ mod tests {
                     vec![
                         available("a"),
                         available("b"),
-                        excluded_hcp("c"),
+                        available("c"),
                         discovery_error("d"),
                     ],
                     detailed,
                 );
+                test_support::exclude_hcp(&mut state, 2);
                 assert_eq!(state.exit_code(), 1, "nothing chosen yet");
                 assert!(state.request_plan(0));
 
@@ -1202,13 +1196,14 @@ mod tests {
                 available("b"),
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::ExcludedHcp {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("c"),
                     },
                 },
             ],
             true,
         );
+        test_support::exclude_hcp(&mut state, 2);
         state.request_all_plans();
         let index = state.start_next().unwrap();
         assert!(!state.retry(0));
@@ -1347,15 +1342,16 @@ mod tests {
             assert!(!state.complete(second, ready(false), Vec::new()));
             assert!(state.start_next().is_none());
         }
-        let state = EnvironmentSession::new(
+        let mut state = EnvironmentSession::new(
             vec![Environment {
                 tool: Tool::Terraform,
-                availability: EnvironmentAvailability::ExcludedHcp {
+                availability: EnvironmentAvailability::Available {
                     directory: PathBuf::from("hcp"),
                 },
             }],
             true,
         );
+        test_support::exclude_hcp(&mut state, 0);
         assert_eq!(state.exit_code(), 1);
     }
 }

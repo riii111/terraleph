@@ -22,10 +22,7 @@ use crate::{
         CancellationToken, ClipboardExecutor,
         history::HistoryStore,
         termination,
-        terraform::{
-            self,
-            configuration::{self, ExecutionLocation},
-        },
+        terraform::{self, configuration},
     },
     ui::features::{
         environments::{EnvironmentInput, EnvironmentView},
@@ -557,9 +554,6 @@ fn acquire(
 ) -> Result<PlanResult, String> {
     let config =
         configuration::read_configuration(root, tool, None).map_err(|error| error.to_string())?;
-    if config.execution_location == ExecutionLocation::HcpCandidate {
-        return Ok(PlanResult::ExcludedHcp);
-    }
     if requires_backend && !config.has_backend {
         return Err("The environment no longer has backend configuration.".to_owned());
     }
@@ -567,7 +561,7 @@ fn acquire(
     let initialization = terraform::init::reason(tool, root, None).map_err(|error| {
         format!("failed to check whether the environment needs initialization: {error}")
     })?;
-    let changed = terraform::run_environment_plan(
+    let changed = match terraform::run_environment_plan(
         tool,
         root,
         arguments,
@@ -576,8 +570,15 @@ fn acquire(
         &terraform::SystemProcessRunner,
         diagnostics,
         progress,
-    )
-    .map_err(|error| environment_failure(&error, cancellation))?;
+    ) {
+        Ok(changed) => changed,
+        Err(error) => {
+            if let Some(message) = error.hcp_execution_message() {
+                return Ok(PlanResult::ExcludedHcp(message.to_owned()));
+            }
+            return Err(environment_failure(&error, cancellation));
+        }
+    };
     progress(PreparationEvent::Reading);
     let planned_at = Instant::now();
     let variables =
