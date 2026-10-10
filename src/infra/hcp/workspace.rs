@@ -170,14 +170,12 @@ fn resolve(
                 .or(Some(value))
         })
         .unwrap_or(&Value::Null);
-    let tags = workspaces
-        .get("tags")
-        .filter(|_| kind == "cloud")
-        .cloned()
-        .unwrap_or(Value::Null);
-    if !tags.is_null() && !tags.is_array() && !tags.is_object() {
-        return Err(invalid_backend());
-    }
+    let tags = decode_tags(
+        workspaces
+            .get("tags")
+            .filter(|_| kind == "cloud")
+            .unwrap_or(&Value::Null),
+    )?;
     let has_tags = tags.as_array().is_some_and(|tags| !tags.is_empty())
         || tags.as_object().is_some_and(|tags| !tags.is_empty());
     let project = workspaces
@@ -200,6 +198,61 @@ fn resolve(
         tags,
         project,
     })
+}
+
+// Terraform's dynamic cty attributes retain both the concrete type and value in backend metadata.
+fn decode_tags(encoded: &Value) -> Result<Value, String> {
+    if encoded.is_null() {
+        return Ok(Value::Null);
+    }
+    let invalid = || {
+        "The initialized HCP workspace tags have invalid type information; run init again before planning.".to_owned()
+    };
+    let tags = encoded.get("value").ok_or_else(invalid)?;
+    let descriptor = encoded
+        .get("type")
+        .and_then(Value::as_array)
+        .filter(|descriptor| descriptor.len() == 2)
+        .ok_or_else(invalid)?;
+    let valid = match descriptor[0].as_str() {
+        Some("tuple") => descriptor[1].as_array().is_some_and(|types| {
+            types.iter().all(|ty| ty == "string")
+                && (tags.is_null()
+                    || tags.as_array().is_some_and(|values| {
+                        values.len() == types.len() && values.iter().all(Value::is_string)
+                    }))
+        }),
+        Some("list" | "set") => {
+            descriptor[1] == "string"
+                && (tags.is_null()
+                    || tags
+                        .as_array()
+                        .is_some_and(|values| values.iter().all(Value::is_string)))
+        }
+        Some("object") => descriptor[1].as_object().is_some_and(|types| {
+            types.values().all(|ty| ty == "string")
+                && (tags.is_null()
+                    || tags.as_object().is_some_and(|values| {
+                        values.len() == types.len()
+                            && types
+                                .keys()
+                                .all(|key| values.get(key).is_some_and(Value::is_string))
+                    }))
+        }),
+        Some("map") => {
+            descriptor[1] == "string"
+                && (tags.is_null()
+                    || tags
+                        .as_object()
+                        .is_some_and(|values| values.values().all(Value::is_string)))
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(tags.clone())
+    } else {
+        Err(invalid())
+    }
 }
 
 fn workspace_name(
@@ -261,7 +314,10 @@ pub(super) fn encode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{ExecutionCheckError, check_with};
     use super::*;
+    use crate::infra::CancellationToken;
+    use rstest::rstest;
     use serde_json::json;
 
     #[test]
@@ -270,7 +326,12 @@ mod tests {
             ("remote", json!({"name":"stg"}), Some("default"), "stg"),
             ("remote", json!({"prefix":"team-"}), Some("stg"), "team-stg"),
             ("cloud", json!({"name":"stg"}), Some("stg"), "stg"),
-            ("cloud", json!({"tags":["team"]}), Some("stg"), "stg"),
+            (
+                "cloud",
+                json!({"tags":{"type":["tuple",["string"]],"value":["team"]}}),
+                Some("stg"),
+                "stg",
+            ),
         ] {
             let metadata = json!({"backend":{"type":kind,"config":{"organization":"team","workspaces":[workspaces]}}});
 
@@ -322,14 +383,14 @@ mod tests {
             "TF_CLOUD_PROJECT" => Some("platform".to_owned()),
             _ => None,
         };
-        let config = json!({"backend":{"type":"cloud","config":{"hostname":"", "organization":"", "workspaces":{"tags":["team"]}}}});
+        let config = json!({"backend":{"type":"cloud","config":{"hostname":"", "organization":"", "workspaces":{"tags":{"type":["tuple",["string"]],"value":["team"]}}}}});
 
         let cloud = resolve(&config, Some("stg"), environment).unwrap();
 
         assert_eq!(cloud.hostname, "enterprise.example");
         assert_eq!(cloud.organization, "team");
         assert_eq!(cloud.project.as_deref(), Some("platform"));
-        let explicit = json!({"backend":{"type":"cloud","config":{"hostname":"explicit.example","organization":"explicit", "workspaces":{"tags":["team"],"project":"explicit-project"}}}});
+        let explicit = json!({"backend":{"type":"cloud","config":{"hostname":"explicit.example","organization":"explicit", "workspaces":{"tags":{"type":["tuple",["string"]],"value":["team"]},"project":"explicit-project"}}}});
         let cloud = resolve(&explicit, Some("stg"), environment).unwrap();
         assert_eq!(
             (
@@ -353,7 +414,7 @@ mod tests {
 
     #[test]
     fn cloud_selection_must_match_tags_and_project() {
-        let metadata = json!({"backend":{"type":"cloud","config":{"organization":"team","workspaces":{"tags":["team"],"project":"platform"}}}});
+        let metadata = json!({"backend":{"type":"cloud","config":{"organization":"team","workspaces":{"tags":{"type":["tuple",["string"]],"value":["team"]},"project":"platform"}}}});
         let workspace = resolve(&metadata, Some("stg"), |_| None).unwrap();
         let response = json!({
             "data":{"attributes":{"name":"stg","tag-names":["team"]},"relationships":{"project":{"data":{"id":"prj-test"}}}},
@@ -367,5 +428,78 @@ mod tests {
         let mut wrong_project = response;
         wrong_project["included"][0]["attributes"]["name"] = json!("other");
         assert!(workspace.validate_selection(&wrong_project).is_err());
+    }
+
+    #[test]
+    fn typed_backend_tags_select_matching_workspaces_before_checking_their_execution_mode() {
+        for (case, encoded) in [
+            (
+                "tuple",
+                json!({"type":["tuple",["string"]],"value":["team"]}),
+            ),
+            (
+                "object",
+                json!({"type":["object",{"team":"string"}],"value":{"team":"platform"}}),
+            ),
+        ] {
+            let metadata = json!({"backend":{"type":"cloud","config":{"organization":"team","workspaces":{"tags":encoded}}}});
+            let target = resolve(&metadata, Some("stg"), |_| None).unwrap();
+            for mode in ["local", "remote", "agent"] {
+                for matching in [true, false] {
+                    let result = check_with(
+                        &target,
+                        "synthetic-token",
+                        &CancellationToken::default(),
+                        &mut |url, token| {
+                            Ok(if token.is_none() {
+                                json!({"tfe.v2":"/api/v2/"})
+                            } else if url.ends_with("effective-tag-bindings") {
+                                let value = if matching { "platform" } else { "other" };
+                                json!({"data":[{"attributes":{"key":"team","value":value}}]})
+                            } else {
+                                let tag = if matching { "team" } else { "other" };
+                                json!({"data":{"id":"ws-synthetic","attributes":{"name":"stg","tag-names":[tag],"execution-mode":mode}}})
+                            })
+                        },
+                    );
+
+                    match (matching, mode, result) {
+                        (true, "local", Ok(()))
+                        | (true, "remote" | "agent", Err(ExecutionCheckError::Remote(_)))
+                        | (false, _, Err(ExecutionCheckError::Failed(_))) => {}
+                        _ => panic!("unexpected decision: {case}, {mode}, matching={matching}"),
+                    }
+                }
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::list(json!({"type":["list","string"],"value":["team"]}))]
+    #[case::set(json!({"type":["set","string"],"value":["team"]}))]
+    fn homogeneous_collection_types_decode_as_tag_names(#[case] encoded: Value) {
+        assert_eq!(decode_tags(&encoded).unwrap(), json!(["team"]));
+    }
+
+    #[test]
+    fn homogeneous_map_type_decodes_as_tag_bindings() {
+        assert_eq!(
+            decode_tags(&json!({"type":["map","string"],"value":{"team":"platform"}})).unwrap(),
+            json!({"team":"platform"})
+        );
+    }
+
+    #[rstest]
+    #[case::missing_type(json!({"value":["team"]}))]
+    #[case::missing_value(json!({"type":["list","string"]}))]
+    #[case::invalid_descriptor(json!({"type":"list","value":["team"]}))]
+    #[case::non_string_type(json!({"type":["list","number"],"value":["team"]}))]
+    #[case::non_string_value(json!({"type":["list","string"],"value":[1]}))]
+    #[case::wrong_tuple_size(json!({"type":["tuple",["string","string"]],"value":["team"]}))]
+    #[case::wrong_object_key(json!({"type":["object",{"team":"string"}],"value":{"other":"platform"}}))]
+    fn invalid_tag_metadata_stops_workspace_resolution(#[case] tags: Value) {
+        let metadata = json!({"backend":{"type":"cloud","config":{"organization":"team","workspaces":{"tags":tags}}}});
+
+        assert!(resolve(&metadata, Some("stg"), |_| None).is_err());
     }
 }

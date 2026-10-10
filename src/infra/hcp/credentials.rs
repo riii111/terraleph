@@ -39,17 +39,36 @@ fn read_with(
         ".terraformrc"
     });
     let tofu = home.join(if cfg!(windows) { "tofu.rc" } else { ".tofurc" });
-    let config = if tool == Tool::OpenTofu && tofu.exists() {
-        tofu
+    let xdg = (tool == Tool::OpenTofu && !cfg!(windows))
+        .then(|| {
+            environment("XDG_CONFIG_HOME")
+                .filter(|value| !value.is_empty())
+                .map(|path| PathBuf::from(path).join("opentofu"))
+        })
+        .flatten();
+    let config = if tool == Tool::OpenTofu {
+        if tofu.exists() {
+            tofu
+        } else if legacy.exists() {
+            legacy
+        } else {
+            xdg.as_ref()
+                .map_or(tofu, |directory| directory.join("tofurc"))
+        }
     } else {
         legacy
     };
     let mut token = token_from_file(&config, hostname)?;
-    let directory = home.join(if cfg!(windows) {
+    let mut directory = home.join(if cfg!(windows) {
         "terraform.d"
     } else {
         ".terraform.d"
     });
+    if !directory.exists()
+        && let Some(xdg) = xdg
+    {
+        directory = xdg;
+    }
     let mut files = match fs::read_dir(directory) {
         Ok(entries) => entries
             .map(|entry| entry.map(|entry| entry.path()))
@@ -243,5 +262,69 @@ mod tests {
         .unwrap();
 
         assert_eq!(token, "tofu");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn opentofu_selects_xdg_config_and_credentials_independently_with_home_precedence() {
+        let home = tempfile::tempdir().unwrap();
+        let xdg = tempfile::tempdir().unwrap();
+        let directory = xdg.path().join("opentofu");
+        fs::create_dir(&directory).unwrap();
+        let config = directory.join("tofurc");
+        fs::write(
+            &config,
+            "credentials \"app.terraform.io\" {\n token = \"xdg-config\"\n}",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("credentials.tfrc.json"),
+            r#"{"credentials":{"app.terraform.io":{"token":"xdg-login"}}}"#,
+        )
+        .unwrap();
+        let environment = |key: &str| match key {
+            "HOME" => Some(home.path().as_os_str().to_owned()),
+            "XDG_CONFIG_HOME" => Some(xdg.path().as_os_str().to_owned()),
+            _ => None,
+        };
+
+        assert_eq!(
+            read_with(Tool::OpenTofu, "app.terraform.io", environment).unwrap(),
+            "xdg-login"
+        );
+        let explicit = |key: &str| {
+            if key == "TF_CLI_CONFIG_FILE" {
+                Some(config.as_os_str().to_owned())
+            } else {
+                environment(key)
+            }
+        };
+        assert_eq!(
+            read_with(Tool::OpenTofu, "app.terraform.io", explicit).unwrap(),
+            "xdg-config"
+        );
+        fs::create_dir(home.path().join(".terraform.d")).unwrap();
+        assert_eq!(
+            read_with(Tool::OpenTofu, "app.terraform.io", environment).unwrap(),
+            "xdg-config"
+        );
+        fs::write(
+            home.path().join(".terraformrc"),
+            "credentials \"app.terraform.io\" {\n token = \"legacy-config\"\n}",
+        )
+        .unwrap();
+        assert_eq!(
+            read_with(Tool::OpenTofu, "app.terraform.io", environment).unwrap(),
+            "legacy-config"
+        );
+        fs::write(
+            home.path().join(".tofurc"),
+            "credentials \"app.terraform.io\" {\n token = \"home-config\"\n}",
+        )
+        .unwrap();
+        assert_eq!(
+            read_with(Tool::OpenTofu, "app.terraform.io", environment).unwrap(),
+            "home-config"
+        );
     }
 }
