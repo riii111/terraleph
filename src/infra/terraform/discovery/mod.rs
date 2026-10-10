@@ -10,7 +10,7 @@ use crate::app::{
     execution::Tool,
 };
 
-use super::configuration::{self, ExecutionLocation};
+use super::configuration;
 
 mod git;
 
@@ -66,7 +66,9 @@ pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result
             )));
         }
         let availability = match configuration::read_configuration(&canonical, tool, None) {
-            Ok(configuration) => availability(canonical, configuration.execution_location),
+            Ok(_) => EnvironmentAvailability::Available {
+                directory: canonical,
+            },
             Err(error) => EnvironmentAvailability::Error {
                 directory: canonical,
                 message: error.to_string(),
@@ -159,10 +161,7 @@ fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailabi
         if !configuration.has_backend {
             return Ok(None);
         }
-        Ok(Some(availability(
-            directory,
-            configuration.execution_location,
-        )))
+        Ok(Some(EnvironmentAvailability::Available { directory }))
     })();
     match result {
         Ok(availability) => availability,
@@ -170,13 +169,6 @@ fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailabi
             directory: directory.to_owned(),
             message: error.to_string(),
         }),
-    }
-}
-
-const fn availability(directory: PathBuf, location: ExecutionLocation) -> EnvironmentAvailability {
-    match location {
-        ExecutionLocation::HcpCandidate => EnvironmentAvailability::ExcludedHcp { directory },
-        ExecutionLocation::Local => EnvironmentAvailability::Available { directory },
     }
 }
 
@@ -356,7 +348,7 @@ mod tests {
         }
 
         #[test]
-        fn hcp_candidates_are_retained_as_excluded() {
+        fn hcp_candidates_wait_for_the_selected_workspace_execution_check() {
             let fixture = Fixture::new();
             fixture.write("hcp/main.tf", "terraform {\n cloud {}\n}");
 
@@ -364,7 +356,7 @@ mod tests {
 
             assert_eq!(
                 environments[0].availability,
-                EnvironmentAvailability::ExcludedHcp {
+                EnvironmentAvailability::Available {
                     directory: fixture.0.join("hcp")
                 }
             );
@@ -383,7 +375,7 @@ mod tests {
         }
 
         #[test]
-        fn initialized_hcp_metadata_excludes_an_otherwise_local_candidate() {
+        fn initialized_hcp_metadata_remains_available_for_execution_check() {
             let fixture = Fixture::new();
             fixture.write("dev/main.tf", "terraform {\n backend \"s3\" {}\n}");
             fixture.write(
@@ -395,7 +387,7 @@ mod tests {
 
             assert!(matches!(
                 environments[0].availability,
-                EnvironmentAvailability::ExcludedHcp { .. }
+                EnvironmentAvailability::Available { .. }
             ));
         }
 
@@ -591,7 +583,7 @@ mod tests {
             );
             assert!(matches!(
                 environments[1].availability,
-                EnvironmentAvailability::ExcludedHcp { .. }
+                EnvironmentAvailability::Available { .. }
             ));
             assert!(matches!(
                 environments[2].availability,

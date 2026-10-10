@@ -63,6 +63,8 @@ terraleph --env-dir envs/prod --env-dir envs/stg
 
 Run from your configuration directory, or a directory above it to compare environments. From above, Terraleph finds environments at any depth in a Git repository, skipping ignored directories and submodules. Outside Git, or when Git lists no configuration, it searches 4 levels down. Nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
 
+HCP Terraform environments remain in the list. When you plan one, Terraleph initializes it if needed and checks the selected workspace's execution mode. Local workspaces use the TUI; Remote and Agent workspaces show where to run and review the plan in HCP instead. The check uses your Terraform CLI token (`TF_TOKEN_*`, CLI configuration, or `terraform login` credentials); credential helpers are currently unsupported. A failed check stops the local plan and explains how to retry.
+
 To use Terraleph with your usual commands:
 
 ```sh

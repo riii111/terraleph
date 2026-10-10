@@ -747,13 +747,14 @@ mod tests {
                 environment("c"),
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::ExcludedHcp {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("d"),
                     },
                 },
             ],
             false,
         );
+        super::super::test_support::exclude_hcp(&mut session, 3);
         session.request_all_plans();
         assert_eq!(
             compare_all(session.plans()),

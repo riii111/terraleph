@@ -156,6 +156,9 @@ pub(crate) enum TerraformExecutionErrorKind {
         command: TerraformCommand,
         message: String,
     },
+    HcpExecution {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +168,13 @@ pub(crate) struct TerraformExecutionError {
 }
 
 impl TerraformExecutionError {
+    pub(crate) fn hcp_execution_message(&self) -> Option<&str> {
+        match &self.kind {
+            TerraformExecutionErrorKind::HcpExecution { message } => Some(message),
+            _ => None,
+        }
+    }
+
     pub(crate) const fn is_interrupted(&self) -> bool {
         matches!(
             self.kind,
@@ -209,11 +219,19 @@ impl Display for TerraformExecutionError {
             TerraformExecutionErrorKind::Refused { command, message } => {
                 write!(formatter, "{tool} {command} was not run: {message}")
             }
+            TerraformExecutionErrorKind::HcpExecution { message } => formatter.write_str(message),
         }
     }
 }
 
 impl std::error::Error for TerraformExecutionError {}
+
+pub(super) const fn hcp_execution_error(tool: Tool, message: String) -> TerraformExecutionError {
+    TerraformExecutionError::new_for_tool(
+        tool,
+        TerraformExecutionErrorKind::HcpExecution { message },
+    )
+}
 
 pub(super) struct ProcessResult {
     pub(super) status: ProcessStatus,

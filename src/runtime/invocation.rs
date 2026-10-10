@@ -202,7 +202,7 @@ fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) ->
                     invocation.tool(),
                     data_dir
                 ),
-                Ok(ExecutionLocation::Local)
+                Ok(ExecutionLocation::Local | ExecutionLocation::HcpCandidate)
             ) {
                 Entry::Single
             } else {
@@ -244,9 +244,6 @@ fn validate_discovery(discovery: &Discovery) -> io::Result<()> {
         let reasons = environments
             .iter()
             .filter_map(|environment| match &environment.availability {
-                EnvironmentAvailability::ExcludedHcp { directory } => {
-                    Some(format!("{}: Excluded: HCP execution", directory.display()))
-                }
                 EnvironmentAvailability::Error { directory, message } => {
                     Some(format!("{}: Error: {message}", directory.display()))
                 }

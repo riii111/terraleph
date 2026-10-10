@@ -493,6 +493,9 @@ try:
             raise RuntimeError(f"b-stg is no longer unplanned; screen={screen.text()!r}")
         observed.append("unselected_left_unplanned")
         exit_code = quit_with_enter()
+    elif scenario == "hcp_candidates":
+        observe_current_or_wait("Not planned", "hcp_candidates_unplanned")
+        exit_code = quit_with_enter()
     elif scenario.startswith("env_"):
         # Candidates start unplanned, so every multi-environment scenario chooses all of them.
         observe_current_or_wait("Not planned", "unplanned_candidates")
@@ -665,9 +668,9 @@ try:
             if scenario in ("env_init_failure", "env_reinit_failure"):
                 wait_environment("a-ready", "Ready")
                 wait_environment("b-other", "Error")
-            elif scenario == "env_excluded":
+            elif scenario == "env_hcp_unresolved":
                 wait_environment("a-ready", "Ready")
-                observe_current_or_wait("Excluded", "b-other_excluded")
+                wait_environment("b-other", "Error")
             elif scenario == "env_detailed":
                 wait_sidebar_statuses(["Ready", "Ready"])
             else:

@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
     app::{
-        environments::{Environment, EnvironmentAvailability, PlanResult},
+        environments::{
+            Environment, EnvironmentAvailability, PlanResult, test_support::exclude_hcp,
+        },
         execution::{InitializationReason, LockFileChange, PreparationEvent, Tool},
         plan::Plan,
         review::{PlanMetadata, PlanReview, test_support::plan_document},
@@ -26,11 +28,12 @@ fn partial_session() -> EnvironmentSession {
         .collect();
     environments.push(Environment {
         tool: Tool::Terraform,
-        availability: EnvironmentAvailability::ExcludedHcp {
+        availability: EnvironmentAvailability::Available {
             directory: PathBuf::from("/synthetic/e-hcp"),
         },
     });
     let mut state = EnvironmentSession::new(environments, false);
+    exclude_hcp(&mut state, 4);
     state.request_all_plans();
     let first = state.start_next().unwrap();
     let review = PlanReview::new(
@@ -2141,7 +2144,7 @@ mod target_selection {
 
     #[test]
     fn unplanned_discovery_results_point_to_their_own_next_step() {
-        let state = EnvironmentSession::new(
+        let mut state = EnvironmentSession::new(
             vec![
                 Environment {
                     tool: Tool::Terraform,
@@ -2152,13 +2155,14 @@ mod target_selection {
                 },
                 Environment {
                     tool: Tool::Terraform,
-                    availability: EnvironmentAvailability::ExcludedHcp {
+                    availability: EnvironmentAvailability::Available {
                         directory: PathBuf::from("/synthetic/hcp"),
                     },
                 },
             ],
             false,
         );
+        exclude_hcp(&mut state, 1);
         let mut view = EnvironmentView::default();
 
         for (column, expected) in [

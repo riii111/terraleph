@@ -123,12 +123,30 @@ mod pty_tests {
         }
 
         #[test]
+        fn all_hcp_candidates_open_the_list_without_running_terraform() {
+            let fixture = fixture(&["stg", "prod"]);
+            for name in ["stg", "prod"] {
+                fs::write(
+                    fixture.root.join(name).join("main.tf"),
+                    "terraform {\n cloud {}\n}",
+                )
+                .unwrap();
+            }
+
+            let result = fixture.run_with_arguments("hcp_candidates", 120, 40, "", &[]);
+
+            result.assert_restored();
+            result.observed("hcp_candidates_unplanned");
+            assert!(fixture.invocation_arguments().is_empty());
+        }
+
+        #[test]
         fn sequential_plans_preserve_options_and_clean_all_results() {
             for (scenario, expected, plan_count, init_count) in [
                 ("env_success", 0, 2, 2),
                 ("env_detailed", 2, 2, 2),
                 ("env_init_failure", 1, 1, 2),
-                ("env_excluded", 0, 1, 1),
+                ("env_hcp_unresolved", 1, 1, 2),
                 ("env_reinit", 0, 3, 2),
                 ("env_reinit_failure", 1, 3, 2),
             ] {
@@ -138,7 +156,7 @@ mod pty_tests {
                     "env_init_failure" => {
                         fs::write(other.join("fail-init"), "").unwrap();
                     }
-                    "env_excluded" => {
+                    "env_hcp_unresolved" => {
                         fs::write(other.join("main.tf"), "terraform {\n cloud {}\n}").unwrap();
                     }
                     "env_reinit" | "env_reinit_failure" => {
@@ -975,7 +993,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
     }
 
     #[test]
-    fn pty_no_argument_plan_rejects_hcp_without_delegating_to_terraform() {
+    fn pty_no_argument_hcp_plan_initializes_then_refuses_an_unresolved_workspace() {
         let fixture = Fixture::new();
         fs::write(fixture.root.join("main.tf"), "terraform {\n cloud {}\n}\n").unwrap();
 
@@ -984,7 +1002,9 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         assert_eq!(result.exit_code, 1);
         result.assert_no_tui();
         result.observed("unsupported_default");
-        assert!(fixture.invocation_arguments().is_empty());
+        let arguments = fixture.invocation_arguments();
+        assert_eq!(arguments.len(), 1);
+        assert!(arguments[0].starts_with("init "));
     }
 
     #[test]

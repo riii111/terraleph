@@ -66,8 +66,7 @@ fn chdir_configuration_selects_single_before_any_child_discovery() {
 
 #[rstest]
 #[case::broken("terraform {")]
-#[case::hcp("terraform {\n cloud {}\n}")]
-fn indeterminate_or_hcp_parent_delegates_without_discovering_children(#[case] source: &str) {
+fn indeterminate_parent_delegates_without_discovering_children(#[case] source: &str) {
     let fixture = Fixture::new();
     fs::write(fixture.0.join("parent/main.tf"), source).unwrap();
     let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan", "-out=x"], &[]);
@@ -222,8 +221,9 @@ fn named_targets_are_rejected_for_apply() {
 fn a_walk_stopped_at_its_depth_points_to_env_dir_when_nothing_can_run() {
     let excluded = Environment {
         tool: Tool::Terraform,
-        availability: EnvironmentAvailability::ExcludedHcp {
-            directory: PathBuf::from("/repo/hcp"),
+        availability: EnvironmentAvailability::Error {
+            directory: PathBuf::from("/repo/broken"),
+            message: "invalid configuration".to_owned(),
         },
     };
 
@@ -243,4 +243,20 @@ fn a_walk_stopped_at_its_depth_points_to_env_dir_when_nothing_can_run() {
             "{error}"
         );
     }
+}
+
+#[test]
+fn hcp_parent_enters_review_before_checking_its_execution_mode() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("parent/main.tf"),
+        "terraform {\n cloud {}\n}",
+    )
+    .unwrap();
+    let mut invocation = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan"], &[]);
+
+    assert_eq!(
+        select_entry(&mut invocation, None, &EnvironmentTargets::default()).unwrap(),
+        Entry::Single
+    );
 }

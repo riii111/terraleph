@@ -211,7 +211,6 @@ fn recursive_executable_is_rejected_before_launch(#[case] hard: bool) {
 #[case::environment_unknown_option("TF_CLI_ARGS_plan", "-future", "", &[])]
 #[case::explicit_unknown_option("UNUSED", "", "", &["plan", "-future"])]
 #[case::auto_approve("TF_CLI_ARGS_apply", "-auto-approve", "", &["apply"])]
-#[case::hcp("UNUSED", "", "terraform {\n cloud {}\n}", &[])]
 #[case::broken("UNUSED", "", "terraform {", &[])]
 fn tty_delegation_does_not_initialize_terminal_or_generate_plan(
     #[case] key: &str,
@@ -278,7 +277,6 @@ mod environment_discovery {
 
     #[rstest]
     #[case::no_candidates(None, "No environment candidates")]
-    #[case::hcp(Some("terraform {\n cloud {}\n}"), "Excluded: HCP execution")]
     #[case::broken(Some("terraform {"), "Error:")]
     fn unusable_environments_fail_before_running_the_cli(
         #[case] source: Option<&str>,
