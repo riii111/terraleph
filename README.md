@@ -57,12 +57,11 @@ terraleph apply
 terraleph tofu plan
 terraleph tofu apply
 
-# Choose environments, or search deeper than 4 levels
+# Choose environments yourself
 terraleph --env-dir envs/prod --env-dir envs/stg
-terraleph --max-depth 6
 ```
 
-Run from your configuration directory, or a directory above it to compare environments. From above, nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
+Run from your configuration directory, or a directory above it to compare environments. From above, Terraleph finds environments at any depth in a Git repository, skipping ignored directories and submodules; outside Git it searches 4 levels down. Nothing runs until you choose: press `p` to plan the selected environment or `P` to plan all of them, with init first when needed. In a plan review, press `a` to apply that environment's reviewed plan without re-planning.
 
 To use Terraleph with your usual commands:
 

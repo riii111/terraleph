@@ -217,21 +217,3 @@ fn named_targets_are_rejected_for_apply() {
 
     assert!(error.to_string().contains("--env-dir"), "{error}");
 }
-
-#[test]
-fn search_depth_is_rejected_where_no_search_happens() {
-    let fixture = Fixture::new();
-    fs::write(fixture.0.join("parent/main.tf"), "").unwrap();
-    let mut configured = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan"], &[]);
-    let mut parent = fixture.parse(Tool::Terraform, &["plan"], &[]);
-    let depth = targets(&["--max-depth", "3"]);
-
-    let error = select_entry(&mut configured, None, &depth).unwrap_err();
-
-    assert!(error.to_string().contains("--max-depth"), "{error}");
-    assert_eq!(
-        select_entry(&mut parent, None, &depth).unwrap(),
-        Entry::Multiple
-    );
-    assert!(parent.requires_backend());
-}

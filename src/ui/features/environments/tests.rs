@@ -880,6 +880,19 @@ mod sidebar {
     }
 
     #[test]
+    fn only_a_walk_that_stopped_at_its_depth_notes_the_limit_after_the_list() {
+        let limited = overview_plan_session(&["dev", "prod"]).with_walk_limit(Some(4));
+        let complete = overview_plan_session(&["dev", "prod"]);
+
+        let limited = render_text(&mut EnvironmentView::default(), &limited, (120, 40));
+        let complete = render_text(&mut EnvironmentView::default(), &complete, (120, 40));
+
+        assert!(limited.contains("Searched 4 levels"), "{limited}");
+        assert!(limited.contains("--env-dir."), "{limited}");
+        assert!(!complete.contains("Searched"), "{complete}");
+    }
+
+    #[test]
     fn environment_sidebar_filters_comparison_without_changing_the_selected_plan() {
         let state = partial_session();
         let mut view = EnvironmentView::default();

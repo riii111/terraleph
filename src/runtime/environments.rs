@@ -56,10 +56,15 @@ enum WorkerMessage {
     clippy::too_many_lines,
     reason = "the environment loop owns plan acquisition, review input, and the apply hand-off"
 )]
-pub(super) fn run(invocation: &Invocation, environments: Vec<Environment>) -> io::Result<ExitCode> {
+pub(super) fn run(
+    invocation: &Invocation,
+    environments: Vec<Environment>,
+    walk_limit: Option<usize>,
+) -> io::Result<ExitCode> {
     super::prepare_saved_plan_lifecycle();
     let mut state = EnvironmentSession::new(environments, invocation.detailed_exitcode())
-        .with_exploration_root(invocation.directory().to_owned());
+        .with_exploration_root(invocation.directory().to_owned())
+        .with_walk_limit(walk_limit);
     let cancellation = CancellationToken::default();
     let (sender, receiver) = mpsc::channel();
     let mut plans: Vec<Option<terraform::SavedPlan>> =

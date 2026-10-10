@@ -45,14 +45,14 @@ fn environment_options_are_documented_and_invalid_values_are_usage_errors() {
         .expect("CLI should start");
     let invalid = Command::new(env!("CARGO_BIN_EXE_terraleph"))
         .env("PATH", "")
-        .args(["--max-depth", "0", "plan"])
+        .args(["--env-dir=", "plan"])
         .output()
         .expect("CLI should start");
 
     let help = String::from_utf8_lossy(&help.stdout);
-    assert!(help.contains("--env-dir <DIR>") && help.contains("--max-depth <LEVELS>"));
+    assert!(help.contains("--env-dir <DIR>"));
     assert_eq!(invalid.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("--max-depth"));
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("--env-dir"));
 }
 
 #[cfg(unix)]
