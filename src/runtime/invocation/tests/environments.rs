@@ -219,19 +219,28 @@ fn named_targets_are_rejected_for_apply() {
 }
 
 #[test]
-fn search_depth_is_rejected_where_no_search_happens() {
-    let fixture = Fixture::new();
-    fs::write(fixture.0.join("parent/main.tf"), "").unwrap();
-    let mut configured = fixture.parse(Tool::Terraform, &["-chdir=parent", "plan"], &[]);
-    let mut parent = fixture.parse(Tool::Terraform, &["plan"], &[]);
-    let depth = targets(&["--max-depth", "3"]);
+fn a_walk_stopped_at_its_depth_points_to_env_dir_when_nothing_can_run() {
+    let excluded = Environment {
+        tool: Tool::Terraform,
+        availability: EnvironmentAvailability::ExcludedHcp {
+            directory: PathBuf::from("/repo/hcp"),
+        },
+    };
 
-    let error = select_entry(&mut configured, None, &depth).unwrap_err();
+    for (environments, kind) in [
+        (Vec::new(), "No environment candidates"),
+        (vec![excluded], "No executable environments"),
+    ] {
+        let error = validate_discovery(&Discovery {
+            environments,
+            walk_limit: Some(4),
+        })
+        .unwrap_err()
+        .to_string();
 
-    assert!(error.to_string().contains("--max-depth"), "{error}");
-    assert_eq!(
-        select_entry(&mut parent, None, &depth).unwrap(),
-        Entry::Multiple
-    );
-    assert!(parent.requires_backend());
+        assert!(
+            error.starts_with(kind) && error.contains("4 levels") && error.contains("--env-dir"),
+            "{error}"
+        );
+    }
 }

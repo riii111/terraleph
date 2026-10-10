@@ -12,37 +12,31 @@ use crate::app::{
 
 use super::configuration::{self, ExecutionLocation};
 
-pub(crate) const DEFAULT_MAX_DEPTH: usize = 4;
+mod git;
+
+use git::Listing;
+
+const WALK_DEPTH: usize = 4;
+
+pub(crate) struct Discovery {
+    pub(crate) environments: Vec<Environment>,
+    pub(crate) walk_limit: Option<usize>,
+}
 
 // Discovery reads files only. Running the tool, even for `workspace show`, would touch a candidate
-// the user has not chosen yet. Symlinks are not followed, so they cannot repeat a candidate or loop.
-pub(crate) fn discover(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
-    let mut environments = Vec::new();
-    let mut module_sources = BTreeSet::new();
-    let mut pending = child_directories(root)?
-        .into_iter()
-        .map(|directory| (directory, 1))
-        .collect::<Vec<_>>();
-    while let Some((directory, depth)) = pending.pop() {
-        if let Some(availability) = inspect_directory(&directory, tool) {
-            environments.push(Environment { tool, availability });
+// the user has not chosen yet.
+pub(crate) fn discover(root: &Path, tool: Tool) -> io::Result<Discovery> {
+    let (directories, walk_limit) = match git::list_configuration(root) {
+        Listing::Directories(directories) => (directories, None),
+        listing => {
+            let walk = walk(root, WALK_DEPTH, matches!(listing, Listing::Empty))?;
+            (walk.directories, walk.truncated.then_some(WALK_DEPTH))
         }
-        if let Ok(sources) = configuration::local_module_sources(&directory, tool) {
-            module_sources.extend(
-                sources
-                    .iter()
-                    .filter_map(|source| fs::canonicalize(source).ok()),
-            );
-        }
-        if depth < max_depth
-            && let Ok(children) = child_directories(&directory)
-        {
-            pending.extend(children.into_iter().map(|child| (child, depth + 1)));
-        }
-    }
-    environments.retain(|environment| !module_sources.contains(environment.directory()));
-    environments.sort_by(|left, right| left.directory().cmp(right.directory()));
-    Ok(environments)
+    };
+    Ok(Discovery {
+        environments: inspect_directories(&directories, tool),
+        walk_limit,
+    })
 }
 
 pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result<Vec<Environment>> {
@@ -83,6 +77,58 @@ pub(crate) fn inspect_targets(directories: &[PathBuf], tool: Tool) -> io::Result
     Ok(environments)
 }
 
+fn inspect_directories(directories: &[PathBuf], tool: Tool) -> Vec<Environment> {
+    let mut environments = Vec::new();
+    let mut module_sources = BTreeSet::new();
+    for directory in directories {
+        if let Some(availability) = inspect_directory(directory, tool) {
+            environments.push(Environment { tool, availability });
+        }
+        if let Ok(sources) = configuration::local_module_sources(directory, tool) {
+            module_sources.extend(
+                sources
+                    .iter()
+                    .filter_map(|source| fs::canonicalize(source).ok()),
+            );
+        }
+    }
+    environments.retain(|environment| !module_sources.contains(environment.directory()));
+    environments.sort_by(|left, right| left.directory().cmp(right.directory()));
+    environments
+}
+
+struct Walk {
+    directories: Vec<PathBuf>,
+    truncated: bool,
+}
+
+// Symlinks are not followed, so they cannot repeat a candidate or loop.
+fn walk(root: &Path, max_depth: usize, within_work_tree: bool) -> io::Result<Walk> {
+    let mut directories = Vec::new();
+    let mut truncated = false;
+    let mut pending = child_directories(root)?
+        .into_iter()
+        .map(|directory| (directory, 1))
+        .collect::<Vec<_>>();
+    while let Some((directory, depth)) = pending.pop() {
+        if within_work_tree && is_repository_root(&directory) {
+            continue;
+        }
+        if let Ok(children) = child_directories(&directory) {
+            if depth < max_depth {
+                pending.extend(children.into_iter().map(|child| (child, depth + 1)));
+            } else {
+                truncated |= !children.is_empty();
+            }
+        }
+        directories.push(directory);
+    }
+    Ok(Walk {
+        directories,
+        truncated,
+    })
+}
+
 fn child_directories(directory: &Path) -> io::Result<Vec<PathBuf>> {
     let mut children = Vec::new();
     for entry in fs::read_dir(directory)? {
@@ -96,6 +142,11 @@ fn child_directories(directory: &Path) -> io::Result<Vec<PathBuf>> {
 
 fn is_hidden(name: &OsStr) -> bool {
     name.as_encoded_bytes().first() == Some(&b'.')
+}
+
+// A submodule's `.git` is a file, so `is_dir` would miss it.
+fn is_repository_root(directory: &Path) -> bool {
+    fs::symlink_metadata(directory.join(".git")).is_ok()
 }
 
 fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailability> {
@@ -157,7 +208,18 @@ mod tests {
         }
 
         fn discover(&self, tool: Tool) -> Vec<Environment> {
-            discover(&self.0, tool, DEFAULT_MAX_DEPTH).unwrap()
+            discover(&self.0, tool).unwrap().environments
+        }
+
+        fn git(&self, arguments: &[&str]) {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&self.0)
+                .args(arguments)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?} failed");
         }
 
         fn directories(environments: &[Environment]) -> Vec<&Path> {
@@ -202,28 +264,39 @@ mod tests {
         }
 
         #[test]
-        fn nested_candidates_with_the_same_name_are_found_up_to_the_depth_limit() {
+        fn the_walk_outside_git_stops_at_its_depth_and_reports_the_limit() {
             let fixture = Fixture::new();
             fixture.write("live/aws/prod/main.tf", BACKEND);
             fixture.write("live/gcp/prod/main.tf", BACKEND);
             fixture.write("live/gcp/prod/bootstrap/main.tf", BACKEND);
             fixture.write("a/b/c/d/too-deep/main.tf", BACKEND);
 
-            let environments = fixture.discover(Tool::Terraform);
+            let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
 
             assert_eq!(
-                Fixture::directories(&environments),
+                Fixture::directories(&discovery.environments),
                 [
                     fixture.0.join("live/aws/prod"),
                     fixture.0.join("live/gcp/prod"),
                     fixture.0.join("live/gcp/prod/bootstrap"),
                 ]
             );
+            assert_eq!(discovery.walk_limit, Some(WALK_DEPTH));
+        }
+
+        #[test]
+        fn a_walk_that_reaches_every_directory_reports_no_limit() {
+            let fixture = Fixture::new();
+            fixture.write("a/b/c/dev/main.tf", BACKEND);
+            fixture.write("a/b/c/dev/.terraform/modules/x/main.tf", BACKEND);
+
+            let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
+
             assert_eq!(
-                Fixture::directories(&discover(&fixture.0, Tool::Terraform, 5).unwrap()).len(),
-                4
+                Fixture::directories(&discovery.environments),
+                [fixture.0.join("a/b/c/dev")]
             );
-            assert!(discover(&fixture.0, Tool::Terraform, 2).unwrap().is_empty());
+            assert_eq!(discovery.walk_limit, None);
         }
 
         #[test]
@@ -358,6 +431,135 @@ mod tests {
                 Fixture::directories(&environments),
                 [fixture.0.join("live/dev")]
             );
+        }
+    }
+
+    mod git_work_tree {
+        use super::*;
+
+        fn repository() -> Fixture {
+            let fixture = Fixture::new();
+            fixture.git(&["init", "--quiet"]);
+            fixture
+        }
+
+        #[test]
+        fn tracked_and_untracked_candidates_are_found_at_any_depth_without_a_limit() {
+            let fixture = repository();
+            fixture.write("infra/terraform/gcp/envs/prod/asia/main.tf", BACKEND);
+            fixture.write(
+                "infra/terraform/gcp/envs/stg/main.tf.json",
+                r#"{"terraform":[{"backend":{"gcs":{}}}]}"#,
+            );
+            fixture.git(&["add", "infra/terraform/gcp/envs/prod"]);
+
+            let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
+
+            assert_eq!(
+                Fixture::directories(&discovery.environments),
+                [
+                    fixture.0.join("infra/terraform/gcp/envs/prod/asia"),
+                    fixture.0.join("infra/terraform/gcp/envs/stg"),
+                ]
+            );
+            assert_eq!(discovery.walk_limit, None);
+        }
+
+        #[test]
+        fn ignored_hidden_and_deleted_directories_are_not_candidates() {
+            let fixture = repository();
+            fixture.write(".gitignore", "vendor/\n");
+            fixture.write("envs/dev/main.tf", BACKEND);
+            fixture.write("vendor/stack/main.tf", BACKEND);
+            fixture.write("envs/dev/.cache/main.tf", BACKEND);
+            fixture.write("envs/old/main.tf", BACKEND);
+            fixture.git(&["add", "envs/old"]);
+            fs::remove_dir_all(fixture.0.join("envs/old")).unwrap();
+
+            let environments = fixture.discover(Tool::Terraform);
+
+            assert_eq!(
+                Fixture::directories(&environments),
+                [fixture.0.join("envs/dev")]
+            );
+        }
+
+        #[test]
+        fn a_search_from_a_subdirectory_lists_only_below_it() {
+            let fixture = repository();
+            fixture.write("live/prod/main.tf", BACKEND);
+            fixture.write("other/prod/main.tf", BACKEND);
+
+            let discovery = discover(&fixture.0.join("live"), Tool::Terraform).unwrap();
+
+            assert_eq!(
+                Fixture::directories(&discovery.environments),
+                [fixture.0.join("live/prod")]
+            );
+        }
+
+        #[test]
+        fn configuration_that_git_ignores_entirely_is_still_walked() {
+            let fixture = repository();
+            fixture.write(".gitignore", "*\n");
+            fixture.write("scratch/dev/main.tf", BACKEND);
+
+            let environments = fixture.discover(Tool::Terraform);
+
+            assert_eq!(
+                Fixture::directories(&environments),
+                [fixture.0.join("scratch/dev")]
+            );
+        }
+
+        #[test]
+        fn the_walk_in_a_work_tree_without_configuration_skips_submodules() {
+            let library = repository();
+            library.write("dev/main.tf", BACKEND);
+            library.git(&["add", "."]);
+            library.git(&[
+                "-c",
+                "user.name=Terraleph",
+                "-c",
+                "user.email=terraleph@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "library",
+            ]);
+            let fixture = repository();
+            let source = library.0.to_str().unwrap();
+            fixture.git(&[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "--quiet",
+                "add",
+                source,
+                "sub",
+            ]);
+            fixture.write("scratch/stg/main.tf", BACKEND);
+            fixture.write(".gitignore", "scratch/\n");
+
+            let environments = fixture.discover(Tool::Terraform);
+
+            assert_eq!(
+                Fixture::directories(&environments),
+                [fixture.0.join("scratch/stg")]
+            );
+        }
+
+        #[test]
+        fn configuration_listed_only_in_hidden_directories_does_not_fall_back_to_the_walk() {
+            let fixture = repository();
+            fixture.write(".gitignore", "ignored/\n");
+            fixture.write(".hidden/main.tf", BACKEND);
+            fixture.write("ignored/dev/main.tf", BACKEND);
+
+            let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
+
+            assert!(discovery.environments.is_empty());
+            assert_eq!(discovery.walk_limit, None);
         }
     }
 

@@ -14,7 +14,7 @@ use crate::app::{
 use crate::infra::terraform::{
     self,
     configuration::{self, ExecutionLocation},
-    discovery,
+    discovery::{self, Discovery},
 };
 
 pub use targets::EnvironmentTargets;
@@ -137,13 +137,23 @@ fn execute(
         Entry::Delegate => return terraform::delegate(&executable, arguments),
         Entry::Single => {}
         Entry::Multiple => {
-            let environments = if targets.names_directories() {
-                discovery::inspect_targets(&targets.directories(invocation.directory()), tool)?
+            let discovery = if targets.names_directories() {
+                Discovery {
+                    environments: discovery::inspect_targets(
+                        &targets.directories(invocation.directory()),
+                        tool,
+                    )?,
+                    walk_limit: None,
+                }
             } else {
-                discover_with_notice(invocation.directory(), tool, targets.max_depth())?
+                discover_with_notice(invocation.directory(), tool)?
             };
-            validate_discovery(&environments, targets.max_depth())?;
-            return super::environments::run(&invocation, environments);
+            validate_discovery(&discovery)?;
+            return super::environments::run(
+                &invocation,
+                discovery.environments,
+                discovery.walk_limit,
+            );
         }
     }
     let variable_sources = invocation.variable_sources()?;
@@ -156,7 +166,7 @@ fn execute(
 
 fn unreviewable_targets() -> io::Error {
     io::Error::other(
-        "--env-dir and --max-depth need an interactive plan review; they cannot be used without a terminal or with options that are passed straight to Terraform",
+        "--env-dir needs an interactive plan review; they cannot be used without a terminal or with options that are passed straight to Terraform",
     )
 }
 
@@ -175,14 +185,7 @@ fn select_entry(
         invocation.named_environments = true;
         return Ok(Entry::Multiple);
     }
-    let entry = select_search_entry(invocation, data_dir)?;
-    if targets.has_max_depth() && entry != Entry::Multiple {
-        return Err(io::Error::other(format!(
-            "--max-depth limits the search below a directory without configuration, but {} is not searched; omit --max-depth to use it as one environment",
-            invocation.directory().display()
-        )));
-    }
-    Ok(entry)
+    select_search_entry(invocation, data_dir)
 }
 
 fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) -> io::Result<Entry> {
@@ -211,24 +214,30 @@ fn select_search_entry(invocation: &mut Invocation, data_dir: Option<&OsStr>) ->
     Ok(Entry::Multiple)
 }
 
-fn discover_with_notice(root: &Path, tool: Tool, max_depth: usize) -> io::Result<Vec<Environment>> {
-    let notice = format!(
-        "Searching for environments in {} (up to {max_depth} levels)...",
-        root.display()
-    );
+fn discover_with_notice(root: &Path, tool: Tool) -> io::Result<Discovery> {
+    let notice = format!("Searching for environments in {}...", root.display());
     let mut stderr = io::stderr();
     let _ = write!(stderr, "{notice}");
     let _ = stderr.flush();
-    let environments = discovery::discover(root, tool, max_depth);
+    let discovery = discovery::discover(root, tool);
     let _ = write!(stderr, "\r{}\r", " ".repeat(notice.chars().count()));
     let _ = stderr.flush();
-    environments
+    discovery
 }
 
-fn validate_discovery(environments: &[Environment], max_depth: usize) -> io::Result<()> {
+fn validate_discovery(discovery: &Discovery) -> io::Result<()> {
+    let environments = &discovery.environments;
     if environments.is_empty() {
+        let searched = discovery.walk_limit.map_or_else(
+            || "no subdirectory has a backend or cloud block".to_owned(),
+            |depth| {
+                format!(
+                    "no subdirectory within {depth} levels has a backend or cloud block, and deeper ones were not searched"
+                )
+            },
+        );
         return Err(io::Error::other(format!(
-            "No environment candidates: no subdirectory within {max_depth} levels has a backend or cloud block.\nName environments with --env-dir, or search deeper with --max-depth."
+            "No environment candidates: {searched}.\nName environments with --env-dir."
         )));
     }
     if !environments.iter().any(Environment::is_available) {
@@ -245,8 +254,11 @@ fn validate_discovery(environments: &[Environment], max_depth: usize) -> io::Res
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let limit = discovery.walk_limit.map_or_else(String::new, |depth| {
+            format!("\nSearched {depth} levels down; name deeper environments with --env-dir.")
+        });
         return Err(io::Error::other(format!(
-            "No executable environments: all candidates are excluded or have errors.\n{reasons}"
+            "No executable environments: all candidates are excluded or have errors.\n{reasons}{limit}"
         )));
     }
     Ok(())

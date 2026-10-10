@@ -87,6 +87,7 @@ pub(crate) enum PlanResult {
 pub(crate) struct EnvironmentSession {
     plans: Vec<EnvironmentPlan>,
     exploration_root: Option<PathBuf>,
+    walk_limit: Option<usize>,
     detailed_exitcode: bool,
     interrupted: bool,
     revision: u64,
@@ -112,6 +113,7 @@ impl EnvironmentSession {
             revision: 0,
             plans: environments.into_iter().map(EnvironmentPlan::new).collect(),
             exploration_root: None,
+            walk_limit: None,
             detailed_exitcode,
             interrupted: false,
         };
@@ -126,6 +128,11 @@ impl EnvironmentSession {
         }
         self.exploration_root = Some(root);
         self.sort_plans();
+        self
+    }
+
+    pub(crate) const fn with_walk_limit(mut self, walk_limit: Option<usize>) -> Self {
+        self.walk_limit = walk_limit;
         self
     }
 
@@ -149,6 +156,10 @@ impl EnvironmentSession {
 
     pub(crate) fn exploration_root(&self) -> Option<&Path> {
         self.exploration_root.as_deref()
+    }
+
+    pub(crate) const fn walk_limit(&self) -> Option<usize> {
+        self.walk_limit
     }
 
     pub(crate) const fn revision(&self) -> u64 {

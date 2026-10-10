@@ -157,6 +157,7 @@ impl EnvironmentView {
             index,
             &self.compared_environments(state.plans()),
             false,
+            state.walk_limit(),
         );
     }
 
@@ -196,6 +197,7 @@ impl EnvironmentView {
                 self.selection.column,
                 &self.compared_environments(state.plans()),
                 self.active_pane(layout.header.width) == EnvironmentPane::Environments,
+                state.walk_limit(),
             );
         }
         if layout.summary.height > 0 {

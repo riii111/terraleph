@@ -12,7 +12,6 @@ Examples:
   terraleph                           Open the change overview
   terraleph plan -var-file=prod.tfvars
   terraleph --env-dir envs/prod --env-dir envs/stg
-  terraleph --max-depth 6
   terraleph apply
   terraleph tofu plan
   alias terraform='terraleph terraform'";
@@ -26,12 +25,6 @@ struct Cli {
         help = "Use this directory as an environment (repeatable)"
     )]
     env_dirs: Vec<PathBuf>,
-    #[arg(
-        long,
-        value_name = "LEVELS",
-        help = "Directory levels to search for environments [default: 4]"
-    )]
-    max_depth: Option<usize>,
     #[command(subcommand)]
     command: Option<Command>,
 }

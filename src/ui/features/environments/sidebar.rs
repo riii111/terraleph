@@ -30,6 +30,7 @@ pub(crate) fn render(
     selected: usize,
     compared: &[usize],
     focused: bool,
+    walk_limit: Option<usize>,
 ) {
     let focus_style = theme::relation_frame_style(focused);
     let title = Line::from(vec![
@@ -70,6 +71,12 @@ pub(crate) fn render(
         }
         if is_selected {
             selected_range = Some(start..visual_offset);
+        }
+    }
+    if let Some(depth) = walk_limit {
+        for line in walk_limit_lines(depth) {
+            visual_offset += visual_line_count(&line, inner.width);
+            lines.push(line);
         }
     }
     let viewport = usize::from(inner.height);
@@ -242,6 +249,17 @@ fn retry_hint_line() -> Line<'static> {
         Span::styled("r", theme::overview_footer_key_style()),
         Span::styled(" retry", theme::overview_text_style()),
     ])
+}
+
+// Not a border title: a narrow sidebar would cut it off.
+fn walk_limit_lines(depth: usize) -> [Line<'static>; 2] {
+    [
+        Line::default(),
+        Line::styled(
+            format!("Searched {depth} levels down. Name deeper environments with --env-dir."),
+            theme::overview_muted_style(),
+        ),
+    ]
 }
 
 fn count_widths(plans: &[EnvironmentPlan]) -> CountWidths {

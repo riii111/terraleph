@@ -3,18 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::infra::terraform::discovery::DEFAULT_MAX_DEPTH;
-
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct EnvironmentTargets {
     directories: Vec<PathBuf>,
-    max_depth: Option<usize>,
 }
 
 impl EnvironmentTargets {
     /// # Errors
     ///
-    /// Returns a usage message when an option lacks a value or the values conflict.
+    /// Returns a usage message when an option lacks a value.
     pub fn parse_leading(arguments: &[OsString]) -> Result<(Self, usize), String> {
         let mut targets = Self::default();
         let mut index = 0;
@@ -22,7 +19,7 @@ impl EnvironmentTargets {
             let (name, inline) = argument
                 .split_once('=')
                 .map_or((argument, None), |(name, value)| (name, Some(value)));
-            if !matches!(name, "--env-dir" | "--max-depth") {
+            if name != "--env-dir" {
                 break;
             }
             let value = if let Some(value) = inline {
@@ -37,47 +34,18 @@ impl EnvironmentTargets {
             if value.is_empty() {
                 return Err(format!("{name} requires a value"));
             }
-            if name == "--env-dir" {
-                targets.directories.push(PathBuf::from(value));
-            } else {
-                targets.max_depth = Some(
-                    value
-                        .to_str()
-                        .and_then(|value| value.parse().ok())
-                        .filter(|depth| *depth > 0)
-                        .ok_or_else(|| {
-                            format!(
-                                "--max-depth expects a positive number of directory levels, got {}",
-                                value.to_string_lossy()
-                            )
-                        })?,
-                );
-            }
+            targets.directories.push(PathBuf::from(value));
             index += 1;
-        }
-        if !targets.directories.is_empty() && targets.max_depth.is_some() {
-            return Err(
-                "--max-depth limits the search, which --env-dir replaces; use one of them"
-                    .to_owned(),
-            );
         }
         Ok((targets, index))
     }
 
     pub(crate) const fn is_empty(&self) -> bool {
-        self.directories.is_empty() && self.max_depth.is_none()
+        self.directories.is_empty()
     }
 
     pub(crate) const fn names_directories(&self) -> bool {
         !self.directories.is_empty()
-    }
-
-    pub(crate) const fn has_max_depth(&self) -> bool {
-        self.max_depth.is_some()
-    }
-
-    pub(crate) fn max_depth(&self) -> usize {
-        self.max_depth.unwrap_or(DEFAULT_MAX_DEPTH)
     }
 
     pub(crate) fn directories(&self, root: &Path) -> Vec<PathBuf> {
@@ -116,7 +84,6 @@ mod tests {
                 PathBuf::from("/repo/live/stg")
             ]
         );
-        assert!(!targets.has_max_depth());
     }
 
     #[test]
@@ -128,25 +95,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case::separate(&["--max-depth", "6", "tofu"])]
-    #[case::inline(&["--max-depth=6"])]
-    fn max_depth_accepts_both_forms(#[case] arguments: &[&str]) {
-        let (targets, _) = parse(arguments).unwrap();
-
-        assert_eq!(targets.max_depth(), 6);
-    }
-
-    #[test]
-    fn search_depth_defaults_when_not_given() {
-        assert_eq!(EnvironmentTargets::default().max_depth(), DEFAULT_MAX_DEPTH);
-    }
-
-    #[rstest]
     #[case::missing_directory(&["--env-dir"])]
     #[case::empty_directory(&["--env-dir="])]
-    #[case::zero_depth(&["--max-depth=0"])]
-    #[case::non_numeric_depth(&["--max-depth", "deep"])]
-    #[case::conflicting(&["--env-dir", "a", "--max-depth", "2"])]
     fn invalid_options_are_usage_errors(#[case] arguments: &[&str]) {
         assert!(parse(arguments).is_err());
     }
