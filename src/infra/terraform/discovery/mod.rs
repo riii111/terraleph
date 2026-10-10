@@ -20,15 +20,11 @@ const WALK_DEPTH: usize = 4;
 
 pub(crate) struct Discovery {
     pub(crate) environments: Vec<Environment>,
-    // Set only when the walk left deeper directories unsearched.
     pub(crate) walk_limit: Option<usize>,
 }
 
 // Discovery reads files only. Running the tool, even for `workspace show`, would touch a candidate
-// the user has not chosen yet. Inside a Git work tree, Git lists configuration at any depth and
-// leaves out ignored directories; the depth-limited walk covers everything else, including a
-// work tree whose configuration Git ignores entirely. That walk stays in the work tree, so it
-// skips submodules and nested repositories as Git does.
+// the user has not chosen yet.
 pub(crate) fn discover(root: &Path, tool: Tool) -> io::Result<Discovery> {
     let (directories, walk_limit) = match git::list_configuration(root) {
         Listing::Directories(directories) => (directories, None),
@@ -148,7 +144,7 @@ fn is_hidden(name: &OsStr) -> bool {
     name.as_encoded_bytes().first() == Some(&b'.')
 }
 
-// A submodule has a `.git` file and a nested repository a `.git` directory.
+// A submodule's `.git` is a file, so `is_dir` would miss it.
 fn is_repository_root(directory: &Path) -> bool {
     fs::symlink_metadata(directory.join(".git")).is_ok()
 }

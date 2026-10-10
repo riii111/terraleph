@@ -5,15 +5,12 @@ use std::{
 };
 
 pub(super) enum Listing {
-    // Outside a work tree, or Git could not run.
     Unavailable,
-    // A work tree in which Git lists no configuration file, such as one that ignores it all.
     Empty,
-    // May be empty once hidden and deleted directories are left out; that is still Git's answer.
     Directories(Vec<PathBuf>),
 }
 
-// Explicit glob magic keeps `**/` matching any depth whatever pathspec defaults Git runs with.
+// A plain `*.tf` stops matching across `/` when GIT_GLOB_PATHSPECS is set.
 const CONFIGURATION_PATHSPECS: [&str; 4] = [
     ":(glob)**/*.tf",
     ":(glob)**/*.tf.json",
@@ -21,8 +18,6 @@ const CONFIGURATION_PATHSPECS: [&str; 4] = [
     ":(glob)**/*.tofu.json",
 ];
 
-// Lists the directories below `root` holding configuration that Git tracks, or would track if
-// added. Submodule contents are not listed.
 pub(super) fn list_configuration(root: &Path) -> Listing {
     let Ok(output) = Command::new("git")
         .arg("-C")
@@ -67,8 +62,7 @@ pub(super) fn list_configuration(root: &Path) -> Listing {
     )
 }
 
-// Hidden directories, such as `.terraform` with downloaded modules, are skipped as in the walk
-// even when Git does not ignore them.
+// Git still lists an unignored `.terraform`, whose downloaded modules are not environments.
 fn has_hidden_component(directory: &Path) -> bool {
     directory
         .components()
@@ -82,7 +76,6 @@ fn relative_path(entry: &[u8]) -> Option<PathBuf> {
     (!entry.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(entry)))
 }
 
-// Git for Windows prints paths as UTF-8.
 #[cfg(not(unix))]
 fn relative_path(entry: &[u8]) -> Option<PathBuf> {
     (!entry.is_empty())

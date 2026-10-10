@@ -251,8 +251,7 @@ fn retry_hint_line() -> Line<'static> {
     ])
 }
 
-// The list may be incomplete, so the note stays after the last environment instead of in a
-// border title that a narrow sidebar would cut off.
+// Not a border title: a narrow sidebar would cut it off.
 fn walk_limit_lines(depth: usize) -> [Line<'static>; 2] {
     [
         Line::default(),
