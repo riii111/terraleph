@@ -14,6 +14,8 @@ use super::configuration::{self, ExecutionLocation};
 
 mod git;
 
+use git::Listing;
+
 const WALK_DEPTH: usize = 4;
 
 pub(crate) struct Discovery {
@@ -25,12 +27,13 @@ pub(crate) struct Discovery {
 // Discovery reads files only. Running the tool, even for `workspace show`, would touch a candidate
 // the user has not chosen yet. Inside a Git work tree, Git lists configuration at any depth and
 // leaves out ignored directories; the depth-limited walk covers everything else, including a
-// work tree whose configuration Git ignores entirely.
+// work tree whose configuration Git ignores entirely. That walk stays in the work tree, so it
+// skips submodules and nested repositories as Git does.
 pub(crate) fn discover(root: &Path, tool: Tool) -> io::Result<Discovery> {
-    let (directories, walk_limit) = match git::configuration_directories(root) {
-        Some(directories) if !directories.is_empty() => (directories, None),
-        _ => {
-            let walk = walk(root, WALK_DEPTH)?;
+    let (directories, walk_limit) = match git::list_configuration(root) {
+        Listing::Directories(directories) => (directories, None),
+        listing => {
+            let walk = walk(root, WALK_DEPTH, matches!(listing, Listing::Empty))?;
             (walk.directories, walk.truncated.then_some(WALK_DEPTH))
         }
     };
@@ -104,7 +107,7 @@ struct Walk {
 }
 
 // Symlinks are not followed, so they cannot repeat a candidate or loop.
-fn walk(root: &Path, max_depth: usize) -> io::Result<Walk> {
+fn walk(root: &Path, max_depth: usize, within_work_tree: bool) -> io::Result<Walk> {
     let mut directories = Vec::new();
     let mut truncated = false;
     let mut pending = child_directories(root)?
@@ -112,6 +115,9 @@ fn walk(root: &Path, max_depth: usize) -> io::Result<Walk> {
         .map(|directory| (directory, 1))
         .collect::<Vec<_>>();
     while let Some((directory, depth)) = pending.pop() {
+        if within_work_tree && is_repository_root(&directory) {
+            continue;
+        }
         if let Ok(children) = child_directories(&directory) {
             if depth < max_depth {
                 pending.extend(children.into_iter().map(|child| (child, depth + 1)));
@@ -140,6 +146,11 @@ fn child_directories(directory: &Path) -> io::Result<Vec<PathBuf>> {
 
 fn is_hidden(name: &OsStr) -> bool {
     name.as_encoded_bytes().first() == Some(&b'.')
+}
+
+// A submodule has a `.git` file and a nested repository a `.git` directory.
+fn is_repository_root(directory: &Path) -> bool {
+    fs::symlink_metadata(directory.join(".git")).is_ok()
 }
 
 fn inspect_directory(directory: &Path, tool: Tool) -> Option<EnvironmentAvailability> {
@@ -503,6 +514,56 @@ mod tests {
                 Fixture::directories(&environments),
                 [fixture.0.join("scratch/dev")]
             );
+        }
+
+        #[test]
+        fn the_walk_in_a_work_tree_without_configuration_skips_submodules() {
+            let library = repository();
+            library.write("dev/main.tf", BACKEND);
+            library.git(&["add", "."]);
+            library.git(&[
+                "-c",
+                "user.name=Terraleph",
+                "-c",
+                "user.email=terraleph@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "library",
+            ]);
+            let fixture = repository();
+            let source = library.0.to_str().unwrap();
+            fixture.git(&[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "--quiet",
+                "add",
+                source,
+                "sub",
+            ]);
+            fixture.write("scratch/stg/main.tf", BACKEND);
+            fixture.write(".gitignore", "scratch/\n");
+
+            let environments = fixture.discover(Tool::Terraform);
+
+            assert_eq!(
+                Fixture::directories(&environments),
+                [fixture.0.join("scratch/stg")]
+            );
+        }
+
+        #[test]
+        fn configuration_listed_only_in_hidden_directories_does_not_fall_back_to_the_walk() {
+            let fixture = repository();
+            fixture.write(".gitignore", "ignored/\n");
+            fixture.write(".hidden/main.tf", BACKEND);
+            fixture.write("ignored/dev/main.tf", BACKEND);
+
+            let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
+
+            assert!(discovery.environments.is_empty());
+            assert_eq!(discovery.walk_limit, None);
         }
     }
 

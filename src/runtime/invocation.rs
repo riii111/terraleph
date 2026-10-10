@@ -254,8 +254,11 @@ fn validate_discovery(discovery: &Discovery) -> io::Result<()> {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let limit = discovery.walk_limit.map_or_else(String::new, |depth| {
+            format!("\nSearched {depth} levels down; name deeper environments with --env-dir.")
+        });
         return Err(io::Error::other(format!(
-            "No executable environments: all candidates are excluded or have errors.\n{reasons}"
+            "No executable environments: all candidates are excluded or have errors.\n{reasons}{limit}"
         )));
     }
     Ok(())
