@@ -608,7 +608,7 @@ mod tests {
             panic!("raw review should be visible");
         };
         assert!(review.is_from_overview());
-        assert!(review.review().search_query().is_empty());
+        assert_eq!(review.review().search_query(), "");
 
         assert!(update(&mut state, Action::OpenOverview, now).is_none());
         assert_eq!(

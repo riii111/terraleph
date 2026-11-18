@@ -1275,9 +1275,9 @@ mod tests {
         let result = collect_diff(&repository.path);
 
         assert_eq!(result.status(), &GitDiffStatus::Complete);
-        assert!(result.before().is_empty());
-        assert!(result.after().is_empty());
-        assert!(result.changed_lines().is_empty());
+        assert_eq!(result.before().len(), 0);
+        assert_eq!(result.after().len(), 0);
+        assert_eq!(result.changed_lines().len(), 0);
     }
 
     #[test]

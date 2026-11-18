@@ -878,13 +878,9 @@ mod raw_plan {
         press(&mut view, &mut state, KeyCode::Esc);
 
         assert_eq!(view.selection.raw, Some(0));
-        assert!(
-            state.plans()[0]
-                .review()
-                .unwrap()
-                .review()
-                .search_query()
-                .is_empty()
+        assert_eq!(
+            state.plans()[0].review().unwrap().review().search_query(),
+            ""
         );
         press(&mut view, &mut state, KeyCode::Esc);
         assert!(view.selection.raw.is_none());
@@ -2551,7 +2547,7 @@ mod search {
         assert_eq!(view.active_pane(size.width), pane);
 
         press_at(&mut view, &mut state, KeyCode::Esc, size);
-        assert!(view.matrix.filter().is_empty());
+        assert_eq!(view.matrix.filter(), "");
     }
 }
 

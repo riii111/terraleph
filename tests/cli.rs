@@ -13,7 +13,7 @@ fn help_and_version_work_without_a_terminal_or_terraform(#[case] arg: &str) {
         .expect("CLI should start");
 
     assert!(output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr.len(), 0);
     assert!(
         !output.stdout.contains(&0x1b),
         "CLI must not initialize a TUI"
@@ -32,7 +32,7 @@ fn no_arguments_without_a_terminal_prints_help_without_terraform() {
         .expect("CLI should start");
 
     assert!(output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr.len(), 0);
     assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: terraleph"));
 }
 
@@ -113,7 +113,7 @@ mod pty_tests {
                 paths.lines().all(|path| !Path::new(path).exists()),
                 "{paths}"
             );
-            assert!(calls(fixture, "apply").is_empty());
+            assert_eq!(calls(fixture, "apply").len(), 0);
             assert_eq!(
                 fs::read_dir(fixture.directory.join("owned-plans"))
                     .unwrap()
@@ -137,7 +137,7 @@ mod pty_tests {
 
             result.assert_restored();
             result.observed("hcp_candidates_unplanned");
-            assert!(fixture.invocation_arguments().is_empty());
+            assert_eq!(fixture.invocation_arguments().len(), 0);
         }
 
         #[test]
@@ -989,7 +989,7 @@ Plan: 0 to add, 3 to change, 0 to destroy.
         assert_eq!(result.exit_code, 0);
         result.assert_no_tui();
         result.observed("default_help");
-        assert!(fixture.invocation_arguments().is_empty());
+        assert_eq!(fixture.invocation_arguments().len(), 0);
     }
 
     #[test]

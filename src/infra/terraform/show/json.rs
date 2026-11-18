@@ -823,7 +823,7 @@ mod tests {
 
         let plan = parse_plan_json(&input.to_string()).expect("extended plan should parse");
 
-        assert!(plan.resource_changes.is_empty());
+        assert_eq!(plan.resource_changes.len(), 0);
         assert_eq!(plan.unsupported_change_count, 3);
     }
 
@@ -838,7 +838,7 @@ mod tests {
 
         let plan = parse_plan_json(&input.to_string()).expect("output-only plan should parse");
 
-        assert!(plan.resource_changes.is_empty());
+        assert_eq!(plan.resource_changes.len(), 0);
         assert_eq!(plan.unsupported_change_count, 0);
         assert_eq!(plan.output_changes.len(), 1);
         assert_eq!(plan.output_changes[0].actions, vec![PlanAction::Update]);
@@ -904,9 +904,9 @@ mod tests {
     fn accepts_empty_plan_and_plan_with_only_noop_resources() {
         let empty =
             parse_plan_json(&plan_with_resources(json!([]))).expect("empty plan should parse");
-        assert!(empty.resource_changes.is_empty());
+        assert_eq!(empty.resource_changes.len(), 0);
         assert_eq!(empty.unsupported_change_count, 0);
-        assert!(empty.output_changes.is_empty());
+        assert_eq!(empty.output_changes.len(), 0);
 
         let noops = parse_plan_json(&plan_with_resources(json!([resource(
             "aws_instance.noop",
@@ -969,9 +969,9 @@ mod tests {
         );
         let empty = parse_plan_json(r#"{"format_version":"1.0"}"#)
             .expect("resource_changes may be omitted for an empty plan");
-        assert!(empty.resource_changes.is_empty());
+        assert_eq!(empty.resource_changes.len(), 0);
         assert_eq!(empty.unsupported_change_count, 0);
-        assert!(empty.output_changes.is_empty());
+        assert_eq!(empty.output_changes.len(), 0);
         assert_eq!(
             parse_plan_json(r#"{"resource_changes":[]}"#),
             Err(PlanParseError::MissingField("format_version"))
@@ -1005,7 +1005,7 @@ mod tests {
                     "module.outer.module.inner.test_resource.item".to_owned(),
                 ])
             );
-            assert!(plan.resource_changes.is_empty());
+            assert_eq!(plan.resource_changes.len(), 0);
             assert!(!format!("{plan:?}").contains("synthetic-secret"));
         }
 

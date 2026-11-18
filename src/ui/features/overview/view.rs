@@ -800,7 +800,7 @@ mod tests {
         assert_eq!(view.filter(), "web");
 
         view.apply(escape, changes, relations, 0, &content);
-        assert!(view.filter().is_empty());
+        assert_eq!(view.filter(), "");
     }
 
     #[test]

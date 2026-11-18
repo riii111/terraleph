@@ -355,10 +355,11 @@ mod tests {
 "#;
 
         let split = first.len() / 2;
-        assert!(
+        assert_eq!(
             parser
                 .push(EventStream::Stdout, &first[..split], Instant::now())
-                .is_empty()
+                .len(),
+            0
         );
         let first_events = parser.push(EventStream::Stdout, &first[split..], Instant::now());
         assert_eq!(first_events.len(), 1);
@@ -414,19 +415,21 @@ mod tests {
         let stdout_complete_at = first_at + Duration::from_millis(20);
         let stderr_finished_at = first_at + Duration::from_millis(30);
 
-        assert!(
+        assert_eq!(
             parser
                 .push(EventStream::Stdout, &stdout[..20], first_at)
-                .is_empty()
+                .len(),
+            0
         );
-        assert!(
+        assert_eq!(
             parser
                 .push(
                     EventStream::Stderr,
                     stderr,
                     first_at + Duration::from_millis(10)
                 )
-                .is_empty()
+                .len(),
+            0
         );
         let stdout_events = parser.push(EventStream::Stdout, &stdout[20..], stdout_complete_at);
         let stderr_events = parser.finish(EventStream::Stderr, stderr_finished_at);

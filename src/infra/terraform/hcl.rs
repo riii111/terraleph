@@ -728,12 +728,13 @@ resource "terraform_data" "directive" {
                 .expect("broken file")
                 .has_issue(SourceIssueKind::SyntaxError)
         );
-        assert!(
+        assert_eq!(
             result
                 .file(Path::new("broken.tf"), SourceSide::After)
                 .expect("broken file")
                 .resources()
-                .is_empty()
+                .len(),
+            0
         );
     }
 
@@ -778,7 +779,7 @@ resource "terraform_data" "directive" {
 
         assert!(!result.is_complete());
         assert!(result.files[0].has_issue(SourceIssueKind::UnsupportedInput));
-        assert!(result.files[0].resources().is_empty());
+        assert_eq!(result.files[0].resources().len(), 0);
     }
 
     #[test]
@@ -823,6 +824,6 @@ resource "terraform_data" "directive" {
 
         assert!(!result.is_complete());
         assert!(result.files[0].has_issue(SourceIssueKind::SyntaxError));
-        assert!(result.files[0].resources().is_empty());
+        assert_eq!(result.files[0].resources().len(), 0);
     }
 }

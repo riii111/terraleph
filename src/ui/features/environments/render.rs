@@ -384,8 +384,7 @@ impl EnvironmentView {
         let detail = state
             .plans()
             .get(self.selection.column)
-            .map(overview_detail)
-            .unwrap_or_default();
+            .map_or_default(overview_detail);
         let (context_height, detail_height) = section_heights(area, &context, &detail);
         let y = area.y.saturating_add(context_height + detail_height);
         let matrix = Rect::new(area.x, y, area.width, area.bottom().saturating_sub(y));

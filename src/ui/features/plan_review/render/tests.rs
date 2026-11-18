@@ -3628,7 +3628,7 @@ mod large_plan {
         let styled = window(3, 1);
         assert_eq!(styled.to_string(), "e\u{301}");
         assert!(styled.spans.iter().all(|span| span.style == style));
-        assert!(window(5, 3).spans.is_empty());
+        assert_eq!(window(5, 3).spans.len(), 0);
     }
 }
 
@@ -4392,7 +4392,7 @@ mod control_characters {
         // The shown spelling of a carriage return is not in the plan text.
         let state = script_review("^M");
         let spelled = layout(AREA, &PlanReviewViewState::default(), &state);
-        assert!(spelled.matches().is_empty());
+        assert_eq!(spelled.matches().len(), 0);
         assert!(
             buffer_text(&draw(&state, &PlanReviewViewState::default(), AREA))
                 .contains("No matching changes.")
