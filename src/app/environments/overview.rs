@@ -890,7 +890,7 @@ mod tests {
         let mut session = pending_session(3);
         let waiting = environment_overview(session.plans());
         assert_eq!(waiting.scope, ComparisonScope::Waiting);
-        assert!(waiting.rows.is_empty());
+        assert_eq!(waiting.rows.len(), 0);
         complete_next(&mut session, review(changes(2, "new")));
         let partial = environment_overview(session.plans());
         let group = only_group(&partial);

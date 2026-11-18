@@ -457,10 +457,11 @@ mod tests {
         let mut unknown_mode = resource(None, "unknown_mode", vec![instance(None, json!([]))]);
         unknown_mode["mode"] = json!("future");
         assert!(parse(json!({"resources": [unknown_mode]})).is_none());
-        assert!(
+        assert_eq!(
             parse(json!({"resources": []}))
                 .expect("empty state is valid")
-                .is_empty()
+                .len(),
+            0
         );
     }
 
@@ -507,7 +508,7 @@ mod tests {
             panic!("state should be read");
         };
 
-        assert!(relations.is_empty());
+        assert_eq!(relations.len(), 0);
         let calls = runner.calls.borrow();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, Tool::OpenTofu);

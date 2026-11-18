@@ -760,10 +760,11 @@ mod tests {
             ExecutionTargetStatus::Completed
         );
         assert_eq!(progress.targets()[0].duration, None);
-        assert!(
+        assert_eq!(
             progress
                 .successful_history(&ExecutionContext::loading("/repo").with_workspace("default"))
-                .is_empty()
+                .len(),
+            0
         );
     }
 
@@ -804,10 +805,11 @@ mod tests {
             progress.targets()[0].status(),
             ExecutionTargetStatus::Incomplete
         );
-        assert!(
+        assert_eq!(
             progress
                 .successful_history(&ExecutionContext::loading("/repo").with_workspace("default"))
-                .is_empty()
+                .len(),
+            0
         );
     }
 
@@ -866,12 +868,12 @@ mod tests {
 
         assert_eq!(failed.targets()[0].status(), ExecutionTargetStatus::Failed);
         assert_eq!(failed.targets()[0].duration, Some(Duration::from_secs(1)));
-        assert!(failed.successful_history(&context).is_empty());
+        assert_eq!(failed.successful_history(&context).len(), 0);
         assert_eq!(
             skipped.targets()[0].status(),
             ExecutionTargetStatus::Skipped
         );
-        assert!(skipped.successful_history(&context).is_empty());
+        assert_eq!(skipped.successful_history(&context).len(), 0);
     }
 
     #[test]

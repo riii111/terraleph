@@ -565,7 +565,7 @@ mod tests {
 
         let comparisons = compare_configurations(&diff, &working_tree);
 
-        assert!(comparisons.working_tree().issues().is_empty());
+        assert_eq!(comparisons.working_tree().issues().len(), 0);
         assert_eq!(
             comparisons
                 .head_vs_merge_base()

@@ -1801,7 +1801,7 @@ mod tests {
             update_session(&mut state, cancel, &mut views.execution, now);
 
             let review = state.review().expect("cancel should restore review");
-            assert!(review.review().search_query().is_empty());
+            assert_eq!(review.review().search_query(), "");
             assert_eq!(views.review.scroll(), position);
         }
 

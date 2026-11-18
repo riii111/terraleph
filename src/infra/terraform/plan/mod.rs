@@ -899,7 +899,7 @@ mod tests {
         let result = run_fake(&runner, saved_plan, &cancellation)
             .expect("Terraform plan should be returned");
 
-        assert!(result.resource_changes.is_empty());
+        assert_eq!(result.resource_changes.len(), 0);
         let invocations = runner.invocations.borrow();
         assert_eq!(invocations.len(), 2);
         assert_eq!(invocations[0].root, Path::new("/root with spaces"));
@@ -955,7 +955,7 @@ mod tests {
         );
         let result = finish_plan(saved_plan, result).expect("plan should be returned");
 
-        assert!(result.resource_changes.is_empty());
+        assert_eq!(result.resource_changes.len(), 0);
         assert!(matches!(
             events.first().map(|event| &event.kind),
             Some(ExecutionEventKind::Resource(ResourceEvent {
@@ -1323,7 +1323,7 @@ mod tests {
             );
 
             assert!(result.is_err());
-            assert!(commands(&runner).is_empty());
+            assert_eq!(commands(&runner).len(), 0);
         }
 
         #[test]
@@ -1360,7 +1360,7 @@ mod tests {
             let commands = commands(&runner);
             assert_eq!(commands[0], ["init", "-input=false", "-no-color"]);
             assert_eq!(commands[1][0], "plan");
-            assert!(run.diagnostics.is_empty());
+            assert_eq!(run.diagnostics.len(), 0);
         }
 
         #[test]

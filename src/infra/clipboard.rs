@@ -137,7 +137,7 @@ mod tests {
         ));
 
         assert_eq!(result, CopyResult::Failed);
-        assert!(clipboard.terminal.is_empty());
+        assert_eq!(clipboard.terminal.len(), 0);
     }
 
     #[test]

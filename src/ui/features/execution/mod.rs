@@ -133,8 +133,7 @@ impl ExecutionViewState {
         target.map_or(self.log_width, |index| {
             self.target_log_width
                 .filter(|(cached, _)| *cached == index)
-                .map(|(_, width)| width)
-                .unwrap_or_default()
+                .map_or_default(|(_, width)| width)
         })
     }
 

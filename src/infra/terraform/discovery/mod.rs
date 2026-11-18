@@ -550,7 +550,7 @@ mod tests {
 
             let discovery = discover(&fixture.0, Tool::Terraform).unwrap();
 
-            assert!(discovery.environments.is_empty());
+            assert_eq!(discovery.environments.len(), 0);
             assert_eq!(discovery.walk_limit, None);
         }
     }
