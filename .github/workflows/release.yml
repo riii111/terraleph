@@ -4,39 +4,63 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing latest stable tag to backfill on crates.io only
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   version-check:
     name: Check tag version
+    outputs:
+      commit: ${{ steps.version.outputs.commit }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      - name: Validate recovery request
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$RELEASE_TAG" == "$latest" ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
       - name: Compare tag with Cargo.toml
-        env:
-          TAG: ${{ github.ref_name }}
+        id: version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          if [ "v${version}" != "${TAG}" ]; then
-            echo "::error::Tag ${TAG} does not match Cargo.toml version ${version}"
+          if [ "v${version}" != "$RELEASE_TAG" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match Cargo.toml version $version"
             exit 1
           fi
+          commit=$(git rev-parse HEAD)
+          if [[ "$GITHUB_EVENT_NAME" == push && "$commit" != "$(git rev-parse "$GITHUB_SHA^{commit}")" ]]; then
+            echo "::error::The tag no longer points to the triggering commit"
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.target }}
     needs: version-check
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -62,6 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.version-check.outputs.commit }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
@@ -104,9 +129,77 @@ jobs:
             terraleph-${{ matrix.target }}.${{ matrix.archive }}.sha256
           if-no-files-found: error
 
+  package-crate:
+    name: Check crates.io package
+    needs: version-check
+    if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version-check.outputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        with:
+          toolchain: '1.100.0'
+      - run: cargo package --locked
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: [version-check, build, package-crate]
+    if: >-
+      ${{ !cancelled() && needs.version-check.result == 'success' &&
+          needs.package-crate.result == 'success' &&
+          (needs.build.result == 'success' ||
+            (github.event_name == 'workflow_dispatch' && needs.build.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_COMMIT: ${{ needs.version-check.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check current distribution
+        id: distribution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            python3 scripts/verify-release.py github-and-tap "$RELEASE_TAG" "$RELEASE_COMMIT"
+          fi
+          status=$(python3 scripts/verify-release.py crate-status "$RELEASE_TAG" "$RELEASE_COMMIT")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.distribution.outputs.status == 'missing'
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        if: steps.distribution.outputs.status == 'missing'
+        with:
+          toolchain: '1.100.0'
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        id: crates-auth
+        if: steps.distribution.outputs.status == 'missing'
+      - name: Publish the tagged crate
+        if: steps.distribution.outputs.status == 'missing'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: cargo publish --locked --no-verify
+
   release:
     name: Publish release
-    needs: build
+    needs: [build, publish-crate]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'push' && needs.build.result == 'success' &&
+          (needs.publish-crate.result == 'success' ||
+            (contains(github.ref_name, '-') && needs.publish-crate.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -216,3 +309,42 @@ jobs:
           fi
           git commit -m "terraleph ${TAG#v}"
           git push
+
+  verify-release:
+    name: Verify release distribution
+    needs: [version-check, publish-crate, release, homebrew]
+    if: ${{ !cancelled() && !contains(inputs.tag || github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require successful distribution jobs
+        env:
+          VERSION_CHECK: ${{ needs.version-check.result }}
+          CRATE_PUBLISH: ${{ needs.publish-crate.result }}
+          GITHUB_RELEASE: ${{ needs.release.result }}
+          HOMEBREW: ${{ needs.homebrew.result }}
+        run: |
+          if [[ "$VERSION_CHECK" != success || "$CRATE_PUBLISH" != success ]]; then
+            echo "::error::Version check or crates.io publication did not succeed"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push && ( "$GITHUB_RELEASE" != success || "$HOMEBREW" != success ) ]]; then
+            echo "::error::GitHub publication or Homebrew update did not succeed"
+            exit 1
+          fi
+      - name: Verify GitHub, Homebrew, and crates.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.version-check.outputs.commit }}
+        run: |
+          for attempt in {1..6}; do
+            if python3 scripts/verify-release.py verify "$RELEASE_TAG" "$RELEASE_COMMIT"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then sleep 10; fi
+          done
+          exit 1
