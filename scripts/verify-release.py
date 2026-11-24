@@ -57,6 +57,13 @@ def check_github_and_tap(tag):
             re.fullmatch(r"sha256:[0-9a-f]{64}", assets[name]["digest"] or ""),
             f"GitHub release has no SHA-256 digest for {name}",
         )
+        digest = assets[name]["digest"].removeprefix("sha256:")
+        sidecar_url = f"https://github.com/{REPO}/releases/download/{tag}/{name}.sha256"
+        sidecar = fetch(sidecar_url).decode("ascii")
+        check(
+            re.fullmatch(rf"{digest}[ \t]+\*?{re.escape(name)}\r?\n?", sidecar),
+            f"GitHub {name}.sha256 does not match the archive digest and filename",
+        )
 
     formula = fetch(TAP).decode()
     version = tag[1:]
